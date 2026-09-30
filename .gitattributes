@@ -1,0 +1,2 @@
+# Preserve bundled asset bytes so SHA-256 checks survive a clone.
+src/assets/** -text
