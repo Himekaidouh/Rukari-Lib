@@ -8,12 +8,12 @@ namespace Rukari.Lib.Tools;
 /// </summary>
 public static class AtlasExportPaths
 {
-    private const string ExportFolder = "AA1.0_UI_20260913_180259";
+    private const string ExportFolder = "atlas-export";
     private const string AtlasFolder = "atlases";
     private const string MetadataFolder = "metadata";
     private const string DecorationFolder = "decorations";
 
-    /// <summary>The export roots this machine has used, in priority order. The first one that has files wins.</summary>
+    /// <summary>Explicitly configured and application-relative legacy export roots, in priority order. The first one that has files wins.</summary>
     public static IReadOnlyList<string> Roots { get; } = BuildRoots();
 
     /// <summary>Candidate files for the Common atlas, kept so callers of the original single-atlas API still work.</summary>
@@ -107,9 +107,8 @@ public static class AtlasExportPaths
             }
         }
 
-        // The two roots this machine used for the decoded export.
-        list.Add(Path.Combine(@"E:\asseet", ExportFolder));
-        list.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), ExportFolder));
+        // Legacy consumers may supply an explicit export or an application-relative fixture.
+        list.Add(Path.Combine(AppContext.BaseDirectory, ExportFolder));
         return list;
     }
 }

@@ -414,11 +414,10 @@ internal static class CaptionTests
             "A font with no name table has no name to report.");
         Check.True(tableError.Length != 0, "…and says so.");
 
-        const string limbus =
-            @"E:\SteamLibrary\steamapps\common\Limbus Company\LimbusCompany_Data\Lang\LLC_zh-CN\Font\Context\ChineseFont.ttf";
-        if (File.Exists(limbus))
+        string? fontFixture = Environment.GetEnvironmentVariable("RUKARI_TEST_FONT_FILE");
+        if (!string.IsNullOrWhiteSpace(fontFixture) && File.Exists(fontFixture))
         {
-            Check.True(TtfNameReader.TryReadFile(limbus, out TtfNames names, out string error), $"A real font reads: {error}");
+            Check.True(TtfNameReader.TryReadFile(fontFixture, out TtfNames names, out string error), $"A real font reads: {error}");
             Check.True(names.Preferred.Length != 0, "A real font reports a family name to hand to the platform.");
             Check.True(names.FamilyEnglish.Length != 0, "…and an English one to fall back to.");
             Check.True(names.PostScriptName.Length != 0, "…and the name a font tool would call it.");

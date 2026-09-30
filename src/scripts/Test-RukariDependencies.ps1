@@ -3,7 +3,7 @@ param(
     [ValidateSet('Debug','Release')][string]$Configuration = 'Release',
     [string]$InstallationRoot,
     [string]$OutputPath,
-    [ValidateSet('All','FirstRelease','StableModules')][string]$Scope = 'All'
+    [ValidateSet('All','FirstRelease','StableModules')][string]$Scope = 'StableModules'
 )
 # Read metadata only. Do not load plugin assemblies or initialize their IL2CPP types.
 $ErrorActionPreference = 'Stop'
@@ -25,8 +25,7 @@ $definitions = @(
     @{ Project='Rukari.Lib.Runtime'; Name='RukariLib'; Guid='rukari.lib.runtime' },
     @{ Project='Rukari.CharacterVoice'; Name='人物配音支持'; Guid='rukari.charactervoice' },
     @{ Project='Rukari.MoreEffects'; Name='更多的画面效果'; Guid='rukari.moreeffects' },
-    @{ Project='Rukari.SpineSupport'; Name='更多Spine动画支持'; Guid='rukari.spinesupport' },
-    @{ Project='Rukari.Captions'; Name='浮动字幕'; Guid='rukari.captions' }
+    @{ Project='Rukari.SpineSupport'; Name='更多Spine动画支持'; Guid='rukari.spinesupport' }
 )
 if ($Scope -eq 'StableModules') { $definitions = @($definitions | Where-Object Project -ne 'Rukari.Captions') }
 if ($Scope -eq 'FirstRelease') {
@@ -68,7 +67,7 @@ foreach ($definition in $definitions) {
         if ($definition.Project -eq 'Rukari.SpineSupport' -and [version]$version -ge [version]'1.4.3') {
             $excludedTypes = @('SpineOverlayToolPage','SpineOverlayTrialBehaviour','SpineOverlayTrialRuntime')
             if (@($assembly.MainModule.Types | Where-Object { $_.Name -in $excludedTypes }).Count -ne 0) {
-                $failures.Add('First-release Spine package must not contain the experimental overlay console or trial code.')
+                $failures.Add('This source distribution must not contain the experimental overlay console or trial code.')
             }
         }
         $requirement = $null

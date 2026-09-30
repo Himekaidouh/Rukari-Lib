@@ -1,0 +1,38 @@
+{
+  "Date": "2026-10-01",
+  "Status": "development preview; stable release pending AA 1.0 verification",
+  "InitiallyTrackedFilesRead": 398,
+  "RecoveredInteropSourceFiles": 24,
+  "MissingOriginalSourceRecords": 0,
+  "UnexpectedTrackedBinaries": 0,
+  "SecretScan": "passed",
+  "Compilation": "passed, 0 warnings, 0 errors",
+  "ManagedTests": "610 passed; 2 symlink fixtures skipped",
+  "OptionalExternalFixtures": "not configured",
+  "Native": "not-run",
+  "GameModified": false,
+  "BaselineDifferences": [
+    {
+      "Path": "src/Rukari.Lib.Tests/AtlasSpriteCatalogTests.cs",
+      "BaselineSHA256": "50380D857E8F413006328AC648058284D2146DAB923CEFB5C1C469F78D20D1FD",
+      "CurrentSHA256": "0EA8A9BBE2332CEF45C38AD6C74932B64D2398648197A10AB4289D67AE2873DE"
+    },
+    {
+      "Path": "src/Rukari.Lib.Tests/CaptionTests.cs",
+      "BaselineSHA256": "0558B2D81CB82506218A4CE3CF06EF17170D42EC257D0A020305A4D919D59B39",
+      "CurrentSHA256": "1FA200DCFE99C2478BACD93255FF4CF2079853112A71C39DD390F49B5812BD0C"
+    },
+    {
+      "Path": "src/Rukari.Lib/Tools/AtlasExportPaths.cs",
+      "BaselineSHA256": "3B5A602BDF7423C0797CB9808C30A9C9B50852FACF04CE199007241B3151BA19",
+      "CurrentSHA256": "1804DD7047DF21D093300D26ECAA3EB95006CDEF5879A86966D0C45FAE8B2CFF"
+    },
+    {
+      "Path": "src/scripts/Test-RukariDependencies.ps1",
+      "BaselineSHA256": "529A78877D536A9C7D59F9928F7505475B5596A521B20A584B35502429744141",
+      "CurrentSHA256": "D6320DA1B8DE84EA2861CBB09894E14637B0F93177CF4323A1D0A89210DED83D"
+    }
+  ],
+  "FinalTrackedFilesRead": 425,
+  "PngTextOrExifChunks": 0
+}

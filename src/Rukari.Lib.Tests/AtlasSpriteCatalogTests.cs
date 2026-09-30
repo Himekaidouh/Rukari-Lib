@@ -73,7 +73,7 @@ internal static class AtlasSpriteCatalogTests
 
     internal static void ExportPathsPairAnAtlasImageWithItsMetadata()
     {
-        const string root = @"E:\asseet\AA1.0_UI_20260913_180259";
+        string root = Path.Combine(AppContext.BaseDirectory, "atlas-export");
         Check.Equal(Path.Combine(root, "metadata", "Common.json"),
             AtlasExportPaths.MetadataFileFor(Path.Combine(root, "atlases", "Common.png")),
             "The metadata file must be derived from the atlas image beside it, so a relocated export keeps working.");
@@ -86,7 +86,7 @@ internal static class AtlasSpriteCatalogTests
 
         if (Environment.GetEnvironmentVariable("RUKARI_ATLAS_EXPORT") is null)
         {
-            Check.True(AtlasExportPaths.Roots.Contains(root), "The export root this machine used must stay a candidate.");
+            Check.True(AtlasExportPaths.Roots.Contains(root), "The application-relative legacy export root must stay a candidate.");
             Check.True(AtlasExportPaths.AtlasCandidates("Studio").Contains(Path.Combine(root, "atlases", "Studio.png")),
                 "A second atlas must be reachable, not just Common.");
             Check.True(AtlasExportPaths.DecorationCandidates("Image_AngleBtn_Deco").Contains(Path.Combine(root, "decorations", "Image_AngleBtn_Deco.png")),
@@ -97,12 +97,15 @@ internal static class AtlasSpriteCatalogTests
     }
 
     /// <summary>
-    /// The parser is only worth trusting against the document it will actually meet. The export is this machine's
+    /// The parser may also be checked against an explicitly configured optional fixture. The export is the developer's
     /// own decoded copy, so the check is skipped where it is absent rather than failing a clean checkout.
     /// </summary>
     internal static void TheDecodedExportOnDiskAgreesWithTheParser()
     {
-        const string root = @"E:\asseet\AA1.0_UI_20260913_180259";
+        string root = Path.Combine(AppContext.BaseDirectory, "atlas-export");
+        string? configured = Environment.GetEnvironmentVariable("RUKARI_TEST_ATLAS_EXPORT");
+        if (string.IsNullOrWhiteSpace(configured)) return;
+        root = configured;
         string common = Path.Combine(root, "metadata", "Common.json");
         string studio = Path.Combine(root, "metadata", "Studio.json");
         if (!File.Exists(common) || !File.Exists(studio)) return;
