@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The policy files are Unity-free on purpose: this suite compiles them directly, so it needs neither
+         the interop assemblies nor a running game. -->
+    <Compile Include="..\Spines\SpineLobbyAnimationPolicy.cs" Link="Spines\SpineLobbyAnimationPolicy.cs" />
+    <Compile Include="..\Spines\SpineLobbyTouchArea.cs" Link="Spines\SpineLobbyTouchArea.cs" />
+    <Compile Include="..\Spines\ProjectAudioPolicy.cs" Link="Spines\ProjectAudioPolicy.cs" />
+    <Compile Include="..\Spines\LobbyTransitionMixPolicy.cs" Link="Spines\LobbyTransitionMixPolicy.cs" />
+    <Compile Include="..\Spines\LobbyEntranceAdvancePolicy.cs" Link="Spines\LobbyEntranceAdvancePolicy.cs" />
+    <Compile Include="..\Spines\SpineAnimationClassifier.cs" Link="Spines\SpineAnimationClassifier.cs" />
+    <!-- The console's writing half is pure text: a directive that silently disappears here is the one
+         failure the author cannot see, so it is covered without the game as well. -->
+    <Compile Include="..\Spines\SpineOverlayLineEditor.cs" Link="Spines\SpineOverlayLineEditor.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Rukari.Lib\Rukari.Lib.csproj" />
+  </ItemGroup>
+</Project>

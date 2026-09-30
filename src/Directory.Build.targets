@@ -1,0 +1,18 @@
+<Project>
+  <Target Name="ValidateAzureArchiveReferences"
+          BeforeTargets="ResolveAssemblyReferences"
+          Condition="'$(RequiresAzureArchiveGame)' == 'true'">
+    <Error Condition="'$(AzureArchiveGameRoot)' == ''"
+           Text="Set AZUREARCHIVE_GAME_ROOT to an AzureArchive installation with BepInEx IL2CPP interop assemblies." />
+    <Error Condition="'$(AzureArchiveGameRoot)' != '' and !Exists('$(AzureArchiveInterop)\Assembly-CSharp.dll')"
+           Text="Assembly-CSharp.dll was not found under $(AzureArchiveInterop). Start the BepInEx-enabled game once to generate interop assemblies." />
+    <Error Condition="'$(AzureArchiveGameRoot)' != '' and !Exists('$(AzureArchiveBepInExCore)\BepInEx.Unity.IL2CPP.dll')"
+           Text="BepInEx.Unity.IL2CPP.dll was not found under $(AzureArchiveBepInExCore)." />
+  </Target>
+  <Target Name="ReportAzureArchiveResolvedReferences" AfterTargets="ResolveReferences"
+          Condition="'$(RequiresAzureArchiveGame)' == 'true' and '$(AzureArchiveReferenceReport)' != ''">
+    <WriteLinesToFile File="$(AzureArchiveReferenceReport)"
+                      Lines="@(ReferencePath->'%(Filename)|%(FullPath)|%(ResolvedFrom)')"
+                      Overwrite="true" />
+  </Target>
+</Project>

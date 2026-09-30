@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <AzureArchiveGameRoot Condition="'$(AzureArchiveGameRoot)' == '' and '$(AZUREARCHIVE_GAME_ROOT)' != ''">$(AZUREARCHIVE_GAME_ROOT)</AzureArchiveGameRoot>
+    <AzureArchiveBepInExCore>$(AzureArchiveGameRoot)\BepInEx\core</AzureArchiveBepInExCore>
+    <AzureArchiveInterop>$(AzureArchiveGameRoot)\BepInEx\interop</AzureArchiveInterop>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,7 @@
+{
+  "name": "ExampleRukariUi",
+  "version_number": "1.0.0",
+  "website_url": "",
+  "description": "开发者示例：通过 Rukari lib 注册列表页和托管内容页，不修改工程内容。",
+  "dependencies": ["RukariLib/0.4.0"]
+}

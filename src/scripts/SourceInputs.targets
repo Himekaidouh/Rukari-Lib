@@ -1,0 +1,8 @@
+<Project>
+  <Target Name="CollectSourceHandoverInputs">
+    <WriteLinesToFile File="$(SourceHandoverPrefix).sources.txt" Lines="@(Compile->'%(FullPath)')" Overwrite="true" Encoding="UTF-8" />
+    <WriteLinesToFile File="$(SourceHandoverPrefix).references.txt" Lines="@(Reference->'%(Identity)|%(HintPath)|%(Private)')" Overwrite="true" Encoding="UTF-8" />
+    <WriteLinesToFile File="$(SourceHandoverPrefix).projects.txt" Lines="@(ProjectReference->'%(FullPath)')" Overwrite="true" Encoding="UTF-8" />
+    <WriteLinesToFile File="$(SourceHandoverPrefix).properties.txt" Lines="$(AssemblyName)|$(Version)|$(TargetFramework)" Overwrite="true" Encoding="UTF-8" />
+  </Target>
+</Project>

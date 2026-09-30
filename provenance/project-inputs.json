@@ -1,0 +1,913 @@
+[
+  {
+    "Project": "Rukari.Lib/Rukari.Lib.csproj",
+    "AssemblyName": "Rukari.Lib",
+    "Version": "0.4.1",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "Rukari.Lib/AssemblyInfo.cs",
+      "Rukari.Lib/Captions/CaptionMotionRules.cs",
+      "Rukari.Lib/Captions/CaptionPlacementPolicy.cs",
+      "Rukari.Lib/Captions/CaptionSheet.cs",
+      "Rukari.Lib/Captions/CaptionStyle.cs",
+      "Rukari.Lib/Captions/CaptionTextEditor.cs",
+      "Rukari.Lib/Captions/CaptionTimeline.cs",
+      "Rukari.Lib/Captions/SubtitleImport.cs",
+      "Rukari.Lib/Captions/TtfNameReader.cs",
+      "Rukari.Lib/Commands/CommandHelp.cs",
+      "Rukari.Lib/Commands/EmbeddedDirectiveCompilationTracker.cs",
+      "Rukari.Lib/Commands/EmbeddedDirectiveContracts.cs",
+      "Rukari.Lib/Commands/EmbeddedDirectiveService.cs",
+      "Rukari.Lib/Editor/EditorContracts.cs",
+      "Rukari.Lib/Editor/EditorDocumentSession.cs",
+      "Rukari.Lib/Editor/EditorSaveContracts.cs",
+      "Rukari.Lib/ModResult.cs",
+      "Rukari.Lib/ModRuntimeHost.cs",
+      "Rukari.Lib/ModServices.cs",
+      "Rukari.Lib/RuntimeContracts.cs",
+      "Rukari.Lib/Settings/ModSettingsService.cs",
+      "Rukari.Lib/Settings/SettingsContracts.cs",
+      "Rukari.Lib/Spines/SpineOverlayContracts.cs",
+      "Rukari.Lib/Tools/AtlasExportPaths.cs",
+      "Rukari.Lib/Tools/AtlasSpriteCatalog.cs",
+      "Rukari.Lib/Tools/BundledUiAssets.cs",
+      "Rukari.Lib/Tools/EditorWorkspaceVisibilityState.cs",
+      "Rukari.Lib/Tools/RailIconStyle.cs",
+      "Rukari.Lib/Tools/ToolContracts.cs",
+      "Rukari.Lib/Tools/ToolDrawerLayout.cs",
+      "Rukari.Lib/Tools/ToolPalette.cs",
+      "Rukari.Lib/Tools/ToolPanelBuilder.cs",
+      "Rukari.Lib/Tools/ToolPanelContracts.cs",
+      "Rukari.Lib/Tools/ToolPanelSession.cs",
+      "Rukari.Lib/Tools/ToolScroll.cs",
+      "Rukari.Lib/Tools/ToolTreeState.cs",
+      "Rukari.Lib/Voices/VoiceContracts.cs"
+    ],
+    "CompileCount": 37,
+    "ProjectReferences": [],
+    "ExternalReferences": []
+  },
+  {
+    "Project": "Rukari.Lib.Runtime/Rukari.Lib.Runtime.csproj",
+    "AssemblyName": "Rukari.Lib.Runtime",
+    "Version": "0.4.1",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "Rukari.Lib.Runtime/Commands/CommandHelpHost.cs",
+      "Rukari.Lib.Runtime/Commands/CommandHelpPatch.cs",
+      "Rukari.Lib.Runtime/Commands/EmbeddedDirectiveHost.cs",
+      "Rukari.Lib.Runtime/Commands/EmbeddedDirectivePatch.cs",
+      "Rukari.Lib.Runtime/Editor/EditorHost.cs",
+      "Rukari.Lib.Runtime/Editor/EditorSaveToolPage.cs",
+      "Rukari.Lib.Runtime/Editor/EditorWorkspaceContext.cs",
+      "Rukari.Lib.Runtime/Editor/NativeEditorDocumentBackend.cs",
+      "Rukari.Lib.Runtime/Plugin.cs",
+      "Rukari.Lib.Runtime/Settings/OfficialSettingsEntry.cs",
+      "Rukari.Lib.Runtime/Settings/SettingsHost.cs",
+      "Rukari.Lib.Runtime/Settings/SettingsWindow.cs",
+      "Rukari.Lib.Runtime/Tools/AtlasEmblemSource.cs",
+      "Rukari.Lib.Runtime/Tools/OfficialButtonSkin.cs",
+      "Rukari.Lib.Runtime/Tools/OfficialPopupFrame.cs",
+      "Rukari.Lib.Runtime/Tools/OfficialUiStyle.cs",
+      "Rukari.Lib.Runtime/Tools/PngDecoder.cs",
+      "Rukari.Lib.Runtime/Tools/RailIconPainter.cs",
+      "Rukari.Lib.Runtime/Tools/ToolboxDrawer.cs",
+      "Rukari.Lib.Runtime/Tools/ToolInputService.cs",
+      "Rukari.Lib.Runtime/Tools/ToolPlateSkin.cs",
+      "Rukari.Lib.Runtime/Tools/ToolsHost.cs",
+      "Rukari.Lib.Runtime/Tools/ToolTheme.cs"
+    ],
+    "CompileCount": 23,
+    "ProjectReferences": [
+      "Rukari.Lib/Rukari.Lib.csproj"
+    ],
+    "ExternalReferences": [
+      {
+        "Name": "BepInEx.Core",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\BepInEx.Core.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "BepInEx.Unity.IL2CPP",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\BepInEx.Unity.IL2CPP.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2Cppmscorlib",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\Il2Cppmscorlib.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2CppInterop.Runtime",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\Il2CppInterop.Runtime.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.CoreModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.CoreModule.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Assembly-CSharp",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\Assembly-CSharp.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "0Harmony",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\0Harmony.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.InputLegacyModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.InputLegacyModule.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.IMGUIModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.IMGUIModule.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.ImageConversionModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.ImageConversionModule.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.TextRenderingModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.TextRenderingModule.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.UI",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.UI.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.UIModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.UIModule.dll",
+        "Private": "false"
+      }
+    ]
+  },
+  {
+    "Project": "Rukari.MoreEffects/Rukari.MoreEffects.csproj",
+    "AssemblyName": "Rukari.MoreEffects",
+    "Version": "1.4.0",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "AzureArchive.VideoTools/Core/PatchGuard.cs",
+      "AzureArchive.VideoTools/Core/RuntimeCapabilityService.cs",
+      "AzureArchive.VideoTools/Interop/ActiveProjectPairSource.cs",
+      "AzureArchive.VideoTools/Interop/AzureArchiveApiHost.cs",
+      "AzureArchive.VideoTools/Interop/CharacterActionService.cs",
+      "AzureArchive.VideoTools/Interop/CharacterTransformCommandDispatcher.cs",
+      "AzureArchive.VideoTools/Interop/CharacterTransformService.cs",
+      "AzureArchive.VideoTools/Interop/ConfiguredSceneResolutionService.cs",
+      "AzureArchive.VideoTools/Interop/ContinuousCompilerService.cs",
+      "AzureArchive.VideoTools/Interop/EditorNotifications.cs",
+      "AzureArchive.VideoTools/Interop/EditorSaveService.cs",
+      "AzureArchive.VideoTools/Interop/EditorSceneService.cs",
+      "AzureArchive.VideoTools/Interop/InteropMemberAccess.cs",
+      "AzureArchive.VideoTools/Interop/InteropObjectGuard.cs",
+      "AzureArchive.VideoTools/Interop/LiveEditorProjectKeySource.cs",
+      "AzureArchive.VideoTools/Interop/LiveProjectGraphService.cs",
+      "AzureArchive.VideoTools/Interop/ManagedSceneIdentityService.cs",
+      "AzureArchive.VideoTools/Interop/PlayerRuntimeContextService.cs",
+      "AzureArchive.VideoTools/Interop/ScenarioFileService.cs",
+      "AzureArchive.VideoTools/Interop/ScenarioPlaybackService.cs",
+      "AzureArchive.VideoTools/Interop/SceneCameraService.cs",
+      "AzureArchive.VideoTools/Interop/ScreenTextRuntimeService.cs",
+      "AzureArchive.VideoTools/Runtime/AutoDialogueDelayPatch.cs",
+      "AzureArchive.VideoTools/Runtime/CharacterTransformProofOptions.cs",
+      "AzureArchive.VideoTools/Runtime/ContinueDialogueRuntime.cs",
+      "AzureArchive.VideoTools/Runtime/DialogueFlowObservationProbe.cs",
+      "AzureArchive.VideoTools/Runtime/EditorDataListEventProbe.cs",
+      "AzureArchive.VideoTools/Runtime/EditorEmbeddedDirectivePatch.cs",
+      "AzureArchive.VideoTools/Runtime/EditorSelectionEventProbe.cs",
+      "AzureArchive.VideoTools/Runtime/EmbeddedEditorDirectiveCache.cs",
+      "AzureArchive.VideoTools/Runtime/EmbeddedEditorPreviewLease.cs",
+      "AzureArchive.VideoTools/Runtime/ManagedUnityLogSelectionProbe.cs",
+      "AzureArchive.VideoTools/Runtime/PlayerAdvanceObservationWindow.cs",
+      "AzureArchive.VideoTools/Runtime/PlayerAdvanceScenarioObservationPatch.cs",
+      "AzureArchive.VideoTools/Runtime/PlayerCommandObservationBehaviour.cs",
+      "AzureArchive.VideoTools/Runtime/PlayerCommandObservationLog.cs",
+      "AzureArchive.VideoTools/Runtime/PlayerCommandObservationRuntime.cs",
+      "AzureArchive.VideoTools/Runtime/PlayerManagedUnityLogObservationProbe.cs",
+      "AzureArchive.VideoTools/Runtime/VisualEditorOptions.cs",
+      "Rukari.MoreEffects/Api/Contracts.cs",
+      "Rukari.MoreEffects/Interop/EditorCommandDocumentService.cs",
+      "Rukari.MoreEffects/Plugin.cs",
+      "Rukari.MoreEffects/Runtime/CharacterPresetBezierContent.cs",
+      "Rukari.MoreEffects/Runtime/CharacterPresetEditorSession.cs",
+      "Rukari.MoreEffects/Runtime/CharacterPresetGroupContent.cs",
+      "Rukari.MoreEffects/Runtime/CharacterPresetRuntime.cs",
+      "Rukari.MoreEffects/Runtime/CharacterPresetToolContent.cs",
+      "Rukari.MoreEffects/Runtime/ExplicitTriggerBehaviour.cs",
+      "Rukari.MoreEffects/Runtime/MoreEffectsCommandHelp.cs",
+      "Rukari.MoreEffects/Runtime/MoreEffectsToolPage.cs",
+      "Rukari.MoreEffects/Runtime/PlayerCommandObservationOptions.cs",
+      "Rukari.MoreEffects/Runtime/VisualEditorBehaviour.cs",
+      "Rukari.MoreEffects/Runtime/VisualEditorHostedContent.cs",
+      "Rukari.MoreEffects/Runtime/VisualEditorInputGuard.cs"
+    ],
+    "CompileCount": 54,
+    "ProjectReferences": [
+      "Rukari.Lib/Rukari.Lib.csproj",
+      "AzureArchive.VideoTools.Core/AzureArchive.VideoTools.Core.csproj",
+      "AzureArchive.VideoTools.Formats/AzureArchive.VideoTools.Formats.csproj",
+      "Rukari.Lib.Runtime/Rukari.Lib.Runtime.csproj"
+    ],
+    "ExternalReferences": [
+      {
+        "Name": "BepInEx.Core",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\BepInEx.Core.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "BepInEx.Unity.IL2CPP",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\BepInEx.Unity.IL2CPP.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2Cppmscorlib",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\Il2Cppmscorlib.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2CppSystem.Core",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\Il2CppSystem.Core.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2CppInterop.Runtime",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\Il2CppInterop.Runtime.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "0Harmony",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\0Harmony.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Assembly-CSharp",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\Assembly-CSharp.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "spine-csharp",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\spine-csharp.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "spine-unity",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\spine-unity.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.AudioModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.AudioModule.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.CoreModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.CoreModule.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.IMGUIModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.IMGUIModule.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.InputLegacyModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.InputLegacyModule.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.TextRenderingModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.TextRenderingModule.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.UI",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.UI.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.UIModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.UIModule.dll",
+        "Private": "false"
+      }
+    ]
+  },
+  {
+    "Project": "Rukari.CharacterVoice/Rukari.CharacterVoice.csproj",
+    "AssemblyName": "Rukari.CharacterVoice",
+    "Version": "1.6.2",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "Rukari.CharacterVoice/Core/ImportedVoiceCatalogPolicy.cs",
+      "Rukari.CharacterVoice/Core/ProjectVoiceImportPolicy.cs",
+      "Rukari.CharacterVoice/Core/VoiceAuthoringSession.cs",
+      "Rukari.CharacterVoice/Core/VoiceCatalogKeyCandidates.cs",
+      "Rukari.CharacterVoice/Core/VoiceDirectivePolicy.cs",
+      "Rukari.CharacterVoice/Core/VoiceOverrideCleanupPolicy.cs",
+      "Rukari.CharacterVoice/Core/VoicePlaybackDelayPolicy.cs",
+      "Rukari.CharacterVoice/Core/VoicePlaybackGate.cs",
+      "Rukari.CharacterVoice/Core/VoicePromptEditor.cs",
+      "Rukari.CharacterVoice/Core/VoicePublicationPolicy.cs",
+      "Rukari.CharacterVoice/Interop/ImportedVoiceCatalogService.cs",
+      "Rukari.CharacterVoice/Interop/ProjectVoiceImportStore.cs",
+      "Rukari.CharacterVoice/Interop/SharedEditorVoiceBackend.cs",
+      "Rukari.CharacterVoice/Plugin.cs",
+      "Rukari.CharacterVoice/Runtime/AuthoringCatalogProbe.cs",
+      "Rukari.CharacterVoice/Runtime/AuthoringCompileCompatibility.cs",
+      "Rukari.CharacterVoice/Runtime/AuthoringSaveProbe.cs",
+      "Rukari.CharacterVoice/Runtime/CompileRevisionGuard.cs",
+      "Rukari.CharacterVoice/Runtime/GameVoiceFileProbe.cs",
+      "Rukari.CharacterVoice/Runtime/PublishProbe.cs",
+      "Rukari.CharacterVoice/Runtime/VoiceFolderController.cs",
+      "Rukari.CharacterVoice/Runtime/VoiceFolderScanner.cs",
+      "Rukari.CharacterVoice/Runtime/VoicePlaceholderProbe.cs",
+      "Rukari.CharacterVoice/Runtime/VoicePlaybackRuntime.cs",
+      "Rukari.CharacterVoice/Runtime/VoicePlaybackSettingsPage.cs",
+      "Rukari.CharacterVoice/Runtime/VoicePublicationRuntime.cs",
+      "Rukari.CharacterVoice/Runtime/VoiceStageCopyGuard.cs",
+      "Rukari.CharacterVoice/Runtime/VoiceSupportPatch.cs",
+      "Rukari.CharacterVoice/Runtime/VoiceToolPage.cs",
+      "Rukari.CharacterVoice/Runtime/WindowsVoiceFolderPicker.cs"
+    ],
+    "CompileCount": 30,
+    "ProjectReferences": [
+      "Rukari.Lib/Rukari.Lib.csproj"
+    ],
+    "ExternalReferences": [
+      {
+        "Name": "BepInEx.Core",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\BepInEx.Core.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "BepInEx.Unity.IL2CPP",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\BepInEx.Unity.IL2CPP.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2CppInterop.Runtime",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\Il2CppInterop.Runtime.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "0Harmony",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\0Harmony.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2Cppmscorlib",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\Il2Cppmscorlib.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2CppSystem.Core",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\Il2CppSystem.Core.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Assembly-CSharp",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\Assembly-CSharp.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Newtonsoft.Json",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\Newtonsoft.Json.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.CoreModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.CoreModule.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.AudioModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.AudioModule.dll",
+        "Private": "false"
+      }
+    ]
+  },
+  {
+    "Project": "Rukari.CharacterVoice/Tests/Rukari.CharacterVoice.Tests.csproj",
+    "AssemblyName": "Rukari.CharacterVoice.Tests",
+    "Version": "1.0.0",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "Rukari.CharacterVoice/Core/ImportedVoiceCatalogPolicy.cs",
+      "Rukari.CharacterVoice/Core/ProjectVoiceImportPolicy.cs",
+      "Rukari.CharacterVoice/Core/VoiceAuthoringSession.cs",
+      "Rukari.CharacterVoice/Core/VoiceCatalogKeyCandidates.cs",
+      "Rukari.CharacterVoice/Core/VoiceDirectivePolicy.cs",
+      "Rukari.CharacterVoice/Core/VoiceOverrideCleanupPolicy.cs",
+      "Rukari.CharacterVoice/Core/VoicePlaybackDelayPolicy.cs",
+      "Rukari.CharacterVoice/Core/VoicePlaybackGate.cs",
+      "Rukari.CharacterVoice/Core/VoicePromptEditor.cs",
+      "Rukari.CharacterVoice/Core/VoicePublicationPolicy.cs",
+      "Rukari.CharacterVoice/Runtime/AuthoringCompileCompatibility.cs",
+      "Rukari.CharacterVoice/Runtime/VoiceFolderController.cs",
+      "Rukari.CharacterVoice/Runtime/VoiceFolderScanner.cs",
+      "Rukari.CharacterVoice/Runtime/VoicePlaybackSettingsPage.cs",
+      "Rukari.CharacterVoice/Runtime/VoiceToolPage.cs",
+      "Rukari.CharacterVoice/Runtime/WindowsVoiceFolderPicker.cs",
+      "Rukari.CharacterVoice/Tests/AuthoringCompileCompatibilityTests.cs",
+      "Rukari.CharacterVoice/Tests/Program.cs",
+      "Rukari.CharacterVoice/Tests/ProjectVoiceImportTests.cs",
+      "Rukari.CharacterVoice/Tests/VoiceCatalogKeyCandidatesTests.cs",
+      "Rukari.CharacterVoice/Tests/VoiceFolderTests.cs",
+      "Rukari.CharacterVoice/Tests/VoiceOverrideCleanupTests.cs",
+      "Rukari.CharacterVoice/Tests/VoicePlaybackDelayTests.cs",
+      "Rukari.CharacterVoice/Tests/VoicePublicationTests.cs",
+      "Rukari.CharacterVoice/Tests/VoiceToolPageTests.cs"
+    ],
+    "CompileCount": 25,
+    "ProjectReferences": [
+      "Rukari.Lib/Rukari.Lib.csproj"
+    ],
+    "ExternalReferences": []
+  },
+  {
+    "Project": "Rukari.SpineSupport/Rukari.SpineSupport.csproj",
+    "AssemblyName": "Rukari.SpineSupport",
+    "Version": "1.6.1",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "Rukari.SpineSupport/Plugin.cs",
+      "Rukari.SpineSupport/Runtime/LobbyAudioEvents.cs",
+      "Rukari.SpineSupport/Runtime/LobbyBundledAudioPatch.cs",
+      "Rukari.SpineSupport/Runtime/LobbyPlaybackWatcher.cs",
+      "Rukari.SpineSupport/Runtime/SpineLobbySupportPatch.cs",
+      "Rukari.SpineSupport/Runtime/SpineLobbyThumbnailFitPatch.cs",
+      "Rukari.SpineSupport/Runtime/SpineOverlayCatalog.cs",
+      "Rukari.SpineSupport/Runtime/SpineOverlayCommandService.cs",
+      "Rukari.SpineSupport/Spines/LobbyEntranceAdvancePolicy.cs",
+      "Rukari.SpineSupport/Spines/LobbyTransitionMixPolicy.cs",
+      "Rukari.SpineSupport/Spines/ProjectAudioPolicy.cs",
+      "Rukari.SpineSupport/Spines/SpineAnimationClassifier.cs",
+      "Rukari.SpineSupport/Spines/SpineLobbyAnimationPolicy.cs",
+      "Rukari.SpineSupport/Spines/SpineLobbyThumbnailFit.cs",
+      "Rukari.SpineSupport/Spines/SpineLobbyTouchArea.cs",
+      "Rukari.SpineSupport/Spines/SpineOverlayLineEditor.cs"
+    ],
+    "CompileCount": 16,
+    "ProjectReferences": [
+      "Rukari.Lib/Rukari.Lib.csproj"
+    ],
+    "ExternalReferences": [
+      {
+        "Name": "BepInEx.Core",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\BepInEx.Core.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "BepInEx.Unity.IL2CPP",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\BepInEx.Unity.IL2CPP.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2Cppmscorlib",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\Il2Cppmscorlib.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2CppSystem.Core",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\Il2CppSystem.Core.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2CppInterop.Runtime",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\Il2CppInterop.Runtime.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "0Harmony",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\0Harmony.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Assembly-CSharp",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\Assembly-CSharp.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "spine-csharp",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\spine-csharp.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "spine-unity",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\spine-unity.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.CoreModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.CoreModule.dll",
+        "Private": "false"
+      }
+    ]
+  },
+  {
+    "Project": "Rukari.SpineSupport/Tests/Rukari.SpineSupport.Tests.csproj",
+    "AssemblyName": "Rukari.SpineSupport.Tests",
+    "Version": "1.0.0",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "Rukari.SpineSupport/Spines/LobbyEntranceAdvancePolicy.cs",
+      "Rukari.SpineSupport/Spines/LobbyTransitionMixPolicy.cs",
+      "Rukari.SpineSupport/Spines/ProjectAudioPolicy.cs",
+      "Rukari.SpineSupport/Spines/SpineAnimationClassifier.cs",
+      "Rukari.SpineSupport/Spines/SpineLobbyAnimationPolicy.cs",
+      "Rukari.SpineSupport/Spines/SpineLobbyTouchArea.cs",
+      "Rukari.SpineSupport/Spines/SpineOverlayLineEditor.cs",
+      "Rukari.SpineSupport/Tests/LobbyEntranceAdvancePolicyTests.cs",
+      "Rukari.SpineSupport/Tests/Program.cs",
+      "Rukari.SpineSupport/Tests/SpineAnimationClassifierTests.cs"
+    ],
+    "CompileCount": 10,
+    "ProjectReferences": [
+      "Rukari.Lib/Rukari.Lib.csproj"
+    ],
+    "ExternalReferences": []
+  },
+  {
+    "Project": "AzureArchive.VideoTools.Core/AzureArchive.VideoTools.Core.csproj",
+    "AssemblyName": "AzureArchive.VideoTools.Core",
+    "Version": "1.0.0",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "AzureArchive.VideoTools.Core/Cameras/SceneCameraCommandValidator.cs",
+      "AzureArchive.VideoTools.Core/Cameras/SceneCameraContracts.cs",
+      "AzureArchive.VideoTools.Core/Cameras/SceneCameraDirectiveParser.cs",
+      "AzureArchive.VideoTools.Core/Cameras/SceneCameraPlanner.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterAngleMath.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterInheritedStartPlanner.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterPresetBezier.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterPresetCommandValidator.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterPresetContracts.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterPresetDirectiveParser.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterPresetEvaluator.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterPresetPoseOverlay.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterScreenRotation.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterTransformBaselineStore.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterTransformCommandValidator.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterTransformContracts.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterTransformDirectiveParser.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterTransformOriginBaselineStore.cs",
+      "AzureArchive.VideoTools.Core/Characters/CharacterTransformPlanner.cs",
+      "AzureArchive.VideoTools.Core/Characters/SlotPendingStore.cs",
+      "AzureArchive.VideoTools.Core/Characters/SlotPendingTargetPlanner.cs",
+      "AzureArchive.VideoTools.Core/Commands/AavtDirectiveOwnershipPolicy.cs",
+      "AzureArchive.VideoTools.Core/Commands/AdvanceWindowAdmissionPolicy.cs",
+      "AzureArchive.VideoTools.Core/Commands/CharacterPresetCommandFamilyCompiler.cs",
+      "AzureArchive.VideoTools.Core/Commands/CharacterTransformCommandFamilyCompiler.cs",
+      "AzureArchive.VideoTools.Core/Commands/CommandIdentity.cs",
+      "AzureArchive.VideoTools.Core/Commands/CommandResourceIdentity.cs",
+      "AzureArchive.VideoTools.Core/Commands/CommandTimelineCompiler.cs",
+      "AzureArchive.VideoTools.Core/Commands/CommandTimelineContracts.cs",
+      "AzureArchive.VideoTools.Core/Commands/CommandTimelineEditor.cs",
+      "AzureArchive.VideoTools.Core/Commands/CommandWorkspaceStoreContracts.cs",
+      "AzureArchive.VideoTools.Core/Commands/EditorCommandDocumentComposer.cs",
+      "AzureArchive.VideoTools.Core/Commands/EditorCommandUndoStore.cs",
+      "AzureArchive.VideoTools.Core/Commands/EditorPreviewLeasePlanner.cs",
+      "AzureArchive.VideoTools.Core/Commands/EmbeddedAavtDirectiveExtractor.cs",
+      "AzureArchive.VideoTools.Core/Commands/EmbeddedDirectiveCompilationTracker.cs",
+      "AzureArchive.VideoTools.Core/Commands/EmbeddedDirectiveDiagnostics.cs",
+      "AzureArchive.VideoTools.Core/Commands/EmbeddedPreviewCommandGuard.cs",
+      "AzureArchive.VideoTools.Core/Commands/EmbeddedProjectCommandCompiler.cs",
+      "AzureArchive.VideoTools.Core/Commands/LiveProjectGraphComposer.cs",
+      "AzureArchive.VideoTools.Core/Commands/ManagedDispatchSchedule.cs",
+      "AzureArchive.VideoTools.Core/Commands/PlaybackCommandBinding.cs",
+      "AzureArchive.VideoTools.Core/Commands/PlaybackCommandProjectionComposer.cs",
+      "AzureArchive.VideoTools.Core/Commands/PlaybackCommandWindowObservation.cs",
+      "AzureArchive.VideoTools.Core/Commands/PlaybackDispatchCanaryGate.cs",
+      "AzureArchive.VideoTools.Core/Commands/PlaybackSceneDispatchGate.cs",
+      "AzureArchive.VideoTools.Core/Commands/PreviewCameraChainResolver.cs",
+      "AzureArchive.VideoTools.Core/Commands/PreviewChainApplyPolicy.cs",
+      "AzureArchive.VideoTools.Core/Commands/PreviewChainDirectiveIndex.cs",
+      "AzureArchive.VideoTools.Core/Commands/PreviewChainResolver.cs",
+      "AzureArchive.VideoTools.Core/Commands/PreviewSpineOverlayChainResolver.cs",
+      "AzureArchive.VideoTools.Core/Commands/SceneCameraCommandFamilyCompiler.cs",
+      "AzureArchive.VideoTools.Core/Commands/SlotPendingCommandFamilyCompiler.cs",
+      "AzureArchive.VideoTools.Core/Commands/SpineOverlayCommandFamilyCompiler.cs",
+      "AzureArchive.VideoTools.Core/Compilation/ContinuationProjectionCompiler.cs",
+      "AzureArchive.VideoTools.Core/Compilation/ContinuationProjectionContracts.cs",
+      "AzureArchive.VideoTools.Core/Compilation/PlaybackProjectionBinding.cs",
+      "AzureArchive.VideoTools.Core/Continuity/ContinuationContracts.cs",
+      "AzureArchive.VideoTools.Core/Continuity/ContinuationEngine.cs",
+      "AzureArchive.VideoTools.Core/Foundation/VideoToolsFoundation.cs",
+      "AzureArchive.VideoTools.Core/Mapping/ActiveProjectPairArbiter.cs",
+      "AzureArchive.VideoTools.Core/Mapping/ArchiveSnapshotCache.cs",
+      "AzureArchive.VideoTools.Core/Mapping/ObservedSceneIdentityResolver.cs",
+      "AzureArchive.VideoTools.Core/Mapping/PlaybackScriptIndex.cs",
+      "AzureArchive.VideoTools.Core/Mapping/ProjectPlaybackMapping.cs",
+      "AzureArchive.VideoTools.Core/Playback/AutoDialogueDelayPolicy.cs",
+      "AzureArchive.VideoTools.Core/Playback/MainThreadStallPolicy.cs",
+      "AzureArchive.VideoTools.Core/Playback/PlaybackArchiveContracts.cs",
+      "AzureArchive.VideoTools.Core/Playback/PlaybackContracts.cs",
+      "AzureArchive.VideoTools.Core/Playback/PlayerRuntimeContext.cs",
+      "AzureArchive.VideoTools.Core/Projects/DataRootStampSet.cs",
+      "AzureArchive.VideoTools.Core/Projects/LiveProjectKeyComposer.cs",
+      "AzureArchive.VideoTools.Core/Projects/ProjectContracts.cs",
+      "AzureArchive.VideoTools.Core/Projects/ProjectPairScanner.cs",
+      "AzureArchive.VideoTools.Core/Projects/ProjectPublicationConsistency.cs",
+      "AzureArchive.VideoTools.Core/Projects/StoryGraphPredecessorResolver.cs",
+      "AzureArchive.VideoTools.Core/Results/Result.cs",
+      "AzureArchive.VideoTools.Core/Spines/SpineLobbyAnimationPolicy.cs",
+      "AzureArchive.VideoTools.Core/Spines/SpineLobbyThumbnailFit.cs",
+      "AzureArchive.VideoTools.Core/Spines/SpineOverlayContracts.cs",
+      "AzureArchive.VideoTools.Core/Spines/SpineOverlayDirectiveParser.cs",
+      "AzureArchive.VideoTools.Core/VisualEditor/ScreenTextDirective.cs",
+      "AzureArchive.VideoTools.Core/VisualEditor/ScreenTextSequenceVisualMath.cs",
+      "AzureArchive.VideoTools.Core/VisualEditor/VisualCameraDraftBuilder.cs",
+      "AzureArchive.VideoTools.Core/VisualEditor/VisualCameraFrameMath.cs",
+      "AzureArchive.VideoTools.Core/VisualEditor/VisualCharacterDraftBuilder.cs",
+      "AzureArchive.VideoTools.Core/VisualEditor/VisualEditorCanvasMath.cs",
+      "AzureArchive.VideoTools.Core/VisualEditor/VisualEditorInputGuardMath.cs",
+      "AzureArchive.VideoTools.Core/Voices/ImportedVoiceCatalogPolicy.cs",
+      "AzureArchive.VideoTools.Core/Voices/VoiceAuthoringSession.cs",
+      "AzureArchive.VideoTools.Core/Voices/VoiceDirectivePolicy.cs",
+      "AzureArchive.VideoTools.Core/Voices/VoicePlaybackGate.cs",
+      "AzureArchive.VideoTools.Core/Workspaces/ModWorkspaceCompatibilityGate.cs",
+      "AzureArchive.VideoTools.Core/Workspaces/ModWorkspaceContracts.cs",
+      "AzureArchive.VideoTools.Core/Workspaces/ModWorkspaceMigrationPipeline.cs"
+    ],
+    "CompileCount": 95,
+    "ProjectReferences": [
+      "Rukari.Lib/Rukari.Lib.csproj"
+    ],
+    "ExternalReferences": []
+  },
+  {
+    "Project": "AzureArchive.VideoTools.Formats/AzureArchive.VideoTools.Formats.csproj",
+    "AssemblyName": "AzureArchive.VideoTools.Formats",
+    "Version": "1.0.0",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "AzureArchive.VideoTools.Formats/Aap/AapProjectReader.cs",
+      "AzureArchive.VideoTools.Formats/Aap/AapProjectReaderOptions.cs",
+      "AzureArchive.VideoTools.Formats/Aap/AapVideoToolsFoundation.cs",
+      "AzureArchive.VideoTools.Formats/Aap/CanonicalJsonFingerprint.cs",
+      "AzureArchive.VideoTools.Formats/Aas/AasScenarioReader.cs",
+      "AzureArchive.VideoTools.Formats/Aas/AasScenarioReaderOptions.cs",
+      "AzureArchive.VideoTools.Formats/Aas/CheckedFlatBuffer.cs",
+      "AzureArchive.VideoTools.Formats/AzureArchiveFileFoundation.cs",
+      "AzureArchive.VideoTools.Formats/Sidecar/JsonContinuationProjectionStore.cs",
+      "AzureArchive.VideoTools.Formats/Sidecar/JsonContinuationProjectionStoreOptions.cs",
+      "AzureArchive.VideoTools.Formats/Sidecar/JsonContinuationStore.cs",
+      "AzureArchive.VideoTools.Formats/Sidecar/JsonContinuationStoreOptions.cs",
+      "AzureArchive.VideoTools.Formats/Workspace/CommandWorkspaceAuthoringService.cs",
+      "AzureArchive.VideoTools.Formats/Workspace/JsonCommandWorkspaceStore.cs",
+      "AzureArchive.VideoTools.Formats/Workspace/JsonCommandWorkspaceStoreOptions.cs",
+      "AzureArchive.VideoTools.Formats/Workspace/JsonModWorkspaceStore.cs",
+      "AzureArchive.VideoTools.Formats/Workspace/JsonModWorkspaceStoreOptions.cs"
+    ],
+    "CompileCount": 17,
+    "ProjectReferences": [
+      "AzureArchive.VideoTools.Core/AzureArchive.VideoTools.Core.csproj"
+    ],
+    "ExternalReferences": []
+  },
+  {
+    "Project": "AzureArchive.VideoTools.Tests/AzureArchive.VideoTools.Tests.csproj",
+    "AssemblyName": "AzureArchive.VideoTools.Tests",
+    "Version": "1.0.0",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "AzureArchive.VideoTools.Tests/AapCharacterPositionInspector.cs",
+      "AzureArchive.VideoTools.Tests/AapProjectReaderTests.cs",
+      "AzureArchive.VideoTools.Tests/AapSmokeVerifier.cs",
+      "AzureArchive.VideoTools.Tests/AasScenarioReaderTests.cs",
+      "AzureArchive.VideoTools.Tests/AasSmokeVerifier.cs",
+      "AzureArchive.VideoTools.Tests/AasTailInspector.cs",
+      "AzureArchive.VideoTools.Tests/AdvanceWindowAdmissionPolicyTests.cs",
+      "AzureArchive.VideoTools.Tests/ArbitrationBenchmark.cs",
+      "AzureArchive.VideoTools.Tests/AutoDialogueDelayTests.cs",
+      "AzureArchive.VideoTools.Tests/AutoProjectDiscoveryTests.cs",
+      "AzureArchive.VideoTools.Tests/CharacterPresetBezierTests.cs",
+      "AzureArchive.VideoTools.Tests/CharacterPresetPipelineTests.cs",
+      "AzureArchive.VideoTools.Tests/CharacterPresetPoseOverlayTests.cs",
+      "AzureArchive.VideoTools.Tests/CharacterPresetTests.cs",
+      "AzureArchive.VideoTools.Tests/CharacterTransformTests.cs",
+      "AzureArchive.VideoTools.Tests/CommandTimelineTests.cs",
+      "AzureArchive.VideoTools.Tests/CommandWorkspaceProofWriter.cs",
+      "AzureArchive.VideoTools.Tests/CommandWorkspaceSmokeVerifier.cs",
+      "AzureArchive.VideoTools.Tests/ContinuationEngineTests.cs",
+      "AzureArchive.VideoTools.Tests/ContinuationProjectionCompilerTests.cs",
+      "AzureArchive.VideoTools.Tests/EditorCommandDocumentTests.cs",
+      "AzureArchive.VideoTools.Tests/EditorPreviewLeaseTests.cs",
+      "AzureArchive.VideoTools.Tests/EmbeddedAavtDirectiveTests.cs",
+      "AzureArchive.VideoTools.Tests/EmbeddedDiagnosticsTests.cs",
+      "AzureArchive.VideoTools.Tests/ImportedVoiceCatalogTests.cs",
+      "AzureArchive.VideoTools.Tests/JsonCommandWorkspaceStoreTests.cs",
+      "AzureArchive.VideoTools.Tests/JsonContinuationProjectionStoreTests.cs",
+      "AzureArchive.VideoTools.Tests/JsonContinuationStoreTests.cs",
+      "AzureArchive.VideoTools.Tests/JsonModWorkspaceStoreTests.cs",
+      "AzureArchive.VideoTools.Tests/LiveProjectGraphTests.cs",
+      "AzureArchive.VideoTools.Tests/LiveProjectKeyComposerTests.cs",
+      "AzureArchive.VideoTools.Tests/MainThreadStallPolicyTests.cs",
+      "AzureArchive.VideoTools.Tests/ManagedDispatchScheduleTests.cs",
+      "AzureArchive.VideoTools.Tests/MappingSmokeVerifier.cs",
+      "AzureArchive.VideoTools.Tests/ModAbiCheck.cs",
+      "AzureArchive.VideoTools.Tests/ModWorkspaceCompatibilityTests.cs",
+      "AzureArchive.VideoTools.Tests/ObservedSceneIdentityResolverTests.cs",
+      "AzureArchive.VideoTools.Tests/PlaybackDispatchCanaryGateTests.cs",
+      "AzureArchive.VideoTools.Tests/PlaybackProjectionBinderTests.cs",
+      "AzureArchive.VideoTools.Tests/PlaybackSceneDispatchGateTests.cs",
+      "AzureArchive.VideoTools.Tests/PlaybackScriptIndexTests.cs",
+      "AzureArchive.VideoTools.Tests/PlayerRuntimeContextTests.cs",
+      "AzureArchive.VideoTools.Tests/PreviewCameraChainTests.cs",
+      "AzureArchive.VideoTools.Tests/PreviewChainApplyPolicyTests.cs",
+      "AzureArchive.VideoTools.Tests/PreviewChainTests.cs",
+      "AzureArchive.VideoTools.Tests/Program.cs",
+      "AzureArchive.VideoTools.Tests/ProjectPlaybackMapperTests.cs",
+      "AzureArchive.VideoTools.Tests/ProjectPublicationConsistencyTests.cs",
+      "AzureArchive.VideoTools.Tests/SceneCameraTests.cs",
+      "AzureArchive.VideoTools.Tests/SceneIdentitySmokeVerifier.cs",
+      "AzureArchive.VideoTools.Tests/SharedDirectiveCompilationTests.cs",
+      "AzureArchive.VideoTools.Tests/SharedVoiceAuthoringTests.cs",
+      "AzureArchive.VideoTools.Tests/SlotPendingTests.cs",
+      "AzureArchive.VideoTools.Tests/SpineLobbyAnimationTests.cs",
+      "AzureArchive.VideoTools.Tests/SpineLobbyThumbnailFitTests.cs",
+      "AzureArchive.VideoTools.Tests/SpineOverlayTests.cs",
+      "AzureArchive.VideoTools.Tests/SyntheticAap.cs",
+      "AzureArchive.VideoTools.Tests/SyntheticAas.cs",
+      "AzureArchive.VideoTools.Tests/TestInfrastructure.cs",
+      "AzureArchive.VideoTools.Tests/VisualEditorTests.cs",
+      "AzureArchive.VideoTools.Tests/VoiceAuthoringTests.cs",
+      "AzureArchive.VideoTools.Tests/VoiceDirectiveTests.cs",
+      "AzureArchive.VideoTools.Tests/VoiceIntegrationTests.cs",
+      "AzureArchive.VideoTools.Tests/VoicePlaybackGateTests.cs"
+    ],
+    "CompileCount": 64,
+    "ProjectReferences": [
+      "AzureArchive.VideoTools.Core/AzureArchive.VideoTools.Core.csproj",
+      "AzureArchive.VideoTools.Formats/AzureArchive.VideoTools.Formats.csproj"
+    ],
+    "ExternalReferences": []
+  },
+  {
+    "Project": "Rukari.Lib.Tests/Rukari.Lib.Tests.csproj",
+    "AssemblyName": "Rukari.Lib.Tests",
+    "Version": "1.0.0",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "Rukari.Lib.Tests/AtlasSpriteCatalogTests.cs",
+      "Rukari.Lib.Tests/BundledUiAssetsTests.cs",
+      "Rukari.Lib.Tests/CaptionTests.cs",
+      "Rukari.Lib.Tests/Check.cs",
+      "Rukari.Lib.Tests/CommandHelpTests.cs",
+      "Rukari.Lib.Tests/EditorDocumentSessionTests.cs",
+      "Rukari.Lib.Tests/EmbeddedDirectiveTests.cs",
+      "Rukari.Lib.Tests/ModSettingsTests.cs",
+      "Rukari.Lib.Tests/Program.cs",
+      "Rukari.Lib.Tests/PublicContractTests.cs",
+      "Rukari.Lib.Tests/RuntimeHostTests.cs",
+      "Rukari.Lib.Tests/ToolModuleCardTests.cs",
+      "Rukari.Lib.Tests/ToolPanelBuilderTests.cs",
+      "Rukari.Lib.Tests/ToolPanelSessionTests.cs",
+      "Rukari.Lib.Tests/ToolPresentationTests.cs",
+      "Rukari.Lib.Tests/ToolTreeStateTests.cs"
+    ],
+    "CompileCount": 16,
+    "ProjectReferences": [
+      "Rukari.Lib/Rukari.Lib.csproj"
+    ],
+    "ExternalReferences": []
+  },
+  {
+    "Project": "examples/SharedVoiceClient/SharedVoiceClient.csproj",
+    "AssemblyName": "SharedVoiceClient",
+    "Version": "1.0.0",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "examples/SharedVoiceClient/VoiceClient.cs"
+    ],
+    "CompileCount": 1,
+    "ProjectReferences": [
+      "Rukari.Lib/Rukari.Lib.csproj"
+    ],
+    "ExternalReferences": []
+  },
+  {
+    "Project": "examples/UiToolboxClient/UiToolboxClient.csproj",
+    "AssemblyName": "UiToolboxClient",
+    "Version": "1.0.0",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "examples/UiToolboxClient/UiToolboxClient.cs"
+    ],
+    "CompileCount": 1,
+    "ProjectReferences": [
+      "Rukari.Lib/Rukari.Lib.csproj"
+    ],
+    "ExternalReferences": []
+  },
+  {
+    "Project": "examples/UiToolboxPlugin/UiToolboxPlugin.csproj",
+    "AssemblyName": "Example.Rukari.UiToolbox",
+    "Version": "1.0.0",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "examples/UiToolboxClient/UiToolboxClient.cs",
+      "examples/UiToolboxPlugin/Plugin.cs"
+    ],
+    "CompileCount": 2,
+    "ProjectReferences": [
+      "Rukari.Lib/Rukari.Lib.csproj"
+    ],
+    "ExternalReferences": [
+      {
+        "Name": "BepInEx.Core",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\BepInEx.Core.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "BepInEx.Unity.IL2CPP",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\BepInEx.Unity.IL2CPP.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2CppInterop.Runtime",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\Il2CppInterop.Runtime.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2Cppmscorlib",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\Il2Cppmscorlib.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.CoreModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.CoreModule.dll",
+        "Private": "false"
+      }
+    ]
+  },
+  {
+    "Project": "examples/EmbeddedDirectiveClient/EmbeddedDirectiveClient.csproj",
+    "AssemblyName": "Example.Rukari.EmbeddedDirectives",
+    "Version": "1.0.0",
+    "TargetFramework": "net6.0",
+    "Compile": [
+      "examples/EmbeddedDirectiveClient/DirectiveClient.cs",
+      "examples/EmbeddedDirectiveClient/Plugin.cs"
+    ],
+    "CompileCount": 2,
+    "ProjectReferences": [
+      "Rukari.Lib/Rukari.Lib.csproj"
+    ],
+    "ExternalReferences": [
+      {
+        "Name": "BepInEx.Core",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\BepInEx.Core.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "BepInEx.Unity.IL2CPP",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\BepInEx.Unity.IL2CPP.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2CppInterop.Runtime",
+        "HintPath": "{GameRoot}\\BepInEx\\core\\Il2CppInterop.Runtime.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "Il2Cppmscorlib",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\Il2Cppmscorlib.dll",
+        "Private": "false"
+      },
+      {
+        "Name": "UnityEngine.CoreModule",
+        "HintPath": "{GameRoot}\\BepInEx\\interop\\UnityEngine.CoreModule.dll",
+        "Private": "false"
+      }
+    ]
+  }
+]

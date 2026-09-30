@@ -1,0 +1,18 @@
+{
+  "Date": "2026-10-01",
+  "Lib": "0.4.1",
+  "MoreEffects": "1.4.0",
+  "CharacterVoice": "1.6.2",
+  "SpineSupport": "1.6.1",
+  "ProductionSourceHashDifferences": 0,
+  "FullCompilation": "passed; 0 warnings, 0 errors",
+  "Examples": "4 passed",
+  "DependencyDeclarations": "4 passed",
+  "ManagedTests": "396 Core + 135 Lib + 53 Voice + 26 Spine passed",
+  "SkippedFixtures": "2 symlink fixtures: platform permissions unavailable",
+  "NativeValidation": "not-run",
+  "GameStarted": false,
+  "GameModified": false,
+  "SecretScan": "passed",
+  "DocumentationLinks": "passed"
+}

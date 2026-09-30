@@ -1,0 +1,90 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rukari.Lib", "Rukari.Lib\Rukari.Lib.csproj", "{8DA4A07F-5876-4AF6-83B2-00D4067AD71B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rukari.Lib.Runtime", "Rukari.Lib.Runtime\Rukari.Lib.Runtime.csproj", "{EC7BDAEF-631F-4BBB-8EBA-C8F9FFF2F555}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rukari.MoreEffects", "Rukari.MoreEffects\Rukari.MoreEffects.csproj", "{C04566C1-DF0A-487E-A849-EE5F450C500B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rukari.CharacterVoice", "Rukari.CharacterVoice\Rukari.CharacterVoice.csproj", "{E3BCEBA1-9BD2-43D5-AD28-222657215762}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Voice tests", "Voice tests", "{045E6941-8F47-451D-A034-5D1197EF5C94}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rukari.CharacterVoice.Tests", "Rukari.CharacterVoice\Tests\Rukari.CharacterVoice.Tests.csproj", "{8219BEC0-992D-42CA-8036-AFB71B9AF7C4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rukari.SpineSupport", "Rukari.SpineSupport\Rukari.SpineSupport.csproj", "{1285EBBA-0E0B-4BAE-BA25-E26DD3BC5D5B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Spine tests", "Spine tests", "{5AB25874-AC08-4157-B98F-E9EC3935A4BB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rukari.SpineSupport.Tests", "Rukari.SpineSupport\Tests\Rukari.SpineSupport.Tests.csproj", "{B3F7EC3A-A188-4526-A1A6-F77D0E3F29F7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AzureArchive.VideoTools.Core", "AzureArchive.VideoTools.Core\AzureArchive.VideoTools.Core.csproj", "{6CE89341-9EC0-4C89-A39C-96D889B5AAED}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AzureArchive.VideoTools.Formats", "AzureArchive.VideoTools.Formats\AzureArchive.VideoTools.Formats.csproj", "{C8690A2D-D047-4CC5-B207-5F20424EE1B6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AzureArchive.VideoTools.Tests", "AzureArchive.VideoTools.Tests\AzureArchive.VideoTools.Tests.csproj", "{ECFF62B9-C37C-463A-8A2B-772EC2B0AFF2}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rukari.Lib.Tests", "Rukari.Lib.Tests\Rukari.Lib.Tests.csproj", "{43585628-61A2-4865-9758-EF9EF6E3E61E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8DA4A07F-5876-4AF6-83B2-00D4067AD71B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8DA4A07F-5876-4AF6-83B2-00D4067AD71B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8DA4A07F-5876-4AF6-83B2-00D4067AD71B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8DA4A07F-5876-4AF6-83B2-00D4067AD71B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EC7BDAEF-631F-4BBB-8EBA-C8F9FFF2F555}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EC7BDAEF-631F-4BBB-8EBA-C8F9FFF2F555}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EC7BDAEF-631F-4BBB-8EBA-C8F9FFF2F555}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EC7BDAEF-631F-4BBB-8EBA-C8F9FFF2F555}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C04566C1-DF0A-487E-A849-EE5F450C500B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C04566C1-DF0A-487E-A849-EE5F450C500B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C04566C1-DF0A-487E-A849-EE5F450C500B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C04566C1-DF0A-487E-A849-EE5F450C500B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E3BCEBA1-9BD2-43D5-AD28-222657215762}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E3BCEBA1-9BD2-43D5-AD28-222657215762}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E3BCEBA1-9BD2-43D5-AD28-222657215762}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E3BCEBA1-9BD2-43D5-AD28-222657215762}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8219BEC0-992D-42CA-8036-AFB71B9AF7C4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8219BEC0-992D-42CA-8036-AFB71B9AF7C4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8219BEC0-992D-42CA-8036-AFB71B9AF7C4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8219BEC0-992D-42CA-8036-AFB71B9AF7C4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1285EBBA-0E0B-4BAE-BA25-E26DD3BC5D5B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1285EBBA-0E0B-4BAE-BA25-E26DD3BC5D5B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1285EBBA-0E0B-4BAE-BA25-E26DD3BC5D5B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1285EBBA-0E0B-4BAE-BA25-E26DD3BC5D5B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B3F7EC3A-A188-4526-A1A6-F77D0E3F29F7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B3F7EC3A-A188-4526-A1A6-F77D0E3F29F7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B3F7EC3A-A188-4526-A1A6-F77D0E3F29F7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B3F7EC3A-A188-4526-A1A6-F77D0E3F29F7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6CE89341-9EC0-4C89-A39C-96D889B5AAED}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6CE89341-9EC0-4C89-A39C-96D889B5AAED}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6CE89341-9EC0-4C89-A39C-96D889B5AAED}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6CE89341-9EC0-4C89-A39C-96D889B5AAED}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C8690A2D-D047-4CC5-B207-5F20424EE1B6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C8690A2D-D047-4CC5-B207-5F20424EE1B6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C8690A2D-D047-4CC5-B207-5F20424EE1B6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C8690A2D-D047-4CC5-B207-5F20424EE1B6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ECFF62B9-C37C-463A-8A2B-772EC2B0AFF2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ECFF62B9-C37C-463A-8A2B-772EC2B0AFF2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ECFF62B9-C37C-463A-8A2B-772EC2B0AFF2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ECFF62B9-C37C-463A-8A2B-772EC2B0AFF2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{43585628-61A2-4865-9758-EF9EF6E3E61E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{43585628-61A2-4865-9758-EF9EF6E3E61E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{43585628-61A2-4865-9758-EF9EF6E3E61E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{43585628-61A2-4865-9758-EF9EF6E3E61E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{8219BEC0-992D-42CA-8036-AFB71B9AF7C4} = {045E6941-8F47-451D-A034-5D1197EF5C94}
+		{B3F7EC3A-A188-4526-A1A6-F77D0E3F29F7} = {5AB25874-AC08-4157-B98F-E9EC3935A4BB}
+	EndGlobalSection
+EndGlobal

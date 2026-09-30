@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>Rukari.CharacterVoice</AssemblyName>
+    <RootNamespace>Rukari.CharacterVoice</RootNamespace>
+    <Version>1.6.2</Version>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <RequiresAzureArchiveGame>true</RequiresAzureArchiveGame>
+    <DefineConstants Condition="'$(AzureArchiveTarget)' == 'Preview10'">$(DefineConstants);AA_PREVIEW_10</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="Tests\**\*.cs" />
+    <ProjectReference Include="..\Rukari.Lib\Rukari.Lib.csproj" Private="false" />
+    <Reference Include="BepInEx.Core" HintPath="$(AzureArchiveBepInExCore)\BepInEx.Core.dll" Private="false" />
+    <Reference Include="BepInEx.Unity.IL2CPP" HintPath="$(AzureArchiveBepInExCore)\BepInEx.Unity.IL2CPP.dll" Private="false" />
+    <Reference Include="Il2CppInterop.Runtime" HintPath="$(AzureArchiveBepInExCore)\Il2CppInterop.Runtime.dll" Private="false" />
+    <Reference Include="0Harmony" HintPath="$(AzureArchiveBepInExCore)\0Harmony.dll" Private="false" />
+    <Reference Include="Il2Cppmscorlib" HintPath="$(AzureArchiveInterop)\Il2Cppmscorlib.dll" Private="false" />
+    <Reference Include="Il2CppSystem.Core" HintPath="$(AzureArchiveInterop)\Il2CppSystem.Core.dll" Private="false" />
+    <Reference Include="Assembly-CSharp" HintPath="$(AzureArchiveInterop)\Assembly-CSharp.dll" Private="false" />
+    <!-- The editor's authoring catalog answers in Newtonsoft JObject; the type has to be resolvable to call it. -->
+    <Reference Include="Newtonsoft.Json" HintPath="$(AzureArchiveInterop)\Newtonsoft.Json.dll" Private="false" />
+    <Reference Include="UnityEngine" HintPath="$(AzureArchiveInterop)\UnityEngine.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(AzureArchiveInterop)\UnityEngine.CoreModule.dll" Private="false" Aliases="unitycore" />
+    <Reference Include="UnityEngine.AudioModule" HintPath="$(AzureArchiveInterop)\UnityEngine.AudioModule.dll" Private="false" />
+  </ItemGroup>
+</Project>

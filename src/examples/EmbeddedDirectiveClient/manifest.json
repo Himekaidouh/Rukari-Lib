@@ -1,0 +1,7 @@
+{
+  "name": "ExampleRukariEmbeddedDirectives",
+  "version_number": "1.0.0",
+  "website_url": "",
+  "description": "开发者示例：注册 #example.echo，仅统计编译通知，不执行播放效果或写入工程。",
+  "dependencies": ["RukariLib/0.4.0"]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "更多Spine动画支持",
+  "version_number": "1.6.1",
+  "website_url": "",
+  "description": "更多Spine动画支持开发预览。适配 Lib 0.4，保留动画选择、触摸与卡片适配。实验叠加台不包含。AAfix 4，实机待验收。",
+  "dependencies": [
+    "RukariLib/0.4.1"
+  ]
+}

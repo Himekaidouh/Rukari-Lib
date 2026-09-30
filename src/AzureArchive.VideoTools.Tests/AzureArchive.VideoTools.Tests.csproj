@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>AzureArchive.VideoTools.Tests</AssemblyName>
+    <RootNamespace>AzureArchive.VideoTools.Tests</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AzureArchive.VideoTools.Core\AzureArchive.VideoTools.Core.csproj" />
+    <ProjectReference Include="..\AzureArchive.VideoTools.Formats\AzureArchive.VideoTools.Formats.csproj" />
+  </ItemGroup>
+</Project>

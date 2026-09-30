@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Rukari.Lib\Rukari.Lib.csproj" />
+    <Compile Include="..\Core\*.cs" Link="Core\%(Filename)%(Extension)" />
+    <Compile Include="..\Runtime\VoiceFolderScanner.cs" Link="Runtime\VoiceFolderScanner.cs" />
+    <Compile Include="..\Runtime\VoiceFolderController.cs" Link="Runtime\VoiceFolderController.cs" />
+    <Compile Include="..\Runtime\WindowsVoiceFolderPicker.cs" Link="Runtime\WindowsVoiceFolderPicker.cs" />
+    <Compile Include="..\Runtime\VoiceToolPage.cs" Link="Runtime\VoiceToolPage.cs" />
+    <Compile Include="..\Runtime\VoicePlaybackSettingsPage.cs" Link="Runtime\VoicePlaybackSettingsPage.cs" />
+    <Compile Include="..\Runtime\AuthoringCompileCompatibility.cs" Link="Runtime\AuthoringCompileCompatibility.cs" />
+  </ItemGroup>
+</Project>

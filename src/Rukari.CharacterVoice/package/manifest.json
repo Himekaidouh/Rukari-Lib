@@ -1,0 +1,9 @@
+{
+  "name": "人物配音支持",
+  "version_number": "1.6.2",
+  "website_url": "",
+  "description": "人物配音支持。工程内选择音频、绑定台词、播完等待和全局尾延迟；等待时间接入 Rukari 全局模组设置，沿用原配置。AAfix 4 入口预览，实机待验收。",
+  "dependencies": [
+    "RukariLib/0.4.1"
+  ]
+}

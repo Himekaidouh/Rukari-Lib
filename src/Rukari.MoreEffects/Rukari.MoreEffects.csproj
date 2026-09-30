@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>Rukari.MoreEffects</AssemblyName>
+    <Version>1.4.0</Version>
+    <RootNamespace>AzureArchive.VideoTools</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <RequiresAzureArchiveGame>true</RequiresAzureArchiveGame>
+    <DefineConstants Condition="'$(AzureArchiveTarget)' == 'Preview10'">$(DefineConstants);AA_PREVIEW_10</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Rukari.Lib\Rukari.Lib.csproj" Private="false" />
+    <ProjectReference Include="..\AzureArchive.VideoTools.Core\AzureArchive.VideoTools.Core.csproj" />
+    <ProjectReference Include="..\AzureArchive.VideoTools.Formats\AzureArchive.VideoTools.Formats.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx.Core" HintPath="$(AzureArchiveBepInExCore)\BepInEx.Core.dll" Private="false" />
+    <Reference Include="BepInEx.Unity.IL2CPP" HintPath="$(AzureArchiveBepInExCore)\BepInEx.Unity.IL2CPP.dll" Private="false" />
+    <Reference Include="Il2Cppmscorlib" HintPath="$(AzureArchiveInterop)\Il2Cppmscorlib.dll" Private="false" />
+    <Reference Include="Il2CppSystem.Core" HintPath="$(AzureArchiveInterop)\Il2CppSystem.Core.dll" Private="false" />
+    <Reference Include="Il2CppInterop.Runtime" HintPath="$(AzureArchiveBepInExCore)\Il2CppInterop.Runtime.dll" Private="false" />
+    <Reference Include="0Harmony" HintPath="$(AzureArchiveBepInExCore)\0Harmony.dll" Private="false" />
+    <Reference Include="Assembly-CSharp" HintPath="$(AzureArchiveInterop)\Assembly-CSharp.dll" Private="false" />
+    <Reference Include="spine-csharp" HintPath="$(AzureArchiveInterop)\spine-csharp.dll" Private="false" />
+    <Reference Include="spine-unity" HintPath="$(AzureArchiveInterop)\spine-unity.dll" Private="false" />
+    <Reference Include="UnityEngine" HintPath="$(AzureArchiveInterop)\UnityEngine.dll" Private="false" />
+    <Reference Include="UnityEngine.AudioModule" HintPath="$(AzureArchiveInterop)\UnityEngine.AudioModule.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(AzureArchiveInterop)\UnityEngine.CoreModule.dll" Private="false">
+      <Aliases>unitycore</Aliases>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule" HintPath="$(AzureArchiveInterop)\UnityEngine.IMGUIModule.dll" Private="false" />
+    <Reference Include="UnityEngine.InputLegacyModule" HintPath="$(AzureArchiveInterop)\UnityEngine.InputLegacyModule.dll" Private="false" />
+    <Reference Include="UnityEngine.TextRenderingModule" HintPath="$(AzureArchiveInterop)\UnityEngine.TextRenderingModule.dll" Private="false">
+      <Aliases>unitytext</Aliases>
+    </Reference>
+    <Reference Include="UnityEngine.UI" HintPath="$(AzureArchiveInterop)\UnityEngine.UI.dll" Private="false">
+      <Aliases>unityui</Aliases>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule" HintPath="$(AzureArchiveInterop)\UnityEngine.UIModule.dll" Private="false">
+      <Aliases>unityuimodule</Aliases>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../AzureArchive.VideoTools/**/*.cs" Exclude="../AzureArchive.VideoTools/Api/Contracts.cs;../AzureArchive.VideoTools/Plugin.cs;../AzureArchive.VideoTools/Runtime/VoiceSupportPatch.cs;../AzureArchive.VideoTools/Runtime/VoicePlaybackRuntime.cs;../AzureArchive.VideoTools/Runtime/VisualEditorVoicePanel.cs;../AzureArchive.VideoTools/Runtime/SpineLobbySupportPatch.cs;../AzureArchive.VideoTools/Runtime/SpineLobbyThumbnailFitPatch.cs;../AzureArchive.VideoTools/Runtime/SharedModIntegration.cs;../AzureArchive.VideoTools/Interop/ImportedVoiceCatalogService.cs;../AzureArchive.VideoTools/Interop/SharedVoiceAuthoringBackend.cs;../AzureArchive.VideoTools/Runtime/VisualEditorBehaviour.cs;../AzureArchive.VideoTools/Runtime/VisualEditorInputGuard.cs;../AzureArchive.VideoTools/Runtime/ExplicitTriggerBehaviour.cs;../AzureArchive.VideoTools/Interop/EditorCommandDocumentService.cs;../AzureArchive.VideoTools/Runtime/PlayerCommandObservationOptions.cs;../AzureArchive.VideoTools/obj/**;../AzureArchive.VideoTools/bin/**" Link="Legacy/%(RecursiveDir)%(Filename)%(Extension)" />
+    <ProjectReference Include="../Rukari.Lib.Runtime/Rukari.Lib.Runtime.csproj" Private="false" />
+  </ItemGroup>
+</Project>

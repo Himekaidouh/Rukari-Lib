@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>Example.Rukari.EmbeddedDirectives</AssemblyName>
+    <Version>1.0.0</Version>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <BepInExCore>$(GameRoot)\BepInEx\core</BepInExCore>
+    <GameInterop>$(GameRoot)\BepInEx\interop</GameInterop>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('..\..\Rukari.Lib\Rukari.Lib.csproj')">
+    <ProjectReference Include="..\..\Rukari.Lib\Rukari.Lib.csproj" Private="false" />
+  </ItemGroup>
+  <ItemGroup Condition="!Exists('..\..\Rukari.Lib\Rukari.Lib.csproj')">
+    <Reference Include="Rukari.Lib" HintPath="..\..\lib\Rukari.Lib.dll" Private="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="BepInEx.Core" HintPath="$(BepInExCore)\BepInEx.Core.dll" Private="false" />
+    <Reference Include="BepInEx.Unity.IL2CPP" HintPath="$(BepInExCore)\BepInEx.Unity.IL2CPP.dll" Private="false" />
+    <Reference Include="Il2CppInterop.Runtime" HintPath="$(BepInExCore)\Il2CppInterop.Runtime.dll" Private="false" />
+    <Reference Include="Il2Cppmscorlib" HintPath="$(GameInterop)\Il2Cppmscorlib.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(GameInterop)\UnityEngine.CoreModule.dll" Private="false" Aliases="unitycore" />
+  </ItemGroup>
+  <Target Name="CheckLocalReferences" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(GameRoot)' == ''" Text="Specify your local game directory with -p:GameRoot=&quot;C:\Games\AzureArchive&quot;." />
+    <Error Condition="!Exists('$(BepInExCore)\BepInEx.Unity.IL2CPP.dll')" Text="GameRoot must contain BepInEx/core/BepInEx.Unity.IL2CPP.dll." />
+    <Error Condition="!Exists('$(GameInterop)\UnityEngine.CoreModule.dll')" Text="GameRoot must already contain its local BepInEx/interop references." />
+  </Target>
+</Project>
