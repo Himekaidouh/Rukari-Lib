@@ -95,10 +95,10 @@ internal static class AuthoringCatalogProbe
         log.AppendLine($"catalog: version={Text(catalogVersion)}; workingManifestDirty={AuthoringResourceCatalog.WorkingManifestDirty}; "
             + $"kinds=[{Join(AuthoringResourceCatalog.Kinds)}]");
 
-        VoiceOverrideCleanupPlan plan;
+        VoiceOverrideInventory plan;
         try
         {
-            plan = VoiceOverrideCleanupPolicy.Inspect(projectRoot);
+            plan = VoiceOverrideDiagnostics.Inspect(projectRoot);
             log.AppendLine($"manifest: total={plan.Total}; present={plan.Present.Count}; missing={plan.Missing.Count}");
         }
         catch (Exception ex)

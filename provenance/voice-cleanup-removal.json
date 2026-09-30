@@ -1,0 +1,13 @@
+{
+  "Date": "2026-10-01",
+  "Removed": [
+    "VoiceOverrideCleanupPolicy.Apply",
+    "manifest/index writing and backups",
+    "cleanup-voices action and confirmation state",
+    "VoiceOverrideCleanupTests"
+  ],
+  "Retained": "read-only VoiceOverrideDiagnostics.Inspect",
+  "Validation": "full build, 4 examples, 4 dependency checks and 610 managed tests passed",
+  "Native": "not-run",
+  "Installed": false
+}

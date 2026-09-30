@@ -58,11 +58,10 @@ internal static class VoiceToolPageTests
         page.Handle(new("import-folder"));
         page.Tick();
         ToolPageSnapshot imported = page.Snapshot();
-        // A page carries at most 8 actions, so the cleanup action takes the slot the folder toggle held; the third
-        // row shows the catalogue again after an import.
+        // No native resource cleanup action is exposed after importing.
         Equal(8, imported.Buttons.Count);
-        True(imported.Buttons.Any(button => button.Id == "cleanup-voices"));
-        True(!imported.Buttons.Any(button => button.Id == "recursive"));
+        True(!imported.Buttons.Any(button => button.Id == "cleanup-voices"));
+        True(imported.Buttons.Any(button => button.Id == "recursive" && !button.Enabled));
         True(imported.Items!.Any(item => item.Id == "legacy/manual"));
         True(imported.Items!.Any(item => item.Id == "rukari-import/test"));
         Equal(0, voice.Applies);

@@ -77,9 +77,7 @@ public sealed class Plugin : BasePlugin
             _serviceLease = registered.Value;
             var page = new VoiceToolPage(_voice, editor.Value,
                 ProjectVoiceImportStore.CaptureCurrentProjectOnMainThread,
-                (project, scan, cancellation) => new ProjectVoiceImportStore(project).ImportAsync(scan, cancellation),
-                backupRoot: Path.Combine(Path.GetDirectoryName(Config.ConfigFilePath) ?? Path.GetTempPath(),
-                    "voice-cleanup-backups")) { ReadPublicationStatus = VoicePublicationRuntime.ReadCurrentStatus };
+                (project, scan, cancellation) => new ProjectVoiceImportStore(project).ImportAsync(scan, cancellation)) { ReadPublicationStatus = VoicePublicationRuntime.ReadCurrentStatus };
             _page = page;
             var registeredPage = toolbox.Value.RegisterPage(Guid, VoiceToolPage.PageId, Name, page.Snapshot, page.Handle, "wave");
             if (!registeredPage.Success) throw new InvalidOperationException(registeredPage.Error!.Message);

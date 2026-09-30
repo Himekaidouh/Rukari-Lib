@@ -22,8 +22,6 @@ internal sealed class VoiceToolPage : IDisposable
     private CancellationTokenSource? _importCancellation;
     private string? _importProjectIdentity;
     private string? _selectedResource;
-    private readonly string _backupRoot;
-    private VoiceOverrideCleanupPlan? _cleanupPlan;
     private string _status = "选择语音文件夹，或从已导入声音中选择。";
     private int _folderRevision;
     private long _nextProjectCheck;
@@ -35,7 +33,7 @@ internal sealed class VoiceToolPage : IDisposable
     internal VoiceToolPage(IVoiceAuthoringService voice, IEditorDocumentService editor,
         Func<ModResult<VoiceImportProject>> captureProject,
         Func<VoiceImportProject, VoiceFolderScan, CancellationToken, Task<VoiceImportResult>> import,
-        VoiceFolderController? folders = null, Func<long>? clock = null, string? backupRoot = null)
+        VoiceFolderController? folders = null, Func<long>? clock = null)
     {
         _voice = voice;
         _editor = editor;
@@ -43,10 +41,6 @@ internal sealed class VoiceToolPage : IDisposable
         _import = import;
         _folders = folders ?? new VoiceFolderController();
         _clock = clock ?? (() => Environment.TickCount64);
-        // Backups of the project manifest must never land inside the project tree: the editor enumerates it.
-        _backupRoot = string.IsNullOrWhiteSpace(backupRoot)
-            ? Path.Combine(Path.GetTempPath(), "rukari-voice-cleanup")
-            : backupRoot;
     }
 
     private bool Busy => _folders.IsBusy || _importTask is not null;
@@ -121,14 +115,7 @@ internal sealed class VoiceToolPage : IDisposable
                 new("choose-folder", "选择语音文件夹", !Busy),
                 new("refresh", _showFolder ? "刷新文件夹" : "刷新声音列表", !Busy),
                 new("show-source", _showFolder ? "查看已导入声音" : "查看文件夹文件", !Busy && _folders.Current is not null),
-                // One slot serves both modes: browsing a folder needs the recursive toggle, the normal voice view has
-                // room for the cleanup action — and a page carries at most 8 actions, so a ninth one would make the
-                // whole page unreadable ("工具暂时无法读取当前状态").
-                scan is not null
-                    ? new("recursive", _folders.Recursive ? "包含子目录：开" : "包含子目录：关", !Busy, _folders.Recursive)
-                    : new("cleanup-voices",
-                        _cleanupPlan is null ? "清理失效语音条目" : $"确认删除 {_cleanupPlan.Missing.Count} 条",
-                        !Busy),
+                new("recursive", _folders.Recursive ? "包含子目录：开" : "包含子目录：关", scan is not null && !Busy, _folders.Recursive),
                 scan is not null
                     ? new("import-folder", "导入此文件夹音频", !Busy && _folderProject is not null && scan.Files.Count > 0)
                     : new("apply", "应用所选声音", !Busy && _selection is not null && selectedIsAvailable),
@@ -143,8 +130,7 @@ internal sealed class VoiceToolPage : IDisposable
         if (_disposed) return;
         Tick(forceProjectCheck: true);
         if (Busy && action.Id != "cancel") return;
-        // Arming the deletion is deliberate and immediate: anything else disarms it again.
-        if (action.Id != "cleanup-voices") _cleanupPlan = null;
+
         switch (action.Id)
         {
             case "choose-folder":
@@ -181,79 +167,12 @@ internal sealed class VoiceToolPage : IDisposable
                 break;
             case "apply": if (!_showFolder && _selectedResource is not null) Apply(_selectedResource); break;
             case "remove": Apply(null); break;
-            case "cleanup-voices": CleanupVoices(); break;
             case "undo":
                 var undone = _editor.Undo();
                 _status = undone.Success ? "已撤销最近一次编辑。" : undone.Error?.Message ?? "撤销失败。";
                 _selection = null;
                 _selectedResource = null;
                 break;
-        }
-    }
-
-    /// <summary>
-    /// The project's voice list can name audio that is not there — an imported lobby whose bundled voice was never
-    /// brought along leaves dozens of entries behind, and the editor refuses to compile while they exist. The first
-    /// click only reports what it found; the second one deletes exactly the missing entries, after copying the
-    /// manifest and the editor's voice index next to our own settings.
-    ///
-    /// <para>
-    /// This writes the project manifest on disk, which the editor treats as an outside change to a file it holds in
-    /// memory: until the project is closed and reopened, saving and compiling stay locked. The warning is part of the
-    /// confirmation text on purpose — the official catalog path (AzureArchive.Automation) is being measured, and
-    /// until it is proven this action must say what it costs.
-    /// </para>
-    /// </summary>
-    private void CleanupVoices()
-    {
-        if (_cleanupPlan is null)
-        {
-            var project = _captureProject();
-            if (!project.Success) { _status = project.Error?.Message ?? "请先保存并打开项目。"; return; }
-            try
-            {
-                VoiceOverrideCleanupPlan plan = VoiceOverrideCleanupPolicy.Inspect(project.Value.RootPath);
-                if (plan.Missing.Count == 0)
-                {
-                    _status = plan.Total == 0
-                        ? "这个项目还没有语音条目。"
-                        : $"检查了 {plan.Total} 条语音，音频都在，无需清理。";
-                    return;
-                }
-
-                _cleanupPlan = plan;
-                _status = $"发现 {plan.Missing.Count} / {plan.Total} 条语音的音频文件不在项目里 —— "
-                    + "编辑器保存或编译时会因此失败。再次点击按钮确认删除；删除前会把 manifest 与语音索引备份到本模块的配置目录。"
-                    + "注意：这是直接改写工程清单文件，编辑器会认为清单被外部修改，"
-                    + "删除后必须关闭并重新打开这个工程（或重启），保存与编译才会恢复。";
-            }
-            catch (Exception ex)
-            {
-                _status = "无法检查语音条目：" + ex.Message;
-            }
-
-            return;
-        }
-
-        VoiceOverrideCleanupPlan pending = _cleanupPlan;
-        _cleanupPlan = null;
-        try
-        {
-            VoiceOverrideCleanupResult result = VoiceOverrideCleanupPolicy.Apply(pending, _backupRoot);
-            if (result.RemovedCount == 0)
-            {
-                _status = "没有需要删除的条目（音频已恢复，或条目已被清理过）。";
-                return;
-            }
-
-            _status = $"已删除 {result.RemovedCount} 条失效语音，剩余 {result.RemainingCount} 条；"
-                + $"备份：{result.BackupDirectory}。"
-                + "编辑器在内存里持有工程清单，现在请关闭并重新打开这个工程（或重启），否则保存与编译会一直报"
-                + "“工程资源清单被外部修改”。";
-        }
-        catch (Exception ex)
-        {
-            _status = "清理未完成：" + ex.Message;
         }
     }
 

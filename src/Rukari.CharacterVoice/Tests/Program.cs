@@ -28,7 +28,7 @@ var checks = new (string Name, Action Run)[]
     (nameof(VoicePlaybackDelayTests.SettingsUseTheSharedLayoutAndDoNotWriteOnOpenOrUnrelatedClicks), VoicePlaybackDelayTests.SettingsUseTheSharedLayoutAndDoNotWriteOnOpenOrUnrelatedClicks),
     (nameof(ProjectVoiceImportTests.RunAll), ProjectVoiceImportTests.RunAll),
     (nameof(ProjectVoiceImportTests.ImportedVoiceResolvesAcrossKnownProjectRoots), ProjectVoiceImportTests.ImportedVoiceResolvesAcrossKnownProjectRoots),
-    (nameof(VoiceOverrideCleanupTests.RunAll), VoiceOverrideCleanupTests.RunAll),
+    (nameof(VoiceOverrideDiagnosticsTests.RunAll), VoiceOverrideDiagnosticsTests.RunAll),
     (nameof(VoiceCatalogKeyCandidatesTests.RunAll), VoiceCatalogKeyCandidatesTests.RunAll),
     ("PlayingWaitHasItsOwnDeadlineSoTheDialogueCannotBlockForever", () =>
     {
