@@ -4,7 +4,6 @@ using Rukari.Lib.Tools;
 using Graphics = unitycore::UnityEngine.Graphics;
 using RenderTexture = unitycore::UnityEngine.RenderTexture;
 using FilterMode = unitycore::UnityEngine.FilterMode;
-using Object = unitycore::UnityEngine.Object;
 using Rect = unitycore::UnityEngine.Rect;
 using Sprite = unitycore::UnityEngine.Sprite;
 using SpriteMeshType = unitycore::UnityEngine.SpriteMeshType;
@@ -106,9 +105,22 @@ public static class AtlasEmblemSource
     }
 
     private static readonly Dictionary<string, AtlasHandle> Atlases = new(StringComparer.Ordinal);
-    private static readonly Dictionary<string, Sprite> Loaded = new(StringComparer.Ordinal);
-    private static readonly Dictionary<string, Sprite> Decorations = new(StringComparer.Ordinal);
+    // Keep both native objects: sprite.texture cannot be read after the sprite has been destroyed.
+    private sealed record SpriteAsset(Texture2D Texture, Sprite Sprite)
+    {
+        internal bool IsAlive => UiAssetLifetime.IsAlive(Sprite, Texture);
+        internal void Destroy()
+        {
+            UiAssetLifetime.Destroy(Sprite);
+            UiAssetLifetime.Destroy(Texture);
+        }
+    }
+
+    private static readonly Dictionary<string, SpriteAsset> Loaded = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, SpriteAsset> Decorations = new(StringComparer.Ordinal);
     private static readonly HashSet<string> Missing = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, long> RetryAfter = new(StringComparer.Ordinal);
+    private const int RetryDelayMilliseconds = 2000;
     private static int _threadId;
     private static Action<string>? _log;
     private static BundledUiAssets? _assets;
@@ -186,13 +198,14 @@ public static class AtlasEmblemSource
         if (_threadId == 0 || _threadId != Environment.CurrentManagedThreadId) return null;
         string name = (fileName ?? string.Empty).Trim();
         if (name.Length == 0) return null;
-        if (Decorations.TryGetValue(name, out Sprite? cached)) return cached;
+        if (TryGetAlive(Decorations, name, out Sprite? cached)) return cached;
         string key = "deco:" + name;
-        if (Missing.Contains(key)) return null;
+        if (Missing.Contains(key) || IsWaitingToRetry(key)) return null;
         byte[]? bytes = _assets?.Decoration(name);
         if (bytes is not null)
         {
             Texture2D? texture = null;
+            Sprite? sprite = null;
             try
             {
                 texture = new Texture2D(2, 2, TextureFormat.RGBA32, false)
@@ -200,25 +213,28 @@ public static class AtlasEmblemSource
                     filterMode = FilterMode.Bilinear,
                     name = "RukariDecoration_" + name
                 };
+                UiAssetLifetime.Retain(texture);
                 if (!PngDecoder.TryLoad(texture, bytes))
                 {
-                    Object.Destroy(texture);
-                    texture = null;
                     throw new InvalidDataException("Bundled decoration PNG could not be decoded.");
                 }
 
-                var sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),
+                sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),
                     new Vector2(.5f, .5f), 100f, 0, SpriteMeshType.FullRect, Vector4.zero);
+                UiAssetLifetime.Retain(sprite);
                 sprite.name = name;
-                texture = null;
-                Decorations[name] = sprite;
-                _log?.Invoke($"Shared UI decoration '{name}' loaded {sprite.texture.width}x{sprite.texture.height}.");
+                _log?.Invoke($"Shared UI decoration '{name}' loaded {texture.width}x{texture.height}.");
+                Decorations[name] = new SpriteAsset(texture, sprite);
+                RetryAfter.Remove(key);
                 return sprite;
             }
             catch (Exception ex)
             {
-                if (texture is not null) Object.Destroy(texture);
+                UiAssetLifetime.Destroy(sprite);
+                UiAssetLifetime.Destroy(texture);
+                RetryAfter[key] = Environment.TickCount64 + RetryDelayMilliseconds;
                 _log?.Invoke($"Shared UI decoration '{name}' could not be read: {ex.GetType().Name}: {ex.Message}");
+                return null;
             }
         }
 
@@ -290,11 +306,14 @@ public static class AtlasEmblemSource
     {
         if (_threadId == 0 || _threadId != Environment.CurrentManagedThreadId) return null;
         if (Missing.Contains(key)) return null;
-        if (Loaded.TryGetValue(key, out Sprite? cached)) return cached;
+        string cacheKey = key + (sliced ? ":sliced" : ":simple");
+        if (TryGetAlive(Loaded, cacheKey, out Sprite? cached)) return cached;
+        if (IsWaitingToRetry(cacheKey)) return null;
         AtlasHandle handle = ResolveAtlas(region.Atlas);
         Texture2D? atlas = handle.Texture;
         if (atlas is null) return null;
         Texture2D? copy = null;
+        Sprite? sprite = null;
         try
         {
             copy = new Texture2D(region.Width, region.Height, TextureFormat.RGBA32, false)
@@ -302,6 +321,7 @@ public static class AtlasEmblemSource
                 filterMode = FilterMode.Bilinear,
                 name = "RukariEmblem_" + region.Name
             };
+            UiAssetLifetime.Retain(copy);
             // Read ONLY the source region. Copying the whole atlas would move 419万 pixels per emblem on the
             // main thread, which is what stalled project entry.
             RenderTexture? previous = RenderTexture.active;
@@ -326,18 +346,21 @@ public static class AtlasEmblemSource
             int top = sliced ? region.BorderTop : 0;
             int right = sliced ? region.BorderRight : 0;
             int bottom = sliced ? region.BorderBottom : 0;
-            var sprite = Sprite.Create(copy, new Rect(0, 0, region.Width, region.Height), new Vector2(.5f, .5f),
+            sprite = Sprite.Create(copy, new Rect(0, 0, region.Width, region.Height), new Vector2(.5f, .5f),
                 100f, 0, SpriteMeshType.FullRect, new Vector4(left, bottom, right, top));
+            UiAssetLifetime.Retain(sprite);
             sprite.name = region.Name;
-            copy = null;
-            Loaded[key] = sprite;
+            Loaded[cacheKey] = new SpriteAsset(copy, sprite);
+            RetryAfter.Remove(cacheKey);
             _log?.Invoke($"Atlas {kind} '{key}' -> {region.Width}x{region.Height} from ({region.X},{region.Y}) border={left},{top},{right},{bottom}.");
             return sprite;
         }
         catch (Exception ex)
         {
-            if (copy is not null) Object.Destroy(copy);
-            Missing.Add(key);
+            UiAssetLifetime.Destroy(sprite);
+            UiAssetLifetime.Destroy(copy);
+            // Native lifetime/upload failures are transient; do not blacklist a valid bundled region.
+            RetryAfter[cacheKey] = Environment.TickCount64 + RetryDelayMilliseconds;
             _log?.Invoke($"Atlas {kind} '{key}' unavailable: {ex.GetType().Name}: {ex.Message}");
             return null;
         }
@@ -346,9 +369,27 @@ public static class AtlasEmblemSource
     /// <summary>Loads a decoded atlas export once, together with the regions its metadata records.</summary>
     private static AtlasHandle ResolveAtlas(string atlasName)
     {
-        if (Atlases.TryGetValue(atlasName, out AtlasHandle? cached)) return cached;
+        if (Atlases.TryGetValue(atlasName, out AtlasHandle? cached))
+        {
+            if (UiAssetLifetime.IsAlive(cached.Texture)) return cached;
+            UiAssetLifetime.Destroy(cached.Texture);
+            Atlases.Remove(atlasName);
+            _log?.Invoke($"Shared UI atlas '{atlasName}' lost its native texture; reloading the bundled copy.");
+        }
+        string key = "atlas:" + atlasName;
+        if (Missing.Contains(key) || IsWaitingToRetry(key)) return new AtlasHandle(null, AtlasSpriteCatalog.None);
+        if (_assets?.Atlas(atlasName) is null)
+        {
+            Missing.Add(key);
+            return new AtlasHandle(null, AtlasSpriteCatalog.None);
+        }
         AtlasHandle handle = LoadAtlas(atlasName);
-        Atlases[atlasName] = handle;
+        if (handle.Texture is not null)
+        {
+            Atlases[atlasName] = handle;
+            RetryAfter.Remove(key);
+        }
+        else RetryAfter[key] = Environment.TickCount64 + RetryDelayMilliseconds;
         return handle;
     }
 
@@ -365,10 +406,9 @@ public static class AtlasEmblemSource
                     filterMode = FilterMode.Bilinear,
                     name = "RukariAtlas" + atlasName
                 };
+                UiAssetLifetime.Retain(texture);
                 if (!PngDecoder.TryLoad(texture, bytes))
                 {
-                    Object.Destroy(texture);
-                    texture = null;
                     throw new InvalidDataException("Bundled atlas PNG could not be decoded.");
                 }
 
@@ -378,7 +418,7 @@ public static class AtlasEmblemSource
             }
             catch (Exception ex)
             {
-                if (texture is not null) Object.Destroy(texture);
+                UiAssetLifetime.Destroy(texture);
                 _log?.Invoke($"Shared UI atlas '{atlasName}' could not be read: {ex.GetType().Name}: {ex.Message}");
             }
         }
@@ -394,25 +434,37 @@ public static class AtlasEmblemSource
         DestroyAll(Decorations);
         foreach (AtlasHandle handle in Atlases.Values)
         {
-            if (handle.Texture is not null) Object.Destroy(handle.Texture);
+            UiAssetLifetime.Destroy(handle.Texture);
         }
 
         Atlases.Clear();
         Missing.Clear();
+        RetryAfter.Clear();
         _threadId = 0;
         _log = null;
         _assets = null;
     }
 
-    private static void DestroyAll(Dictionary<string, Sprite> sprites)
-    {
-        foreach (Sprite sprite in sprites.Values)
-        {
-            if (sprite is null) continue;
-            Object.Destroy(sprite.texture);
-            Object.Destroy(sprite);
-        }
+    private static bool IsWaitingToRetry(string key) =>
+        RetryAfter.TryGetValue(key, out long deadline) && Environment.TickCount64 < deadline;
 
+    private static bool TryGetAlive(Dictionary<string, SpriteAsset> sprites, string key, out Sprite? sprite)
+    {
+        sprite = null;
+        if (!sprites.TryGetValue(key, out SpriteAsset? asset)) return false;
+        if (asset.IsAlive)
+        {
+            sprite = asset.Sprite;
+            return true;
+        }
+        asset.Destroy();
+        sprites.Remove(key);
+        return false;
+    }
+
+    private static void DestroyAll(Dictionary<string, SpriteAsset> sprites)
+    {
+        foreach (SpriteAsset asset in sprites.Values) asset.Destroy();
         sprites.Clear();
     }
 }

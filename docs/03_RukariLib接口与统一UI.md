@@ -235,13 +235,17 @@ ui/
 
 元数据提供图集坐标和切片边界；`AtlasEmblemSource` 提供图标、按钮板、图集Sprite和装饰的统一访问。整套读取失败时使用程序绘制的外观；某个Sprite不可用时对应控件回退，不影响公共服务类型的存在。
 
-本交付源码与素材配套包分开保存。补齐素材后，项目内容项会将其复制到Runtime输出的 `ui` 目录。素材来源说明随配套包提供；代码许可不改变素材自己的归属。
+当前仓库已经包含 `src/assets/rukari-lib/ui`，构建时复制到 Runtime 输出的 `ui` 目录，用户安装包也由 Lib 单独携带这一套素材。功能 Mod 不再复制一份。素材来源说明与代码许可分开，代码许可不改变素材自己的归属。
+
+2026-10-01 修正原生资源寿命：`UiAssetLifetime` 为缓存中的 Texture2D 和 Sprite 设置 `DontUnloadUnusedAsset`，同时检查托管包装器与 Unity 原生对象是否有效。图集、独立装饰、切片和程序生成按钮都明确持有自己的纹理与 Sprite，关闭时成对释放；不能只留下 Sprite 并在释放时再读取可能已销毁的 `sprite.texture`。
+
+图集原生对象失效时从启动时校验过的内存 PNG 重建，不读取游戏新图集，也不把新旧文件混用。暂时失败按 2 秒间隔重试；元数据不存在才按缺失处理。按钮临时采用备用绘制时，素材恢复后在原纹理上重绘，使复用同一 Sprite 的控件一起恢复。切片缓存区分 sliced/simple，避免两种边界相互污染。
 
 依据：[BundledUiAssets](../src/Rukari.Lib/Tools/BundledUiAssets.cs)、[AtlasSpriteCatalog](../src/Rukari.Lib/Tools/AtlasSpriteCatalog.cs)、[AtlasEmblemSource](../src/Rukari.Lib.Runtime/Tools/AtlasEmblemSource.cs)、[Runtime 内容项](../src/Rukari.Lib.Runtime/Rukari.Lib.Runtime.csproj)。
 
 ### 8.3 测试与素材的关系
 
-Lib测试既有临时生成的最小皮肤测试，也有检查实际随包图集的 `ShippedSkinContainsTheChromeAndValidSpriteBounds`。后者发现源码根的 `build.ps1` 后会读取Runtime输出皮肤，要求当前图集尺寸与关键Sprite匹配。因此本交付的完整测试需要先按总说明补齐配套素材；缺少素材可编译源码、运行时可使用备用外观，但不能据此声称实际皮肤测试已通过。
+Lib测试既有临时生成的最小皮肤测试，也有检查实际随包图集的 `ShippedSkinContainsTheChromeAndValidSpriteBounds`。后者发现源码根的 `build.ps1` 后会读取Runtime输出皮肤，要求当前图集尺寸与关键Sprite匹配。完整测试需要保留仓库内配套素材；缺少素材可编译源码、运行时可使用备用外观，但不能据此声称实际皮肤测试已通过。托管检查与离线资源寿命模拟均不能代替 Unity 实机切换场景、反复开关面板的验收。
 
 依据：[BundledUiAssetsTests](../src/Rukari.Lib.Tests/BundledUiAssetsTests.cs)。
 

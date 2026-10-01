@@ -4,7 +4,6 @@ extern alias unityui;
 using Color = unitycore::UnityEngine.Color;
 using FilterMode = unitycore::UnityEngine.FilterMode;
 using Image = unityui::UnityEngine.UI.Image;
-using Object = unitycore::UnityEngine.Object;
 using Rect = unitycore::UnityEngine.Rect;
 using Sprite = unitycore::UnityEngine.Sprite;
 using SpriteMeshType = unitycore::UnityEngine.SpriteMeshType;
@@ -33,18 +32,21 @@ internal static class OfficialButtonSkin
     private const int MaximumHeight = 128;
     private const int MaximumPixels = 65536;
     private const int MaximumVariantsPerStyle = 20;
+    private const int SourceRetryMilliseconds = 2000;
     private const float Shear = .17632698f; // tan(10 degrees)
 
     private static readonly Color Navy = new(45f / 255f, 70f / 255f, 100f / 255f, 1f);
     private static readonly Dictionary<AssetKey, Asset> Assets = new();
-    private static readonly Dictionary<string, Pixels?> Sources = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, Pixels> Sources = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, long> SourceRetryAfter = new(StringComparer.Ordinal);
     private static readonly HashSet<AssetKey> Failed = new();
     private static int _threadId;
     private static Action<string>? _log;
     private static bool _uploadUnavailable;
+    private static int _sourceRevision;
 
     private readonly record struct AssetKey(int Width, int Height, bool Decorated, bool Primary);
-    private sealed record Asset(Texture2D Texture, Sprite Sprite);
+    private sealed record Asset(Texture2D Texture, Sprite Sprite, int SourceRevision, bool Provisional, long RetryAfter);
     private sealed record Pixels(int Width, int Height, Color[] Data, Vector4 Border);
 
     internal static void Initialize(Action<string> log)
@@ -125,12 +127,23 @@ internal static class OfficialButtonSkin
 
     private static Sprite? GetOrCreate(AssetKey key)
     {
-        if (Assets.TryGetValue(key, out Asset? cached)) return cached.Sprite;
+        if (Assets.TryGetValue(key, out Asset? cached))
+        {
+            Sprite? existing = Refresh(key, cached);
+            if (existing is not null) return existing;
+        }
         Asset? nearest = null;
+        AssetKey nearestKey = default;
         float bestDistance = float.MaxValue;
         int sameStyle = 0;
+        List<AssetKey>? stale = null;
         foreach (var item in Assets)
         {
+            if (!UiAssetLifetime.IsAlive(item.Value.Sprite, item.Value.Texture))
+            {
+                (stale ??= new List<AssetKey>()).Add(item.Key);
+                continue;
+            }
             if (item.Key.Decorated != key.Decorated || item.Key.Primary != key.Primary) continue;
             sameStyle++;
             float distance = MathF.Abs(MathF.Log((float)item.Key.Width / key.Width))
@@ -138,16 +151,22 @@ internal static class OfficialButtonSkin
             if (distance >= bestDistance) continue;
             bestDistance = distance;
             nearest = item.Value;
+            nearestKey = item.Key;
         }
+        if (stale is not null)
+            foreach (AssetKey staleKey in stale) Remove(staleKey, Assets[staleKey]);
         // Never evict sprites still referenced by pooled Images. At the style limit, use the nearest size
         // rather than repeatedly baking during resize. Four styles * 20 entries * 65536 pixels is bounded.
-        if (sameStyle >= MaximumVariantsPerStyle || _uploadUnavailable || Failed.Contains(key)) return nearest?.Sprite;
+        if (sameStyle >= MaximumVariantsPerStyle || _uploadUnavailable || Failed.Contains(key))
+            return nearest is null ? null : Refresh(nearestKey, nearest);
 
         Texture2D? texture = null;
         Sprite? sprite = null;
+        bool uploading = false;
         try
         {
-            Color[] pixels = Paint(key);
+            var sources = ReadSources(key);
+            Color[] pixels = Paint(key, sources.Plate, sources.Facet);
             texture = new Texture2D(key.Width, key.Height, TextureFormat.RGBA32, false)
             {
                 name = $"RukariOfficialButton_{key.Width}x{key.Height}_{key.Decorated}_{key.Primary}",
@@ -156,35 +175,101 @@ internal static class OfficialButtonSkin
                 // keep sampling that edge, rather than wrap the opaque top row into the fading bottom shadow.
                 wrapMode = TextureWrapMode.Clamp
             };
+            UiAssetLifetime.Retain(texture);
+            uploading = true;
             texture.SetPixels(pixels);
             texture.Apply();
+            uploading = false;
             sprite = Sprite.Create(texture, new Rect(0, 0, key.Width, key.Height), new Vector2(.5f, .5f),
                 100f, 0, SpriteMeshType.FullRect, Vector4.zero);
-            Assets[key] = new Asset(texture, sprite);
+            UiAssetLifetime.Retain(sprite);
+            Assets[key] = new Asset(texture, sprite, _sourceRevision,
+                sources.Plate is null || key.Decorated && sources.Facet is null,
+                Environment.TickCount64 + SourceRetryMilliseconds);
             return sprite;
         }
         catch (Exception ex)
         {
-            if (sprite is not null) Object.Destroy(sprite);
-            if (texture is not null) Object.Destroy(texture);
-            Failed.Add(key);
+            bool uploadFailed = uploading && UiAssetLifetime.IsAlive(texture);
+            UiAssetLifetime.Destroy(sprite);
+            UiAssetLifetime.Destroy(texture);
             // All variants share the same upload API. Do not retry a broken API at every new size.
-            _uploadUnavailable = true;
+            // A lost native object is recoverable and does not establish that the upload API is broken.
+            if (uploadFailed)
+            {
+                Failed.Add(key);
+                _uploadUnavailable = true;
+            }
             _log?.Invoke($"Official button baking unavailable; using the shared theme: {ex.GetType().Name}: {ex.Message}");
-            return nearest?.Sprite;
+            return nearest is null ? null : Refresh(nearestKey, nearest);
         }
+    }
+
+    private static Sprite? Refresh(AssetKey key, Asset asset)
+    {
+        if (!UiAssetLifetime.IsAlive(asset.Sprite, asset.Texture))
+        {
+            Remove(key, asset);
+            return null;
+        }
+        if (!asset.Provisional || _uploadUnavailable || Environment.TickCount64 < asset.RetryAfter) return asset.Sprite;
+        asset = asset with { RetryAfter = Environment.TickCount64 + SourceRetryMilliseconds };
+        Assets[key] = asset;
+        bool uploading = false;
+        try
+        {
+            var sources = ReadSources(key);
+            if (asset.SourceRevision == _sourceRevision) return asset.Sprite;
+            Color[] pixels = Paint(key, sources.Plate, sources.Facet);
+            // Update the existing texture so every pooled Image sharing this sprite sees recovered artwork.
+            uploading = true;
+            asset.Texture.SetPixels(pixels);
+            asset.Texture.Apply();
+            uploading = false;
+            Assets[key] = asset with
+            {
+                SourceRevision = _sourceRevision,
+                Provisional = sources.Plate is null || key.Decorated && sources.Facet is null
+            };
+            return asset.Sprite;
+        }
+        catch (Exception ex)
+        {
+            if (!UiAssetLifetime.IsAlive(asset.Sprite, asset.Texture))
+            {
+                Remove(key, asset);
+                return null;
+            }
+            if (uploading)
+            {
+                Failed.Add(key);
+                _uploadUnavailable = true;
+            }
+            _log?.Invoke($"Official button artwork refresh unavailable: {ex.GetType().Name}: {ex.Message}");
+            return asset.Sprite;
+        }
+    }
+
+    private static void Remove(AssetKey key, Asset asset)
+    {
+        Assets.Remove(key);
+        UiAssetLifetime.Destroy(asset.Sprite);
+        UiAssetLifetime.Destroy(asset.Texture);
     }
 
     private static Pixels? Read(string spriteRef, Vector4 fallbackBorder)
     {
         if (Sources.TryGetValue(spriteRef, out Pixels? cached)) return cached;
+        if (SourceRetryAfter.TryGetValue(spriteRef, out long retryAfter) && Environment.TickCount64 < retryAfter) return null;
+        SourceRetryAfter[spriteRef] = Environment.TickCount64 + SourceRetryMilliseconds;
         Pixels? result = null;
         try
         {
             Sprite? sprite = AtlasEmblemSource.GetSprite(spriteRef);
-            if (sprite is not null)
+            if (UiAssetLifetime.IsAlive(sprite))
             {
-                Texture2D texture = sprite.texture;
+                Texture2D texture = sprite!.texture;
+                if (!UiAssetLifetime.IsAlive(texture)) return null;
                 int width = texture.width;
                 int height = texture.height;
                 // AtlasEmblemSource returns a readable crop; never read all four million atlas pixels here.
@@ -201,16 +286,26 @@ internal static class OfficialButtonSkin
         {
             _log?.Invoke($"Official button source '{spriteRef}' cannot be sampled; using the procedural plate: {ex.GetType().Name}: {ex.Message}");
         }
-        Sources[spriteRef] = result; // Cache absence/failure as well.
+        if (result is not null)
+        {
+            Sources[spriteRef] = result;
+            SourceRetryAfter.Remove(spriteRef);
+            _sourceRevision++;
+        }
         return result;
     }
 
-    private static Color[] Paint(AssetKey key)
+    private static (Pixels? Plate, Pixels? Facet) ReadSources(AssetKey key)
     {
         Pixels? plate = key.Decorated
             ? Read(LargePlate, new Vector4(30, 35, 30, 30))
             : Read(SmallPlate, new Vector4(20, 30, 20, 15));
         Pixels? facet = key.Decorated ? Read(key.Primary ? YellowFacet : BlueFacet, Vector4.zero) : null;
+        return (plate, facet);
+    }
+
+    private static Color[] Paint(AssetKey key, Pixels? plate, Pixels? facet)
+    {
         Color fill = !key.Decorated ? Color.white
             : key.Primary ? new Color(1f, .925f, .25f, 1f) : new Color(.86f, .94f, .975f, 1f);
         var output = new Color[key.Width * key.Height];
@@ -321,13 +416,15 @@ internal static class OfficialButtonSkin
         if (_threadId == 0 || _threadId != Environment.CurrentManagedThreadId) return;
         foreach (Asset asset in Assets.Values)
         {
-            Object.Destroy(asset.Sprite);
-            Object.Destroy(asset.Texture);
+            UiAssetLifetime.Destroy(asset.Sprite);
+            UiAssetLifetime.Destroy(asset.Texture);
         }
         Assets.Clear();
         Sources.Clear();
+        SourceRetryAfter.Clear();
         Failed.Clear();
         _uploadUnavailable = false;
+        _sourceRevision = 0;
         _threadId = 0;
         _log = null;
     }

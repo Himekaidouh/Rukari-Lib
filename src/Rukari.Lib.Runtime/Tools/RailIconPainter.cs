@@ -2,7 +2,6 @@ extern alias unitycore;
 
 using Rukari.Lib.Tools;
 using Color = unitycore::UnityEngine.Color;
-using Object = unitycore::UnityEngine.Object;
 using Rect = unitycore::UnityEngine.Rect;
 using Sprite = unitycore::UnityEngine.Sprite;
 using SpriteMeshType = unitycore::UnityEngine.SpriteMeshType;
@@ -42,14 +41,21 @@ public static class RailIconPainter
         if (_threadId == 0 || _threadId != Environment.CurrentManagedThreadId) return null;
         string glyph = RailIconStyle.GlyphFor(iconId);
         Sprite? emblem = AtlasEmblemSource.Get(glyph);
-        if (emblem is not null) return emblem;
+        if (UiAssetLifetime.IsAlive(emblem)) return emblem;
         string key = glyph + "|" + RailIconStyle.AccentKey(moduleId);
-        if (Loaded.TryGetValue(key, out var cached)) return cached.Sprite;
+        if (Loaded.TryGetValue(key, out var cached))
+        {
+            if (UiAssetLifetime.IsAlive(cached.Sprite, cached.Texture)) return cached.Sprite;
+            Loaded.Remove(key);
+            UiAssetLifetime.Destroy(cached.Sprite);
+            UiAssetLifetime.Destroy(cached.Texture);
+        }
         Texture2D? texture = null;
         Sprite? sprite = null;
         try
         {
             texture = new Texture2D(Size, Size, TextureFormat.RGBA32, false) { filterMode = unitycore::UnityEngine.FilterMode.Bilinear };
+            UiAssetLifetime.Retain(texture);
             var pixels = new Color[Size * Size];
             Color accent = Native(RailIconStyle.AccentFor(moduleId));
             for (int y = 0; y < Size; y++)
@@ -67,13 +73,14 @@ public static class RailIconPainter
             texture.Apply();
             sprite = Sprite.Create(texture, new Rect(0, 0, Size, Size), new Vector2(.5f, .5f), 100f, 0,
                 SpriteMeshType.FullRect, new Vector4(Corner, Corner, Corner, Corner));
+            UiAssetLifetime.Retain(sprite);
             Loaded[key] = (texture, sprite);
             return sprite;
         }
         catch (Exception ex)
         {
-            if (sprite is not null) Object.Destroy(sprite);
-            if (texture is not null) Object.Destroy(texture);
+            UiAssetLifetime.Destroy(sprite);
+            UiAssetLifetime.Destroy(texture);
             _log?.Invoke($"Rail icon '{glyph}' unavailable: {ex.GetType().Name}: {ex.Message}");
             return null;
         }
@@ -175,8 +182,8 @@ public static class RailIconPainter
         if (_threadId != Environment.CurrentManagedThreadId) return;
         foreach (var asset in Loaded.Values)
         {
-            Object.Destroy(asset.Sprite);
-            Object.Destroy(asset.Texture);
+            UiAssetLifetime.Destroy(asset.Sprite);
+            UiAssetLifetime.Destroy(asset.Texture);
         }
         Loaded.Clear();
         _threadId = 0;

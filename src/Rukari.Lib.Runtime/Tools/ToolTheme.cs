@@ -5,7 +5,6 @@ extern alias unityui;
 using Rukari.Lib.Tools;
 using Color = unitycore::UnityEngine.Color;
 using Image = unityui::UnityEngine.UI.Image;
-using Object = unitycore::UnityEngine.Object;
 using Rect = unitycore::UnityEngine.Rect;
 using RectTransform = unitycore::UnityEngine.RectTransform;
 using Sprite = unitycore::UnityEngine.Sprite;
@@ -88,15 +87,26 @@ public static class ToolTheme
         // A scrollbar track is a long thin bar: a rounded corner would turn it into a pill, so it shares the square
         // primitive with the flat surfaces instead of the nine-sliced one.
         bool rounded = key is not ("solid" or "header" or "scroll.track");
-        if (!Loaded.TryGetValue(rounded, out var asset))
+        bool cached = Loaded.TryGetValue(rounded, out var asset);
+        if (cached && !UiAssetLifetime.IsAlive(asset.Sprite, asset.Texture))
+        {
+            Loaded.Remove(rounded);
+            UiAssetLifetime.Destroy(asset.Sprite);
+            UiAssetLifetime.Destroy(asset.Texture);
+            cached = false;
+        }
+        if (!cached)
         {
             Texture2D? texture = null;
             Sprite? sprite = null;
+            bool uploading = false;
             try
             {
                 const int size = 24;
                 float corner = rounded ? 5f : 0f;
                 texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+                UiAssetLifetime.Retain(texture);
+                uploading = true;
                 for (int y = 0; y < size; y++)
                 for (int x = 0; x < size; x++)
                 {
@@ -106,16 +116,19 @@ public static class ToolTheme
                     texture.SetPixel(x, y, new Color(1, 1, 1, alpha));
                 }
                 texture.Apply();
+                uploading = false;
                 sprite = Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(.5f, .5f),
                     100f, 0, SpriteMeshType.FullRect, new Vector4(corner, corner, corner, corner));
+                UiAssetLifetime.Retain(sprite);
                 asset = (texture, sprite);
                 Loaded.Add(rounded, asset);
             }
             catch (Exception ex)
             {
-                if (sprite is not null) Object.Destroy(sprite);
-                if (texture is not null) Object.Destroy(texture);
-                Failed.Add(key);
+                bool uploadFailed = uploading && UiAssetLifetime.IsAlive(texture);
+                UiAssetLifetime.Destroy(sprite);
+                UiAssetLifetime.Destroy(texture);
+                if (uploadFailed) Failed.Add(key);
                 _log?.Invoke($"Tool skin '{key}' unavailable: {ex.GetType().Name}: {ex.Message}");
                 return false;
             }
@@ -153,8 +166,8 @@ public static class ToolTheme
         if (_threadId != Environment.CurrentManagedThreadId) return;
         foreach (var asset in Loaded.Values)
         {
-            Object.Destroy(asset.Sprite);
-            Object.Destroy(asset.Texture);
+            UiAssetLifetime.Destroy(asset.Sprite);
+            UiAssetLifetime.Destroy(asset.Texture);
         }
         Loaded.Clear();
         Failed.Clear();
