@@ -10,7 +10,7 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <RequiresAzureArchiveGame>true</RequiresAzureArchiveGame>
-    <DefineConstants Condition="'$(AzureArchiveTarget)' == 'Preview10'">$(DefineConstants);AA_PREVIEW_10</DefineConstants>
+    <DefineConstants Condition="'$(AzureArchiveTarget)' == 'Preview10' Or '$(AzureArchiveTarget)' == 'Release10'">$(DefineConstants);AA_PREVIEW_10</DefineConstants>
     <IncludeExperimentalSpineConsole Condition="'$(IncludeExperimentalSpineConsole)' == ''">false</IncludeExperimentalSpineConsole>
     <DefineConstants Condition="'$(IncludeExperimentalSpineConsole)' == 'true'">$(DefineConstants);EXPERIMENTAL_SPINE_CONSOLE</DefineConstants>
   </PropertyGroup>

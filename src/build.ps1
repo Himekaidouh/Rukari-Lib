@@ -2,6 +2,7 @@
 param(
     [string]$GameRoot = $env:AZUREARCHIVE_GAME_ROOT,
     [ValidateSet('Debug','Release')][string]$Configuration = 'Release',
+    [ValidateSet('Release10','Preview10')][string]$Target = 'Release10',
     [switch]$CoreOnly,
     [switch]$SkipTests
 )
@@ -28,7 +29,9 @@ if (-not $SkipTests) {
         if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ine $expected) { throw "UI hash mismatch: $relative" }
     }
 }
-$common = @('-c',$Configuration,'-p:AzureArchiveTarget=Preview10')
+$common = @('-c',$Configuration,"-p:AzureArchiveTarget=$Target")
+$gameInputs = @()
+$resolvedGame = $null
 if ($CoreOnly) {
     foreach ($project in @('AzureArchive.VideoTools.Tests/AzureArchive.VideoTools.Tests.csproj','Rukari.Lib.Tests/Rukari.Lib.Tests.csproj','Rukari.CharacterVoice/Tests/Rukari.CharacterVoice.Tests.csproj','Rukari.SpineSupport/Tests/Rukari.SpineSupport.Tests.csproj')) {
         Run-DotNet (@('build',(Join-Path $repo $project)) + $common)
@@ -47,6 +50,16 @@ if ($CoreOnly) {
 } else {
     if ([string]::IsNullOrWhiteSpace($GameRoot)) { throw 'Specify -GameRoot or AZUREARCHIVE_GAME_ROOT. The game must already contain its local BepInEx/core and interop references.' }
     $resolvedGame = (Resolve-Path -LiteralPath $GameRoot).Path
+    # Record the actual supplied game/interop inputs; a target label alone is not compatibility proof.
+    foreach ($relative in @('GameAssembly.dll','UnityPlayer.dll','AzureArchive_Data/globalgamemanagers',
+        'AzureArchive_Data/level1','AzureArchive_Data/level2','BepInEx/interop/Assembly-CSharp.dll',
+        'BepInEx/interop/spine-csharp.dll','BepInEx/interop/spine-unity.dll',
+        'BepInEx/core/BepInEx.Core.dll','BepInEx/core/BepInEx.Unity.IL2CPP.dll',
+        'BepInEx/core/Il2CppInterop.Runtime.dll','BepInEx/core/0Harmony.dll',
+        'BepInEx/patchers/ModTheAzureArchive.dll')) {
+        $inputFile = Join-Path $resolvedGame $relative
+        $gameInputs += [ordered]@{Path=$relative;SHA256=(Get-FileHash -LiteralPath $inputFile -Algorithm SHA256).Hash}
+    }
     Run-DotNet (@('build',(Join-Path $repo 'Rukari.Mods.sln')) + $common + @("-p:AzureArchiveGameRoot=$resolvedGame"))
     foreach ($project in @('examples/SharedVoiceClient/SharedVoiceClient.csproj','examples/UiToolboxClient/UiToolboxClient.csproj','examples/UiToolboxPlugin/UiToolboxPlugin.csproj','examples/EmbeddedDirectiveClient/EmbeddedDirectiveClient.csproj')) {
         Run-DotNet (@('build',(Join-Path $repo $project)) + $common + @("-p:GameRoot=$resolvedGame"))
@@ -61,7 +74,7 @@ if (-not $SkipTests) {
 $records = @(Get-ChildItem -LiteralPath $repo -File -Recurse | Where-Object {
     $_.FullName.Substring($repo.Length + 1) -notmatch '(^|[\\/])(bin|obj|artifacts)[\\/]' -and $_.Extension -in @('.cs','.csproj','.sln','.props','.targets','.ps1','.json')
 } | ForEach-Object { [ordered]@{Path=[IO.Path]::GetRelativePath($repo,$_.FullName).Replace('\','/');SHA256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} })
-$receipt = [ordered]@{SchemaVersion=1;Lib='0.4.1';MoreEffects='1.4.0';Configuration=$Configuration;Scope=($CoreOnly ? 'managed core only' : 'four products and four examples');Compilation='passed';ManagedTests=($SkipTests ? 'not-run' : 'passed: 396 Core + 136 Lib + 53 Voice + 26 Spine');Native='not-run';Sources=$records;GameStarted=$false;Installed=$false}
+$receipt = [ordered]@{SchemaVersion=2;BuiltAt=(Get-Date -Format o);Target=$Target;GameRoot=$resolvedGame;GameInputs=$gameInputs;Lib='0.4.1';MoreEffects='1.4.0';Configuration=$Configuration;Scope=($CoreOnly ? 'managed core only' : 'four products and four examples');Compilation='passed';ManagedTests=($SkipTests ? 'not-run' : 'passed: 396 Core + 136 Lib + 53 Voice + 26 Spine');Native='not-run';Sources=$records;GameStarted=$false;Installed=$false}
 $receiptDirectory = Join-Path $repo 'artifacts'
 [IO.Directory]::CreateDirectory($receiptDirectory) | Out-Null
 [IO.File]::WriteAllText((Join-Path $receiptDirectory "source-handover-build-$Configuration.json"),($receipt | ConvertTo-Json -Depth 7),$utf8)

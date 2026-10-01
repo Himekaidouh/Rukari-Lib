@@ -1,6 +1,6 @@
 {
   "Date": "2026-10-01",
-  "Status": "development preview; stable release pending AA 1.0 verification",
+  "Status": "AA 1.0 candidate compiled and installed; stable release pending native verification",
   "InitiallyTrackedFilesRead": 398,
   "RecoveredInteropSourceFiles": 24,
   "MissingOriginalSourceRecords": 0,
@@ -49,5 +49,23 @@
     "ProfileModified": false,
     "UserProjectModified": false,
     "Native": "not-run"
+  },
+  "LatestReleaseAdaptation": {
+    "Date": "2026-10-01",
+    "Target": "AzureArchive_100_1001 / Release10",
+    "Compilation": "passed, 0 warnings, 0 errors",
+    "ManagedTests": "611 passed; 2 symlink fixtures skipped",
+    "Examples": "4 passed",
+    "Dependencies": "4 compiled and 4 installed packages passed",
+    "InstalledFiles": "35 hashes verified",
+    "BackupFiles": 10,
+    "Profile": "RukariAA10",
+    "GameModified": true,
+    "UserProjectModified": false,
+    "GameCoreModified": false,
+    "PreviousInstallationsModified": false,
+    "GameStarted": false,
+    "Native": "not-run",
+    "StableReleasePublished": false
   }
 }

@@ -71,9 +71,8 @@ internal static class VoicePlaybackRuntime
             MethodInfo touch = Require(typeof(Test), "OnTouchAreaClicked");
             MethodInfo advance = Require(typeof(Test), "AdvanceScenario", typeof(bool), typeof(IScenarioScriptExcel));
             // The preload coroutine's state machine is compiler-generated, so its name carries a compiler
-            // counter that moves between AA builds (AA 1.0 ships _CoTryPreloadVoice_d__72, the 0.8.9 build
-            // _d__74). Resolve the type by name prefix and read its members through cached accessors; the
-            // member names themselves (__1__state, voiceIdentifier, __4__this) are identical in both.
+            // counter that moves between AA builds (AAfix4 and the 2026-10-01 release both use 104).
+            // Resolve by prefix and validate the member types; do not bind to that incidental counter.
             Type preloadIterator = ResolvePreloadIterator();
             _preloadState = RequireIteratorProperty(preloadIterator, "__1__state", typeof(int));
             _preloadVoice = RequireIteratorProperty(preloadIterator, "voiceIdentifier", typeof(string));

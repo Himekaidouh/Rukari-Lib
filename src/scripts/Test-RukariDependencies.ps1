@@ -51,11 +51,7 @@ foreach ($definition in $definitions) {
         $dllPath = Join-Path $folder ($definition.Project + '.dll')
     } else {
         $dllPath = Join-Path $repo ($definition.Project + "\bin\$Configuration\" + $definition.Project + '.dll')
-        $manifest = if ($definition.Name -eq 'RukariLib') {
-            @{ name='RukariLib';version_number=$libVersion;dependencies=@() }
-        } else {
-            Get-Content -LiteralPath (Join-Path $repo ($definition.Project + '\package\manifest.json')) -Raw | ConvertFrom-Json
-        }
+        $manifest = Get-Content -LiteralPath (Join-Path $repo ($definition.Project + '\package\manifest.json')) -Raw | ConvertFrom-Json
     }
     $assembly = [Mono.Cecil.AssemblyDefinition]::ReadAssembly($dllPath)
     try {

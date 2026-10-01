@@ -60,8 +60,8 @@ public static class EditorWorkspaceContext
                 bool transitioning = Read<bool>(InspectorLoading, inspector) || Read<bool>(InspectorUnloading, inspector);
                 if (!hasNode || transitioning) return false;
 
-                // Verified AA 1.0 level2 serialization: ScriptNodeInspector GO349 has UIPanel 2208;
-                // InspectorPanel GO92 has UIPanel 2189; its UI Root ancestor GO62 has UIPanel 2188.
+                // AAfix4 and the 2026-10-01 release both serialize panels on ScriptNodeInspector,
+                // InspectorPanel and their UI Root ancestor. Use components, not serialized object IDs.
                 // All three GameObjects start active. Local child alpha alone misses a transparent
                 // parent, so inspect every ancestor's current enabled/alpha instead of cached finalAlpha.
                 UIPanel inspectorPanel = inspector!.GetComponent<UIPanel>();
