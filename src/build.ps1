@@ -71,10 +71,22 @@ if (-not $SkipTests) {
         Run-DotNet @((Join-Path $repo $suite))
     }
 }
+$outputs = @()
+if (-not $CoreOnly -and -not $SkipTests) {
+    # Bind every distributable DLL, including the three shared helpers, to this successful build.
+    foreach ($project in @('Rukari.Lib.Runtime','Rukari.CharacterVoice','Rukari.MoreEffects','Rukari.SpineSupport')) {
+        $relative = "$project/bin/$Configuration/$project.dll"
+        $outputs += [ordered]@{Path=$relative;SHA256=(Get-FileHash -LiteralPath (Join-Path $repo $relative) -Algorithm SHA256).Hash}
+    }
+    foreach ($project in @('Rukari.Lib','AzureArchive.VideoTools.Core','AzureArchive.VideoTools.Formats')) {
+        $relative = "$project/bin/$Configuration/net6.0/$project.dll"
+        $outputs += [ordered]@{Path=$relative;SHA256=(Get-FileHash -LiteralPath (Join-Path $repo $relative) -Algorithm SHA256).Hash}
+    }
+}
 $records = @(Get-ChildItem -LiteralPath $repo -File -Recurse | Where-Object {
     $_.FullName.Substring($repo.Length + 1) -notmatch '(^|[\\/])(bin|obj|artifacts)[\\/]' -and $_.Extension -in @('.cs','.csproj','.sln','.props','.targets','.ps1','.json')
 } | ForEach-Object { [ordered]@{Path=[IO.Path]::GetRelativePath($repo,$_.FullName).Replace('\','/');SHA256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} })
-$receipt = [ordered]@{SchemaVersion=2;BuiltAt=(Get-Date -Format o);Target=$Target;GameRoot=$resolvedGame;GameInputs=$gameInputs;Lib='0.4.1';MoreEffects='1.4.0';Configuration=$Configuration;Scope=($CoreOnly ? 'managed core only' : 'four products and four examples');Compilation='passed';ManagedTests=($SkipTests ? 'not-run' : 'passed: 396 Core + 136 Lib + 53 Voice + 26 Spine');Native='not-run';Sources=$records;GameStarted=$false;Installed=$false}
+$receipt = [ordered]@{SchemaVersion=2;BuiltAt=(Get-Date -Format o);Target=$Target;GameRoot=$resolvedGame;GameInputs=$gameInputs;Lib='0.4.1';MoreEffects='1.4.0';Configuration=$Configuration;Scope=($CoreOnly ? 'managed core only' : 'four products and four examples');Compilation='passed';ManagedTests=($SkipTests ? 'not-run' : 'passed: 396 Core + 136 Lib + 53 Voice + 26 Spine');Native='not-run';Sources=$records;Outputs=$outputs;GameStarted=$false;Installed=$false}
 $receiptDirectory = Join-Path $repo 'artifacts'
 [IO.Directory]::CreateDirectory($receiptDirectory) | Out-Null
 [IO.File]::WriteAllText((Join-Path $receiptDirectory "source-handover-build-$Configuration.json"),($receipt | ConvertTo-Json -Depth 7),$utf8)

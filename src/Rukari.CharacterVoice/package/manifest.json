@@ -2,7 +2,7 @@
   "name": "人物配音支持",
   "version_number": "1.6.2",
   "website_url": "",
-  "description": "人物配音支持。工程内选择音频、绑定台词、播完等待和全局尾延迟；等待时间接入 Rukari 全局模组设置。AA 1.0 适配候选，游戏内验收待完成。",
+  "description": "从自己的音频文件夹为台词添加配音，自动播放时等待语音结束，额外等待时间可调。AA 1.0 测试版。",
   "dependencies": [
     "RukariLib/0.4.1"
   ]

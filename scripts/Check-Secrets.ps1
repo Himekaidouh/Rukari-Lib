@@ -7,11 +7,11 @@ $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 Push-Location $repoRoot
 try {
     $files = if ($TrackedOnly) {
-        @(git ls-files)
+        @(git -c core.quotePath=false ls-files)
     }
     else {
         @(
-            git ls-files --cached --others --exclude-standard
+            git -c core.quotePath=false ls-files --cached --others --exclude-standard
         )
     }
 
@@ -34,6 +34,8 @@ try {
     }
 
     $findings = [System.Collections.Generic.List[string]]::new()
+    $textFilesScanned = 0
+    $nonTextFilesSkipped = 0
     foreach ($relativePath in $files | Sort-Object -Unique) {
         if ([string]::IsNullOrWhiteSpace($relativePath)) {
             continue
@@ -41,15 +43,17 @@ try {
 
         $path = Join-Path $repoRoot $relativePath
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-            continue
+            throw "Repository inventory file cannot be read: $relativePath"
         }
 
         $bytes = [System.IO.File]::ReadAllBytes($path)
         if ($bytes.Length -gt 4MB -or $bytes -contains 0) {
+            $nonTextFilesSkipped++
             continue
         }
 
         $lines = [System.IO.File]::ReadAllLines($path)
+        $textFilesScanned++
         for ($lineIndex = 0; $lineIndex -lt $lines.Length; $lineIndex++) {
             foreach ($entry in $patterns.GetEnumerator()) {
                 if ([System.Text.RegularExpressions.Regex]::IsMatch(
@@ -67,7 +71,7 @@ try {
         exit 1
     }
 
-    Write-Output "Secret scan passed: $($files.Count) repository files checked."
+    Write-Output "Secret scan passed: $textFilesScanned text files scanned; $nonTextFilesSkipped binary or over-4MB files skipped."
 }
 finally {
     Pop-Location

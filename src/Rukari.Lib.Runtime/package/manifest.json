@@ -2,6 +2,6 @@
   "name": "RukariLib",
   "version_number": "0.4.1",
   "website_url": "https://github.com/Himekaidouh/Rukari-Lib",
-  "description": "共享 UI、模组设置、编辑器工具箱与公共托管服务。AA 1.0 适配候选，游戏内验收待完成。",
+  "description": "提供统一工具箱、模组设置与共享界面，是 Rukari 功能模组的前置。AA 1.0 测试版。",
   "dependencies": []
 }

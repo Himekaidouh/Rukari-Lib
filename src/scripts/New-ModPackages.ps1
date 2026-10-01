@@ -129,9 +129,33 @@ $definitions = @(
     @{ Project='Rukari.MoreEffects'; Name='更多的画面效果'; Guid='rukari.moreeffects'; Icon='more-effects'; Extra=@('AzureArchive.VideoTools.Core','AzureArchive.VideoTools.Formats') },
     @{ Project='Rukari.SpineSupport'; Name='更多Spine动画支持'; Guid='rukari.spinesupport'; Icon='memory-lobby'; Extra=@() }
 )
+$expectedOutputs = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+foreach ($definition in $definitions) {
+    [void]$expectedOutputs.Add($definition.Project + "/bin/$Configuration/" + $definition.Project + '.dll')
+    foreach ($extra in $definition.Extra) {
+        [void]$expectedOutputs.Add($extra + "/bin/$Configuration/net6.0/" + $extra + '.dll')
+    }
+}
+if ($build.PSObject.Properties.Name -notcontains 'Outputs' -or @($build.Outputs).Count -ne $expectedOutputs.Count) {
+    throw 'The build receipt must record all seven runtime DLL outputs. Rebuild before packaging.'
+}
+$recordedOutputs = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
+foreach ($outputRecord in $build.Outputs) {
+    $relative = ([string]$outputRecord.Path).Replace('\','/')
+    if (-not $expectedOutputs.Contains($relative) -or $recordedOutputs.ContainsKey($relative)) {
+        throw "Unexpected or duplicate DLL output in build receipt: $relative"
+    }
+    Assert-Hash (Resolve-Child $srcRoot $relative) $outputRecord.SHA256
+    $recordedOutputs.Add($relative, [string]$outputRecord.SHA256)
+}
 $plans = [Collections.Generic.List[object]]::new()
 $packages = [Collections.Generic.List[object]]::new()
 function Add-Payload([string]$Source, [string]$Destination) {
+    if ([IO.Path]::GetExtension($Source) -ieq '.dll') {
+        $relative = [IO.Path]::GetRelativePath($srcRoot,$Source).Replace('\','/')
+        if (-not $recordedOutputs.ContainsKey($relative)) { throw "DLL is absent from the build receipt: $relative" }
+        Assert-Hash $Source $recordedOutputs[$relative]
+    }
     $destinationPath = Resolve-Child $outputRoot $Destination
     if (@($plans | Where-Object { $_.Destination.Equals($destinationPath,$comparison) }).Count) {
         throw "Duplicate package destination: $Destination"
