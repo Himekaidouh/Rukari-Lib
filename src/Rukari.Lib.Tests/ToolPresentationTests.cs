@@ -23,6 +23,29 @@ internal static class ToolPresentationTests
             Check.True(!state.IsNodeEditorVisible, "No tools or input region may survive outside the loaded Script inspector.");
     }
 
+    internal static void OfficialWindowsHideToolsWithoutClosingTheWorkspace()
+    {
+        var workspace = new EditorWorkspaceVisibilityState(true, true, true, true, true, true, false);
+        var editing = new EditorToolVisibilityState(workspace.IsNodeEditorVisible, true, false, true);
+        Check.True(editing.IsToolWorkspaceVisible, "The normal Script editor must expose the tool entrance.");
+
+        var selector = editing with { BlockingActive = true };
+        Check.True(!selector.IsToolWorkspaceVisible, "An official resource selector must hide every tool level.");
+        Check.True(workspace.IsNodeEditorVisible, "Covering the editor must not invalidate its document/draft lifetime.");
+
+        // During closing, the visible blocking layer can remain until its panel finishes fading.
+        var closing = selector;
+        Check.True(!closing.IsToolWorkspaceVisible, "The tool entrance must not reappear over a closing selector.");
+        Check.True((closing with { BlockingPanelsVisible = false }).IsToolWorkspaceVisible,
+            "An invisible blocking hierarchy must not permanently hide tools after the window closes.");
+        Check.True((closing with { BlockingActive = false }).IsToolWorkspaceVisible,
+            "Returning to unobstructed editing must make the tool entrance available again.");
+        Check.True(!(editing with { WindowStateAvailable = false }).IsToolWorkspaceVisible,
+            "Missing window state is not proof that the editor is unobstructed.");
+        Check.True(!(editing with { NodeEditorVisible = false }).IsToolWorkspaceVisible,
+            "Closing the node must hide tools even when no selector is open.");
+    }
+
     internal static void ButtonTextHasContrastInEveryVisualState()
     {
         var pairs = new[] { ToolPalette.Panel, ToolPalette.Header, ToolPalette.Normal,

@@ -33,6 +33,7 @@ internal static class Program
             (nameof(EmbeddedDirectiveTests.CompilationFamiliesKeepSeparateAuthorityAndSharedCorrelation), EmbeddedDirectiveTests.CompilationFamiliesKeepSeparateAuthorityAndSharedCorrelation),
             (nameof(EmbeddedDirectiveTests.CompilationTrackerCanUnwindAnExceptionAndStartFresh), EmbeddedDirectiveTests.CompilationTrackerCanUnwindAnExceptionAndStartFresh),
             (nameof(ToolPresentationTests.NodeToolsRequireAnOpenLoadedInspector), ToolPresentationTests.NodeToolsRequireAnOpenLoadedInspector),
+            (nameof(ToolPresentationTests.OfficialWindowsHideToolsWithoutClosingTheWorkspace), ToolPresentationTests.OfficialWindowsHideToolsWithoutClosingTheWorkspace),
             (nameof(ToolPresentationTests.ButtonTextHasContrastInEveryVisualState), ToolPresentationTests.ButtonTextHasContrastInEveryVisualState),
             (nameof(ToolPresentationTests.EmptyVoicePanelDoesNotReserveEightEmptyRows), ToolPresentationTests.EmptyVoicePanelDoesNotReserveEightEmptyRows),
             (nameof(ToolPresentationTests.DrawerFitsScreensAndScalesWithLongContent), ToolPresentationTests.DrawerFitsScreensAndScalesWithLongContent),

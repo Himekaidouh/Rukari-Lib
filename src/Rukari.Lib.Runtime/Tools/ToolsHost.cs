@@ -132,7 +132,7 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
     internal ToolboxService(ToolInputService input, Action<string> log) { _input = input; _log = log; }
 
     public bool IsOpen => _tree.Depth == 2 && !_stopped && !_uiFailed && _pages.Any(p => !p.Disposed)
-        && EditorWorkspaceContext.IsNodeEditorVisible && !SettingsHost.IsOpen;
+        && EditorWorkspaceContext.IsToolWorkspaceVisible && !SettingsHost.IsOpen;
 
     public ModResult<IDisposable> RegisterPage(string ownerId, string pageId, string title,
         Func<ToolPageSnapshot> snapshot, Action<ToolAction> action) =>
@@ -257,10 +257,10 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
         if (Environment.CurrentManagedThreadId != _threadId)
             return ModResult<bool>.Fail(ModErrorCode.WrongThread, "Opening a tool requires the main thread.");
         if (_stopped || _uiFailed) return ModResult<bool>.Fail(ModErrorCode.NotReady, "The toolbox renderer is unavailable.");
-        if (!EditorWorkspaceContext.IsNodeEditorVisible || SettingsHost.IsOpen)
+        if (!EditorWorkspaceContext.IsToolWorkspaceVisible || SettingsHost.IsOpen)
         {
             HideOutsideWorkspace();
-            return ModResult<bool>.Fail(ModErrorCode.NotReady, "请先进入项目并打开一个 Script 节点。");
+            return ModResult<bool>.Fail(ModErrorCode.NotReady, "请返回项目内的台词编辑界面，并关闭官方选择窗口。");
         }
         if (pageId is not null)
         {
@@ -376,7 +376,7 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
         if (_stopped || _uiFailed || Environment.CurrentManagedThreadId != _threadId) return;
         try
         {
-            if (!EditorWorkspaceContext.IsNodeEditorVisible || SettingsHost.IsOpen) { HideOutsideWorkspace(); return; }
+            if (!EditorWorkspaceContext.IsToolWorkspaceVisible || SettingsHost.IsOpen) { HideOutsideWorkspace(); return; }
             _pages.RemoveAll(p => p.Disposed);
             if (_selected is null || _selected.Disposed) { _selected = _pages.FirstOrDefault(); _dirty = true; _drawer?.ResetPage(); }
             // A module or entry whose provider unloaded cannot keep a column, let alone a panel, on screen.
@@ -448,7 +448,7 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
 
     private void InvokeAction(ToolAction action)
     {
-        if (!EditorWorkspaceContext.IsNodeEditorVisible || SettingsHost.IsOpen) { HideOutsideWorkspace(); return; }
+        if (!EditorWorkspaceContext.IsToolWorkspaceVisible || SettingsHost.IsOpen) { HideOutsideWorkspace(); return; }
         Page? page = _selected;
         // A hosted page owns its own controls and therefore its own actions; there is nothing to dispatch.
         if (page is null || page.Disposed || page.Action is null) return;

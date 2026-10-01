@@ -35,5 +35,19 @@
   ],
   "FinalTrackedFilesRead": 425,
   "PngTextOrExifChunks": 0,
-  "CleanGitExportBuild": "passed: full solution, 4 examples, 4 dependency checks, 610 managed tests"
+  "CleanGitExportBuild": "passed: full solution, 4 examples, 4 dependency checks, 610 managed tests",
+  "LatestUiFix": {
+    "Date": "2026-10-01",
+    "Scope": "tool sidebar hidden over official resource selectors; workspace lifetime preserved",
+    "Compilation": "passed, 0 warnings, 0 errors",
+    "ManagedTests": "611 passed; 2 symlink fixtures skipped",
+    "Examples": "4 passed",
+    "Dependencies": "4 passed",
+    "InstalledDlls": "7 hashes verified after replacement",
+    "BackupFiles": 114,
+    "GameModified": true,
+    "ProfileModified": false,
+    "UserProjectModified": false,
+    "Native": "not-run"
+  }
 }

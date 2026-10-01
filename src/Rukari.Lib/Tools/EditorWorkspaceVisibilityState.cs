@@ -13,7 +13,22 @@ public readonly record struct EditorWorkspaceVisibilityState(
     bool PanelsVisible,
     bool IsTransitioning)
 {
-    /// <summary>Whether the Script node workspace can expose its tools.</summary>
+    /// <summary>Whether the Script node workspace is still visible underneath any official window.</summary>
     public bool IsNodeEditorVisible => RuntimeReady && InspectorActive && ContainerActive
         && IsCurrentInspector && HasScriptNode && PanelsVisible && !IsTransitioning;
+}
+
+/// <summary>
+/// Tool visibility is separate from workspace lifetime: opening an official selector must hide tools
+/// without making document providers treat their live Script node as closed.
+/// </summary>
+public readonly record struct EditorToolVisibilityState(
+    bool NodeEditorVisible,
+    bool WindowStateAvailable,
+    bool BlockingActive,
+    bool BlockingPanelsVisible)
+{
+    /// <summary>Whether tools can draw and expand in the unobstructed Script workspace.</summary>
+    public bool IsToolWorkspaceVisible => NodeEditorVisible && WindowStateAvailable
+        && !(BlockingActive && BlockingPanelsVisible);
 }

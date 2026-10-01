@@ -136,6 +136,10 @@ backend 的 native wrapper 仅存在于一次同步操作中；`ContextId` 中�
 
 工具宿主只在实际可见的 Script 节点工作台显示；离开节点、切到别的 inspector、加载或卸载节点、祖先面板透明/禁用，都使工具收起并释放输入。这项可见性检查不要求已经选中一句台词；某个功能是否需要当前台词由该功能处理。
 
+官方人物、表情、音乐、音效、背景和弹图选择窗口打开时，整个工具入口、侧栏与展开的工具页也隐藏，关闭后只恢复入口，须重新展开。Runtime 的 `EditorWorkspaceContext.IsToolWorkspaceVisible` 负责这条显示边界；`IsNodeEditorVisible` 仍表示底下的 Script 工作台存活，文档提供者不得用暂时遮挡作为清空立绘、镜头或屏幕文字草稿的依据。工具页仍按已有 `OnHidden` 关闭语义处理自己的临时状态。
+
+当前 AAfix 4 适配从该 inspector 的祖先定位 `UI Root/WindowPanel`，非泛型查询 `WindowManager`，读当前 `blocking` 及其面板可见状态。选择器的 GameObject 初始便可为 active，不能据此判断弹窗已打开；`activeWindow` 也可能保留旧引用，不能凭它单独阻断工具。窗口状态读取失败时工具保持隐藏。该检测不缓存场景包装器，不增加 Harmony 补丁，也不调用官方窗口的 Show/Hide。
+
 `IToolboxService.IsOpen` 实际表示叶子面板已打开且渲染器可用，并同时满足节点可见、全局设置未打开。仅显示工具栏或条目列不等同于 `IsOpen=true`。
 
 依据：[ToolTreeState](../src/Rukari.Lib/Tools/ToolTreeState.cs)、[ToolsHost](../src/Rukari.Lib.Runtime/Tools/ToolsHost.cs)、[EditorWorkspaceContext](../src/Rukari.Lib.Runtime/Editor/EditorWorkspaceContext.cs)。

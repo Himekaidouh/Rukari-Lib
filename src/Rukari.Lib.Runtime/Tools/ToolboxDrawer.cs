@@ -892,10 +892,15 @@ internal sealed class ToolboxDrawer : IDisposable
     {
         _hostedPressed = null;
         _hostedDragging = false;
+        _hostedPointerValid = false;
         _hostedLast = Array.Empty<ToolPanelElement>();
         // The page is not on screen any more, so nothing of it may keep the keyboard or the input method.
         _hostedField = null;
         _hostedFieldRect = default;
+        _hostedTyped = "";
+        _hostedBackspace = _hostedSubmit = _hostedCancel = _hostedDelete = false;
+        _hostedLeft = _hostedRight = _hostedHome = _hostedEnd = _hostedSelectAll = false;
+        _hostedComposition = "";
         SetIme(false);
         for (int i = 0; i < _hostedDrawn; i++) _hosted[i].GameObject.SetActive(false);
         _hostedDrawn = 0;
@@ -1049,13 +1054,14 @@ internal sealed class ToolboxDrawer : IDisposable
     {
         if (_disposed) return;
         ResetInteraction();
+        HideHostedControls();
         _active.Clear();
         _panelActive.Clear();
         // Keep the rail strip published at all times. Clearing the region here would leave one frame in which
         // the still-drawn panel swallows nothing and the click reaches the official editor, which closes the
         // node editor. Only the per-button rectangles are dropped; the catch-all strip stays.
         _panelObject.SetActive(false);
-        if (_canvasObject.activeInHierarchy && Rukari.Lib.Runtime.Editor.EditorWorkspaceContext.IsNodeEditorVisible)
+        if (_canvasObject.activeInHierarchy && Rukari.Lib.Runtime.Editor.EditorWorkspaceContext.IsToolWorkspaceVisible)
         {
             foreach (Control railControl in _rail) if (railControl is not null) _active.Add(railControl);
             _active.Add(_master);
@@ -1066,7 +1072,7 @@ internal sealed class ToolboxDrawer : IDisposable
         }
         else
         {
-            _region.Update(new[] { _catchAll });
+            _region.Update(Array.Empty<ToolInputRect>());
         }
     }
 
@@ -1107,6 +1113,7 @@ internal sealed class ToolboxDrawer : IDisposable
     {
         if (_disposed) return;
         ResetInteraction();
+        HideHostedControls();
         SyncHostedLifecycle(null);
         _depth = 0;
         _region.Update(Array.Empty<ToolInputRect>());

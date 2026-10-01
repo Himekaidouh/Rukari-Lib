@@ -1,10 +1,12 @@
 extern alias unitycore;
 
 using System.Reflection;
+using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes;
 using Rukari.Lib.Tools;
 using Studio.Scripts;
 using Studio.Scripts.Nodes;
+using Studio.Scripts.Window;
 using Behaviour = unitycore::UnityEngine.Behaviour;
 using Transform = unitycore::UnityEngine.Transform;
 
@@ -31,8 +33,9 @@ public static class EditorWorkspaceContext
     internal static void Shutdown() { _log = null; _failureLogged = false; }
 
     /// <summary>
-    /// True only for the visible, loaded Script inspector currently owned by its container. Catalogs,
-    /// the project graph, hidden panels, transitions, unavailable state and off-thread calls return false.
+    /// True only for the visible, loaded Script inspector currently owned by its container. The project
+    /// graph, hidden panels, transitions, unavailable state and off-thread calls return false. An official
+    /// selector can cover a live workspace; use IsToolWorkspaceVisible when deciding to draw tools.
     /// This does not require a selected dialogue row and never changes the game's current selection.
     /// </summary>
     public static bool IsNodeEditorVisible
@@ -70,15 +73,68 @@ public static class EditorWorkspaceContext
             }
             catch (Exception ex)
             {
-                if (!_failureLogged)
-                {
-                    _failureLogged = true;
-                    Exception cause = (ex as TargetInvocationException)?.InnerException ?? ex;
-                    _log?.Invoke($"Node workspace visibility unavailable; tools remain hidden: {cause.GetType().Name}: {cause.Message}");
-                }
+                LogVisibilityFailure(ex);
                 return false;
             }
         }
+    }
+
+    /// <summary>
+    /// Whether node tools may draw and accept input now. The official window manager covers character,
+    /// emotion, music, sound, background and popup-image selectors, including their blocking transitions.
+    /// </summary>
+    public static bool IsToolWorkspaceVisible
+    {
+        get
+        {
+            if (!IsNodeEditorVisible) return false;
+            try
+            {
+                var inspector = Read<ScriptNodeInspector>(InspectorInstance, null);
+                if (!IsActive(inspector)) return false;
+                WindowManager? manager = FindWindowManager(inspector!.transform);
+                if (!IsAlive(manager) || manager!.gameObject == null)
+                    throw new MissingMemberException("The official window manager is unavailable.");
+                var blocking = manager!.blocking;
+                var panel = manager.panel;
+                if (!IsAlive(blocking) || !IsAlive(panel))
+                    throw new MissingMemberException("The official window visibility references are unavailable.");
+                bool blockingVisible = IsVisiblePanel(panel) && AreAncestorPanelsVisible(blocking!.transform);
+                // activeWindow may retain a previously used window wrapper. The actual blocking layer
+                // is the visibility boundary; an old reference alone is not evidence of an open window.
+                return new EditorToolVisibilityState(true, true,
+                    blocking!.activeInHierarchy, blockingVisible).IsToolWorkspaceVisible;
+            }
+            catch (Exception ex)
+            {
+                LogVisibilityFailure(ex);
+                return false;
+            }
+        }
+    }
+
+    private static WindowManager? FindWindowManager(Transform? ancestor)
+    {
+        // AAfix4 level2: UI Root/WindowPanel GO1 has WindowManager 1366. Its references point
+        // to Blocking GO382 and UIPanel 2266. Every official resource explorer uses this manager.
+        // Resolve it from this inspector's own ancestry; never retain a scene wrapper or invoke a
+        // Singleton getter that could search for/create a different scene's manager.
+        for (int depth = 0; depth < 64 && IsAlive(ancestor); depth++)
+        {
+            Transform? windowPanel = ancestor!.Find("WindowPanel");
+            if (IsAlive(windowPanel))
+                return windowPanel!.gameObject.GetComponent(Il2CppType.Of<WindowManager>())?.TryCast<WindowManager>();
+            ancestor = ancestor.parent;
+        }
+        return null;
+    }
+
+    private static void LogVisibilityFailure(Exception ex)
+    {
+        if (_failureLogged) return;
+        _failureLogged = true;
+        Exception cause = (ex as TargetInvocationException)?.InnerException ?? ex;
+        _log?.Invoke($"Node workspace visibility unavailable; tools remain hidden: {cause.GetType().Name}: {cause.Message}");
     }
 
     private static bool IsVisiblePanel(UIPanel? panel)
