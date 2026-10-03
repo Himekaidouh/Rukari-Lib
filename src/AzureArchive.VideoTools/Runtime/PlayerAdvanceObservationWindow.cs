@@ -24,6 +24,11 @@ internal sealed record ClosedAdvanceWindow(
     int PlaybackRowIndex,
     int PlaybackRowReadBefore);
 
+internal readonly record struct AdvanceWindowLifecycleSnapshot(
+    long ActiveWindowSequence,
+    long IssuedWindowSequence,
+    long ClosedWindowWatermark);
+
 internal static class PlayerAdvanceObservationWindow
 {
     private const int MaximumMessages = 64;
@@ -48,6 +53,17 @@ internal static class PlayerAdvanceObservationWindow
     /// </summary>
     public static long ClosedSequenceWatermark =>
         Interlocked.Read(ref _closedSequenceWatermark);
+
+    internal static AdvanceWindowLifecycleSnapshot ReadLifecycleSnapshot()
+    {
+        lock (Gate)
+        {
+            return new AdvanceWindowLifecycleSnapshot(
+                _active?.Sequence ?? 0,
+                _sequence,
+                _closedSequenceWatermark);
+        }
+    }
 
     /// <summary>
     /// Opens one window. <paramref name="playbackRowIndex"/> is the engine row

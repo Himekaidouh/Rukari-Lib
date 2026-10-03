@@ -5,6 +5,60 @@ namespace AzureArchive.VideoTools.Tests;
 
 internal static class PlayerAdvanceObservationWindowTests
 {
+    public static void LifecycleSnapshotTracksActualOpenCompletedAndUnpairedClose()
+    {
+        CloseAndDrainQueue();
+        try
+        {
+            AdvanceWindowLifecycleSnapshot before = PlayerAdvanceObservationWindow.ReadLifecycleSnapshot();
+            AssertEx.Equal(0L, before.ActiveWindowSequence);
+
+            long openedSequence = PlayerAdvanceObservationWindow.Open();
+            AdvanceWindowLifecycleSnapshot opened = PlayerAdvanceObservationWindow.ReadLifecycleSnapshot();
+            AssertEx.Equal(openedSequence, opened.ActiveWindowSequence);
+            AssertEx.Equal(openedSequence, opened.IssuedWindowSequence);
+            AssertEx.Equal(before.ClosedWindowWatermark, opened.ClosedWindowWatermark);
+
+            PlayerAdvanceObservationWindow.Close();
+            AdvanceWindowLifecycleSnapshot completed = PlayerAdvanceObservationWindow.ReadLifecycleSnapshot();
+            AssertEx.Equal(0L, completed.ActiveWindowSequence);
+            AssertEx.Equal(openedSequence, completed.IssuedWindowSequence);
+            AssertEx.Equal(openedSequence, completed.ClosedWindowWatermark);
+
+            PlayerAdvanceObservationWindow.Close();
+            AdvanceWindowLifecycleSnapshot unpaired = PlayerAdvanceObservationWindow.ReadLifecycleSnapshot();
+            AssertEx.Equal(0L, unpaired.ActiveWindowSequence);
+            AssertEx.Equal(openedSequence + 1, unpaired.IssuedWindowSequence);
+            AssertEx.Equal(unpaired.IssuedWindowSequence, unpaired.ClosedWindowWatermark);
+        }
+        finally
+        {
+            CloseAndDrainQueue();
+        }
+    }
+
+    public static void LifecycleSnapshotSeparatesOverlappingActiveWindowFromPriorClose()
+    {
+        CloseAndDrainQueue();
+        try
+        {
+            long priorSequence = PlayerAdvanceObservationWindow.Open();
+            long nextSequence = PlayerAdvanceObservationWindow.Open();
+            AdvanceWindowLifecycleSnapshot snapshot = PlayerAdvanceObservationWindow.ReadLifecycleSnapshot();
+
+            AssertEx.Equal(nextSequence, snapshot.ActiveWindowSequence);
+            AssertEx.Equal(nextSequence, snapshot.IssuedWindowSequence);
+            AssertEx.Equal(priorSequence, snapshot.ClosedWindowWatermark);
+            AssertEx.True(PlayerAdvanceObservationWindow.TryDequeue(out ClosedAdvanceWindow? prior));
+            AssertEx.Equal(priorSequence, AssertEx.NotNull(prior).Sequence);
+            AssertEx.Equal(AdvanceWindowCloseReason.ReplacedByOverlappingPrefix, prior!.CloseReason);
+        }
+        finally
+        {
+            CloseAndDrainQueue();
+        }
+    }
+
     public static void DroppedCompletedWindowStillAdvancesItsCloseWatermark()
     {
         DrainQueue();
@@ -15,6 +69,10 @@ internal static class PlayerAdvanceObservationWindowTests
             PlayerAdvanceObservationWindow.Capture("dropped completed window");
             PlayerAdvanceObservationWindow.Close();
 
+            AdvanceWindowLifecycleSnapshot snapshot = PlayerAdvanceObservationWindow.ReadLifecycleSnapshot();
+            AssertEx.Equal(0L, snapshot.ActiveWindowSequence);
+            AssertEx.Equal(droppedSequence, snapshot.IssuedWindowSequence);
+            AssertEx.Equal(droppedSequence, snapshot.ClosedWindowWatermark);
             AssertEx.Equal(droppedSequence, PlayerAdvanceObservationWindow.ClosedSequenceWatermark);
             AssertEx.Equal(1, PlayerAdvanceObservationWindow.TakeDroppedWindowCount());
             AssertEx.Equal(512, DrainQueue());
@@ -35,12 +93,17 @@ internal static class PlayerAdvanceObservationWindowTests
             PlayerAdvanceObservationWindow.Capture("dropped superseded window");
             long nextSequence = PlayerAdvanceObservationWindow.Open();
 
+            AdvanceWindowLifecycleSnapshot opened = PlayerAdvanceObservationWindow.ReadLifecycleSnapshot();
+            AssertEx.Equal(nextSequence, opened.ActiveWindowSequence);
+            AssertEx.Equal(nextSequence, opened.IssuedWindowSequence);
+            AssertEx.Equal(supersededSequence, opened.ClosedWindowWatermark);
             AssertEx.Equal(supersededSequence, PlayerAdvanceObservationWindow.ClosedSequenceWatermark);
             AssertEx.Equal(supersededSequence + 1, nextSequence);
             AssertEx.True(PlayerAdvanceObservationWindow.IssuedSequence
                 > PlayerAdvanceObservationWindow.ClosedSequenceWatermark);
 
             PlayerAdvanceObservationWindow.Close();
+            AssertEx.Equal(0L, PlayerAdvanceObservationWindow.ReadLifecycleSnapshot().ActiveWindowSequence);
             AssertEx.Equal(nextSequence, PlayerAdvanceObservationWindow.ClosedSequenceWatermark);
             AssertEx.Equal(2, PlayerAdvanceObservationWindow.TakeDroppedWindowCount());
             AssertEx.Equal(512, DrainQueue());
@@ -58,6 +121,9 @@ internal static class PlayerAdvanceObservationWindowTests
         {
             FillQueue();
             PlayerAdvanceObservationWindow.Close();
+            AdvanceWindowLifecycleSnapshot snapshot = PlayerAdvanceObservationWindow.ReadLifecycleSnapshot();
+            AssertEx.Equal(0L, snapshot.ActiveWindowSequence);
+            AssertEx.Equal(snapshot.IssuedWindowSequence, snapshot.ClosedWindowWatermark);
             long issued = PlayerAdvanceObservationWindow.IssuedSequence;
             long closed = PlayerAdvanceObservationWindow.ClosedSequenceWatermark;
             AssertEx.Equal(issued, closed);
@@ -101,8 +167,7 @@ internal static class PlayerAdvanceObservationWindowTests
 
     private static void CloseAndDrainQueue()
     {
-        if (PlayerAdvanceObservationWindow.IssuedSequence
-            > PlayerAdvanceObservationWindow.ClosedSequenceWatermark)
+        if (PlayerAdvanceObservationWindow.ReadLifecycleSnapshot().ActiveWindowSequence > 0)
             PlayerAdvanceObservationWindow.Close();
         DrainQueue();
     }

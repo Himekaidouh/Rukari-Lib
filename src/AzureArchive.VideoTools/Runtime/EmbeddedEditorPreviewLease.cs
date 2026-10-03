@@ -89,6 +89,10 @@ internal sealed record PreviewGeneration(
 {
     public bool Open => Phase != PreviewGenerationPhase.Closed;
 
+    // Exact primitive DataList evidence, retained only for duplicate callbacks
+    // within the original, still-open native preview window.
+    public EditorDataListCascadeProof? CascadeProof { get; init; }
+
     /// <summary>
     /// Window sequences already authorized under this generation. The green
     /// replay button does NOT raise DataList, so no new generation is born for
@@ -175,6 +179,72 @@ internal static class EmbeddedEditorPreviewLeaseCache
             + $"generation={generationId}; request={requestId}; "
             + $"cutoff={Math.Max(0, minimumWindowSequenceExclusive)}; "
             + $"capture={(captured ? "ok" : Escape(captureError))}");
+    }
+
+    /// <summary>
+    /// Keeps both state machines on the original generation only when a fresh
+    /// DataList is an exact duplicate inside that same actual OPEN window.
+    /// Never searches older generations or rebases a first log onto a new one.
+    /// </summary>
+    public static bool BeginOrReusePreviewGeneration(
+        int requestId,
+        ApiResult<SceneSnapshot> capturedScene,
+        EditorDataListCascadeProof proof,
+        bool currentLogMarkerMatches,
+        out long generationId,
+        out string reason)
+    {
+        ArgumentNullException.ThrowIfNull(capturedScene);
+        ArgumentNullException.ThrowIfNull(proof);
+        bool captured = capturedScene.Success && capturedScene.Value != null;
+        SceneAddress? address = captured ? capturedScene.Value!.Address : null;
+        bool reused = false;
+        lock (Gate)
+        {
+            PreviewGeneration? current = Generations.LastOrDefault(item => item.Open);
+            reason = "no-collecting-generation";
+            if (current is { Phase: PreviewGenerationPhase.Collecting }
+                && current.ClaimedWindowSequences.Count == 0)
+            {
+                if (!currentLogMarkerMatches)
+                    reason = "current-log-marker-mismatch";
+                else if (!captured || address == null || requestId != proof.RequestId
+                    || proof.Scene != new EditorPreviewSceneAddress(
+                        address.ProjectKey, address.NodeGuid, address.SceneIndex, address.Fingerprint)
+                    || current.DataListRequestId != requestId
+                    || current.MinimumWindowSequenceExclusive != proof.ClosedWindowWatermark
+                    || current.CapturedSceneAddress == null
+                    || !SameScene(current.CapturedSceneAddress, address))
+                    reason = "cache-capture-or-cutoff-mismatch";
+                else
+                    reused = EditorDataListCascadePlanner.CanReuse(current.CascadeProof, proof, out reason);
+            }
+
+            if (reused)
+            {
+                generationId = current!.GenerationId;
+                // Preserve the original candidates, conflict flags and real
+                // FIRST state. A duplicate must not rearm rejected evidence.
+            }
+            else
+            {
+                CloseAllGenerationsNoLock();
+                generationId = ++_selectionGeneration;
+                Generations.Add(new PreviewGeneration(
+                    generationId, requestId, Math.Max(0, proof.ClosedWindowWatermark),
+                    address, captured, captured ? string.Empty : capturedScene.Error,
+                    false, null, 0, new Dictionary<CompiledScriptIdentity, CaptureCandidate>(),
+                    PreviewGenerationPhase.Collecting) { CascadeProof = proof });
+                TrimGenerationsNoLock();
+            }
+        }
+
+        PlayerCommandObservationLog.Append(
+            $"{DateTimeOffset.Now:O} editor-preview-lease event={(reused ? "REUSE" : "BEGIN")}; "
+            + $"generation={generationId}; request={requestId}; cutoff={proof.ClosedWindowWatermark}; "
+            + $"activeWindow={proof.ActiveWindowSequence}; issued={proof.IssuedWindowSequence}; "
+            + $"cascadeReason={Escape(reason)}; capture={(captured ? "ok" : Escape(capturedScene.Error))}");
+        return reused;
     }
 
     public static void Capture(

@@ -1,6 +1,7 @@
 using System;
 using System.Reflection;
 using AzureArchive.VideoTools.Api;
+using AzureArchive.VideoTools.Core.Commands;
 using AzureArchive.VideoTools.Interop;
 using HarmonyLib;
 using Studio.Scripts;
@@ -62,20 +63,36 @@ internal static class EditorDataListEventProbe
         // window of the current click look "stale". Windows that were still
         // open when the generation began remain claimable; everything that
         // fully closed before it stays rejected.
-        EmbeddedEditorPreviewLeaseCache.BeginPreviewGeneration(
-            index,
-            capturedScene,
-            PlayerAdvanceObservationWindow.ClosedSequenceWatermark);
+        var window = PlayerAdvanceObservationWindow.ReadLifecycleSnapshot();
+        var runtime = Rukari.Lib.ModServices.Current;
+        int mainThreadId = runtime is { State: Rukari.Lib.RuntimeState.Ready, IsMainThread: true }
+            ? Environment.CurrentManagedThreadId : 0;
+        var scene = capturedScene.Success && capturedScene.Value != null
+            ? new EditorPreviewSceneAddress(capturedScene.Value.Address.ProjectKey,
+                capturedScene.Value.Address.NodeGuid, capturedScene.Value.Address.SceneIndex,
+                capturedScene.Value.Address.Fingerprint) : null;
+        var cascade = new EditorDataListCascadeProof(index, mainThreadId,
+            window.ActiveWindowSequence, window.IssuedWindowSequence,
+            window.ClosedWindowWatermark, scene, inputProof);
+        string markerReason = "cache-generation-unavailable";
+        bool currentMarkerMatches = EmbeddedEditorPreviewLeaseCache.TryGetCurrentGeneration(out var scope)
+            && ManagedUnityLogSelectionProbe.MatchesCurrentDataListMarker(scope.GenerationId, cascade, out markerReason);
+        bool reused = EmbeddedEditorPreviewLeaseCache.BeginOrReusePreviewGeneration(
+            index, capturedScene, cascade, currentMarkerMatches, out long selectionGeneration, out string cascadeReason);
         // This primitive is an opaque official request value, not a scene index.
         // Keep the already captured managed scene for later full live re-verification.
-        long selectionGeneration = EmbeddedEditorPreviewLeaseCache.TryGetCurrentGeneration(out var scope)
-            ? scope.GenerationId : 0;
-        ManagedUnityLogSelectionProbe.MarkDataList(index, capturedScene, inputProof, selectionGeneration);
+        // Exact duplicates preserve BOTH the cache generation and first-log
+        // marker. Shared document tokens were still invalidated above.
+        if (!reused)
+            ManagedUnityLogSelectionProbe.MarkDataList(index, capturedScene, inputProof, selectionGeneration, window);
         Plugin.Host.CapabilitiesInternal.Verified(
             "Editor.DataListEvent",
             "ScriptNodeInspector.DataList index reached the postfix; no instance or result was received");
         Plugin.Logger.LogInfo(
             $"Editor DataList index callback count={_callbackCount}; index={index}; "
+            + $"selectionGeneration={selectionGeneration}; cascade={(reused ? "reuse" : "new")}; "
+            + $"activeWindow={window.ActiveWindowSequence}; cutoff={window.ClosedWindowWatermark}; reason={cascadeReason}; "
+            + $"markerReason={markerReason}; sceneIndex={scene?.SceneIndex}; "
             + $"captureSource={(inputProof == null ? "selected-row" : "input-unique-visible-row")}; "
             + $"capture={(capturedScene.Success ? "ok" : capturedScene.Error)}; no instance or result was received.");
     }

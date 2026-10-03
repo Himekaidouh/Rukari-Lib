@@ -29,6 +29,12 @@ internal static class ManagedUnityLogSelectionProbe
 
     public static void MarkDataList(int requestId, ApiResult<SceneSnapshot> capturedScene,
         EditorInputSceneCaptureProof? inputProof, long selectionGeneration)
+        => MarkDataList(requestId, capturedScene, inputProof, selectionGeneration,
+            PlayerAdvanceObservationWindow.ReadLifecycleSnapshot());
+
+    public static void MarkDataList(int requestId, ApiResult<SceneSnapshot> capturedScene,
+        EditorInputSceneCaptureProof? inputProof, long selectionGeneration,
+        AdvanceWindowLifecycleSnapshot window)
     {
         ArgumentNullException.ThrowIfNull(capturedScene);
         IModRuntime? runtime = ModServices.Current;
@@ -40,8 +46,27 @@ internal static class ManagedUnityLogSelectionProbe
         {
             _inputProof = inputProof;
             _marker = Correlation.Begin(requestId, _sequence, mainThreadId,
-                PlayerAdvanceObservationWindow.IssuedSequence,
-                PlayerAdvanceObservationWindow.ClosedSequenceWatermark, scene, selectionGeneration);
+                window.IssuedWindowSequence, window.ClosedWindowWatermark, scene, selectionGeneration);
+        }
+    }
+
+    internal static bool MatchesCurrentDataListMarker(long selectionGeneration,
+        EditorDataListCascadeProof proof, out string error)
+    {
+        lock (Gate)
+        {
+            error = selectionGeneration <= 0 || _marker == null ? "marker-unavailable"
+                : _marker.SelectionGeneration != selectionGeneration ? "marker-generation-drift"
+                : _marker.RequestId != proof.RequestId ? "marker-request-drift"
+                : _marker.MainThreadId != proof.MainThreadId ? "marker-thread-drift"
+                : _marker.WindowSequence != proof.ActiveWindowSequence
+                    || _marker.WindowSequence != proof.IssuedWindowSequence
+                    || _marker.ClosedWindowWatermark != proof.ClosedWindowWatermark ? "marker-window-drift"
+                : _marker.CapturedScene != proof.Scene ? "marker-scene-drift"
+                : _inputProof == null || proof.InputProof == null ? "marker-input-proof-unavailable"
+                : _inputProof != proof.InputProof ? "marker-input-proof-drift"
+                : string.Empty;
+            return error.Length == 0;
         }
     }
 
