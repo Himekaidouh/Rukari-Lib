@@ -12,6 +12,14 @@ internal static class EditorSelectionEventProbe
     internal static void PublishManagedLog(
         ManagedSelectionLogCandidate candidate,
         ApiResult<SceneSnapshot> selectedScene)
+        => PublishManagedLog(candidate, selectedScene,
+            "managed-log-first-message-data-list-main-thread-pump", 0);
+
+    internal static EditorSceneIdentitySnapshot PublishManagedLog(
+        ManagedSelectionLogCandidate candidate,
+        ApiResult<SceneSnapshot> selectedScene,
+        string source,
+        long proofWindowSequence)
     {
         // The caller has already consumed the current marker, checked the
         // complete captured/live scene address and kept this on the main thread.
@@ -26,7 +34,11 @@ internal static class EditorSelectionEventProbe
             + $"sha256={identity.CompiledScriptSha256}; length={identity.CompiledScriptLength}; "
             + $"lines={identity.CompiledScriptLineCount}; unitySeq={candidate.LogSequence}; "
             + $"window={candidate.Marker.WindowSequence}; "
-            + "source=managed-log-first-message-data-list-main-thread-pump; "
+            + $"selectionGeneration={candidate.Marker.SelectionGeneration}; "
+            + $"observedIssued={candidate.ObservedWindowSequence}; "
+            + $"observedClosed={candidate.ObservedClosedWindowWatermark}; "
+            + $"proofWindow={proofWindowSequence}; source={source}; "
             + "sceneReverified=true; executionAuthorized=false.");
+        return identity;
     }
 }

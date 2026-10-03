@@ -188,18 +188,21 @@ internal static class PlayerAdvanceObservationWindow
 
     private static void Enqueue(ClosedAdvanceWindow window)
     {
+        // Closing a window advances its lifecycle even when the bounded
+        // observation queue cannot retain its record. Otherwise a later log
+        // can mistake a dropped, already-closed window for an open one.
+        // Always invoked under Gate; the watermark only ever moves forward.
+        if (window.Sequence > _closedSequenceWatermark)
+        {
+            _closedSequenceWatermark = window.Sequence;
+        }
+
         int queued = Interlocked.Increment(ref _queuedWindows);
         if (queued > MaximumQueuedWindows)
         {
             Interlocked.Decrement(ref _queuedWindows);
             Interlocked.Increment(ref _droppedWindows);
             return;
-        }
-
-        // Always invoked under Gate; the watermark only ever moves forward.
-        if (window.Sequence > _closedSequenceWatermark)
-        {
-            _closedSequenceWatermark = window.Sequence;
         }
 
         Closed.Enqueue(window);

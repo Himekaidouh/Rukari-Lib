@@ -51,7 +51,7 @@ internal sealed record EmbeddedEditorPreviewLease(
     string StableSceneIdentity)
 {
     /// <summary>
-    /// Observation sequence of the OnChildSelect identity that confirmed this
+    /// Observation sequence of the managed first-log identity that confirmed this
     /// generation, or 0 when the lease was never identity-confirmed (a green
     /// preview without OnChildSelect).
     /// </summary>
@@ -506,11 +506,9 @@ internal static class EmbeddedEditorPreviewLeaseCache
                 ClaimedWindowSequence = windowSequence
             };
 
-            // (9) Overlay write moved behind full authorization. A tombstone
-            // stores an EMPTY directive dictionary that wholesale-replaces the
-            // previous entry so TryGetOverlayDirective reports
-            // sceneIsAuthoritative=true with a null canonical directive.
-            UpdateOverlay(effectiveCapture, candidate);
+            // Binding alone does not authorize execution or inheritance. The
+            // caller must complete selection confirmation and the full preview
+            // gate before committing this candidate to the overlay store.
 
             EmitBindLine(generation, matched.Sha256, candidate.CanonicalDirectives.Count,
                 candidate.IsTombstone, candidate.HasContinueDirective,
@@ -520,10 +518,9 @@ internal static class EmbeddedEditorPreviewLeaseCache
     }
 
     /// <summary>
-    /// Dispatch-time currency re-check. Signature is fixed by the downstream
-    /// runtime file. Identity equality is enforced only for leases that were
-    /// actually confirmed by OnChildSelect; an unconfirmed lease stays valid
-    /// as long as the live scene still equals the captured scene.
+    /// Dispatch-time currency re-check. A queued lease must still belong to the
+    /// current open generation and its confirmed managed-log observation. A
+    /// later DataList supersedes it even if the scene/request/hash are reused.
     /// </summary>
     public static bool IsCurrent(
         EmbeddedEditorPreviewLease lease,
@@ -537,6 +534,17 @@ internal static class EmbeddedEditorPreviewLeaseCache
         ArgumentNullException.ThrowIfNull(currentScene);
         lock (Gate)
         {
+            PreviewGeneration? generation = Generations.LastOrDefault(item => item.Open);
+            if (generation == null || generation.GenerationId != lease.DataListGeneration
+                || !generation.ClaimedWindowSequences.Contains(lease.ClaimedWindowSequence)
+                || lease.ConfirmedObservationSequence <= 0
+                || generation.ConfirmedObservationSequence != lease.ConfirmedObservationSequence
+                || generation.ConfirmedScript != lease.CompiledScript)
+            {
+                error = "editor preview lease generation was superseded or unconfirmed";
+                return false;
+            }
+
             if (context.Mode != PlayerRuntimeMode.EditorPreview
                 || !context.PlayerAvailable
                 || !context.PreviewMode)
@@ -579,6 +587,51 @@ internal static class EmbeddedEditorPreviewLeaseCache
             }
 
             error = string.Empty;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Commits only after the downstream preview gate authorized this lease.
+    /// A rejected identity/window must never seed a later inheritance chain.
+    /// </summary>
+    public static bool CommitAuthorizedOverlay(
+        EmbeddedEditorPreviewLease lease,
+        EditorPreviewLeaseAuthorization authorization,
+        PlayerRuntimeContextSnapshot context,
+        EditorSceneIdentitySnapshot? currentIdentity,
+        ApiResult<SceneSnapshot> currentScene,
+        out string error)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        ArgumentNullException.ThrowIfNull(authorization);
+        lock (Gate)
+        {
+            PreviewGeneration? generation = Generations.LastOrDefault(item => item.Open);
+            if (generation == null || generation.GenerationId != lease.DataListGeneration
+                || !generation.ClaimedWindowSequences.Contains(lease.ClaimedWindowSequence)
+                || lease.ConfirmedObservationSequence <= 0
+                || generation.ConfirmedObservationSequence != lease.ConfirmedObservationSequence
+                || authorization.SelectionGeneration != lease.SelectionGeneration
+                || authorization.StableSceneIdentity != lease.StableSceneIdentity
+                || authorization.IsTombstone != lease.IsTombstone
+                || !authorization.Commands.Select(command => command.CanonicalDirective)
+                    .SequenceEqual(lease.CanonicalDirectives, StringComparer.Ordinal)
+                || !generation.Candidates.TryGetValue(lease.CompiledScript, out CaptureCandidate? candidate)
+                || candidate.Conflict || candidate.ValidationError.Length != 0
+                || candidate.IsTombstone != lease.IsTombstone
+                || !candidate.CanonicalDirectives.SequenceEqual(lease.CanonicalDirectives, StringComparer.Ordinal))
+            {
+                error = "authorized-overlay-lease-or-candidate-drift";
+                return false;
+            }
+
+            if (!IsCurrent(lease, context, currentIdentity, currentScene, out error))
+                return false;
+
+            // An authorized tombstone replaces the previous entry with an
+            // explicit empty set, preserving deletion and cleanup semantics.
+            UpdateOverlay(lease.Scene, candidate);
             return true;
         }
     }

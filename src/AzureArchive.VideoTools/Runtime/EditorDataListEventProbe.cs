@@ -68,7 +68,9 @@ internal static class EditorDataListEventProbe
             PlayerAdvanceObservationWindow.ClosedSequenceWatermark);
         // This primitive is an opaque official request value, not a scene index.
         // Keep the already captured managed scene for later full live re-verification.
-        ManagedUnityLogSelectionProbe.MarkDataList(index, capturedScene, inputProof);
+        long selectionGeneration = EmbeddedEditorPreviewLeaseCache.TryGetCurrentGeneration(out var scope)
+            ? scope.GenerationId : 0;
+        ManagedUnityLogSelectionProbe.MarkDataList(index, capturedScene, inputProof, selectionGeneration);
         Plugin.Host.CapabilitiesInternal.Verified(
             "Editor.DataListEvent",
             "ScriptNodeInspector.DataList index reached the postfix; no instance or result was received");

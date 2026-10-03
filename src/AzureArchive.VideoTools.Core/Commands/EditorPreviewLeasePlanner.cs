@@ -115,14 +115,15 @@ public sealed record EditorPreviewLeaseAuthorization(
     EditorPreviewResourceFootprint Footprint);
 
 /// <summary>
-/// One-shot gate for an unsaved editor preview. A selection generation is
-/// consumed by its first authorization attempt, including a failed attempt,
-/// and older generations can never execute afterward.
+/// Gate for an unsaved editor preview. The original entry point consumes a
+/// selection generation once; the window entry point permits verified replays
+/// with new actual windows. Older generations cannot execute afterward.
 /// </summary>
 public sealed class EditorPreviewLeaseGate
 {
     private readonly object _gate = new();
     private long _lastConsumedSelectionGeneration;
+    private long _lastConsumedWindowSequence;
 
     public Result<EditorPreviewLeaseAuthorization> TryAuthorize(
         EditorPreviewLeaseCandidate candidate,
@@ -147,6 +148,66 @@ public sealed class EditorPreviewLeaseGate
             }
 
             _lastConsumedSelectionGeneration = expected.SelectionGeneration;
+            if (live.WindowSequence > _lastConsumedWindowSequence
+                && live.WindowSequence < long.MaxValue)
+            {
+                // Real legacy windows also stay consumed when the caller
+                // switches to the replay entry point. The historical default
+                // remains a placeholder and does not reserve a window.
+                _lastConsumedWindowSequence = live.WindowSequence;
+            }
+        }
+
+        return ValidateAndPlan(candidate, live);
+    }
+
+    /// <summary>
+    /// Authorizes a confirmed selection once per increasing actual window.
+    /// A failed attempt consumes that window, while a later window may replay
+    /// the same confirmed generation. The caller supplies the current
+    /// generation's selection proof and an observed closed preview window.
+    /// </summary>
+    public Result<EditorPreviewLeaseAuthorization> TryAuthorizeWindow(
+        EditorPreviewLeaseCandidate candidate,
+        EditorPreviewLiveObservation live)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(live);
+
+        EditorPreviewSelectionBinding? expected = candidate.Selection;
+        if (expected == null || expected.SelectionGeneration <= 0)
+        {
+            return Result<EditorPreviewLeaseAuthorization>.Fail(
+                "Editor preview lease has no positive selection generation.");
+        }
+
+        // The legacy default is a placeholder, never a real window sequence.
+        if (live.WindowSequence <= 0 || live.WindowSequence == long.MaxValue)
+        {
+            return Result<EditorPreviewLeaseAuthorization>.Fail(
+                "Editor preview replay requires an actual positive window sequence.");
+        }
+
+        lock (_gate)
+        {
+            if (expected.SelectionGeneration < _lastConsumedSelectionGeneration
+                || live.WindowSequence <= _lastConsumedWindowSequence)
+            {
+                return Result<EditorPreviewLeaseAuthorization>.Fail(
+                    "Editor preview window was already consumed or arrived out of order.");
+            }
+
+            // Share the generation watermark with the legacy entry point so
+            // switching APIs cannot revive a superseded selection. Window
+            // sequences are global and never reset when DataList advances.
+            _lastConsumedSelectionGeneration = expected.SelectionGeneration;
+            _lastConsumedWindowSequence = live.WindowSequence;
+        }
+
+        if (expected.ObservationSequence <= 0)
+        {
+            return Result<EditorPreviewLeaseAuthorization>.Fail(
+                "Editor preview replay requires a confirmed selection observation.");
         }
 
         return ValidateAndPlan(candidate, live);

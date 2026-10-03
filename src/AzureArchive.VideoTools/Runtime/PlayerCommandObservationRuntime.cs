@@ -1623,15 +1623,43 @@ internal static class PlayerCommandObservationRuntime
             return true;
         }
 
-        _lastAuthorizedLeaseUpdate = update;
-        _lastAuthorizedLeaseGeneration = lease.DataListGeneration;
-
         EditorSceneIdentitySnapshot? currentIdentity = Plugin.Api.SceneIdentity.Current;
+        string deferredIdentityError = string.Empty;
+        // Global Current survives a DataList change. It may belong to an older
+        // row even when its request/hash happen to match this one. An
+        // unconfirmed generation must prove its own real first managed log.
+        if (lease.ConfirmedObservationSequence <= 0)
+        {
+            if (!ManagedUnityLogSelectionProbe.ConfirmDeferredFromPreview(
+                lease,
+                window,
+                contextResult.Value,
+                out EditorSceneIdentitySnapshot? confirmedIdentity,
+                out ApiResult<EditorSceneSnapshot>? confirmedScene,
+                out deferredIdentityError))
+            {
+                lines.Add(
+                    $"{Stamp()} observation sequence={window.Sequence}; status=EDITOR_PREVIEW_LEASE_REJECTED; "
+                    + "reason=no-current-generation-selection-confirmation; "
+                    + $"deferredConfirmation={Escape(deferredIdentityError)}; action=NO_OP; persistedFallback=false");
+                return true;
+            }
+            currentIdentity = confirmedIdentity;
+            currentScene = confirmedScene!;
+            // RefreshGenerationScene published the real first-log observation
+            // into the cache. Carry it on this already claimed local lease so
+            // the dispatch-time IsCurrent check also rejects identity drift.
+            lease = lease with
+            {
+                ConfirmedObservationSequence = currentIdentity!.ObservationSequence
+            };
+        }
         if (currentIdentity == null || currentScene.Value == null)
         {
             lines.Add(
                 $"{Stamp()} observation sequence={window.Sequence}; status=EDITOR_PREVIEW_LEASE_REJECTED; "
-                + "reason=current-editor-identity-or-scene-unavailable; action=NO_OP; persistedFallback=false");
+                + "reason=current-editor-identity-or-scene-unavailable; "
+                + $"deferredConfirmation={Escape(deferredIdentityError)}; action=NO_OP; persistedFallback=false");
             return true;
         }
 
@@ -1657,7 +1685,7 @@ internal static class PlayerCommandObservationRuntime
             CoreScene(currentScene.Value.Address));
         int exactMessages = window.ManagedUnityMessages.Count(message =>
             CommandIdentity.CompiledScript(message) == lease.CompiledScript);
-        Result<EditorPreviewLeaseAuthorization> guarded = EditorPreviewGate.TryAuthorize(
+        Result<EditorPreviewLeaseAuthorization> guarded = EditorPreviewGate.TryAuthorizeWindow(
             new EditorPreviewLeaseCandidate(
                 capturedSelection,
                 lease.CanonicalDirectives,
@@ -1680,6 +1708,21 @@ internal static class PlayerCommandObservationRuntime
                 + "action=NO_OP; persistedFallback=false");
             return true;
         }
+
+        if (!EmbeddedEditorPreviewLeaseCache.CommitAuthorizedOverlay(
+                lease, guarded.Value, contextResult.Value, currentIdentity,
+                currentScene, out string overlayError))
+        {
+            lines.Add(
+                $"{Stamp()} observation sequence={window.Sequence}; status=EDITOR_PREVIEW_LEASE_REJECTED; "
+                + $"reason=overlay-commit-rejected:{Escape(overlayError)}; action=NO_OP; persistedFallback=false");
+            return true;
+        }
+
+        // Rejected siblings cannot reserve this drain: the actual first-log
+        // window may still be waiting later in the same cascade.
+        _lastAuthorizedLeaseUpdate = update;
+        _lastAuthorizedLeaseGeneration = lease.DataListGeneration;
 
         EditorPreviewCommand[] commands = guarded.Value.Commands
             .Select(command => new EditorPreviewCommand(

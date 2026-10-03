@@ -21,6 +21,42 @@ internal static class EmbeddedDirectiveTests
         True(context.IsAuthoritative);
     }
 
+    internal static void RegisteredAavtFilteringLeavesFlLinesByteExact()
+    {
+        using var service = Ready();
+        DirectiveCompilation? context = null;
+        Register(service, "rukari.moreeffects", new[] { "#aavt", "#char" }, item => context = item);
+        IEmbeddedDirectiveSanitizer snapshot = service.CaptureSanitizer();
+        long compilationId = 80;
+        foreach (DirectiveCompilationBoundary boundary in Enum.GetValues<DirectiveCompilationBoundary>())
+        foreach (string ending in new[] { "\r\n", string.Empty })
+        {
+            // FL argument grammar is owned by the peer; every unregistered byte is retained.
+            string input = " \t#FL-Move;slot=2;x=1.25 \t\r\n#wait;100\r\n"
+                + "#aavt;char;3;set;x=5\r\n正文\r\n#FL;legacy;value=7" + ending;
+            string expected = " \t#FL-Move;slot=2;x=1.25 \t\r\n#wait;100\r\n"
+                + "正文\r\n#FL;legacy;value=7" + ending;
+            Equal(expected, service.Process(input, boundary, compilationId++, true));
+            Equal(input, context!.SourceText);
+            Equal(expected, context.OfficialText);
+            Equal(boundary, context.Boundary);
+            Equal(1, context.RemovedDirectives.Count);
+            Equal(1, context.OwnedDirectives.Count);
+            Equal("#aavt;char;3;set;x=5", context.OwnedDirectives[0].Text);
+            Equal(3, context.OwnedDirectives[0].LineNumber);
+            Equal("rukari.moreeffects", context.OwnedDirectives[0].OwnerId);
+            Equal(expected, snapshot.Sanitize(input));
+            Equal(input, snapshot.SanitizeExceptOwners(input, new[] { "rukari.moreeffects" }));
+        }
+
+        const string finalOwnedLine = "#FL-Move;slot=2;x=7\r\n#char;3;reset";
+        Equal("#FL-Move;slot=2;x=7\r\n", service.Sanitize(finalOwnedLine));
+        const string foreignOnly = "#FL-Move;slot=2;x=7\r\n#FL;legacy;value=8";
+        Equal(foreignOnly, service.Process(foreignOnly, DirectiveCompilationBoundary.Continuous, compilationId, true));
+        Equal(0, context!.OwnedDirectives.Count);
+        Equal(0, context.RemovedDirectives.Count);
+    }
+
     internal static void LongestTokenRouteOwnsEachLineInEitherRegistrationOrder()
     {
         foreach (bool parentFirst in new[] { true, false })

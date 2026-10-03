@@ -16,6 +16,7 @@ internal static class Program
             (nameof(ModSettingsTests.WorkerOperationsCannotTouchWindowOrPageCallbacks), ModSettingsTests.WorkerOperationsCannotTouchWindowOrPageCallbacks),
             (nameof(ModSettingsTests.ReentrantPageCallbacksCannotCorruptSelectionOrRegistration), ModSettingsTests.ReentrantPageCallbacksCannotCorruptSelectionOrRegistration),
             (nameof(EmbeddedDirectiveTests.OfficialAndForeignLinesKeepTheirExactBytes), EmbeddedDirectiveTests.OfficialAndForeignLinesKeepTheirExactBytes),
+            (nameof(EmbeddedDirectiveTests.RegisteredAavtFilteringLeavesFlLinesByteExact), EmbeddedDirectiveTests.RegisteredAavtFilteringLeavesFlLinesByteExact),
             (nameof(EmbeddedDirectiveTests.LongestTokenRouteOwnsEachLineInEitherRegistrationOrder), EmbeddedDirectiveTests.LongestTokenRouteOwnsEachLineInEitherRegistrationOrder),
             (nameof(EmbeddedDirectiveTests.AllModulesSeeTheFinalTextBeforeAnyCallbackExecutes), EmbeddedDirectiveTests.AllModulesSeeTheFinalTextBeforeAnyCallbackExecutes),
             (nameof(EmbeddedDirectiveTests.MalformedOwnedInstructionsStillReachTheirOwner), EmbeddedDirectiveTests.MalformedOwnedInstructionsStillReachTheirOwner),

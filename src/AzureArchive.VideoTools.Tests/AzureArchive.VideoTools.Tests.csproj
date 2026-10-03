@@ -11,6 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\AzureArchive.VideoTools\Runtime\PlayerAdvanceObservationWindow.cs" Link="Runtime\PlayerAdvanceObservationWindow.cs" />
     <ProjectReference Include="..\AzureArchive.VideoTools.Core\AzureArchive.VideoTools.Core.csproj" />
     <ProjectReference Include="..\AzureArchive.VideoTools.Formats\AzureArchive.VideoTools.Formats.csproj" />
   </ItemGroup>

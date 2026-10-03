@@ -151,4 +151,122 @@ internal static class SharedDirectiveCompilationTests
         registration.Value.Dispose();
         AssertEx.Equal(source, service.Sanitize(source));
     }
+
+    public static void RegisteredAavtFilteringPreservesUnregisteredFlBytes()
+    {
+        using var service = new EmbeddedDirectiveService(static () => true, static () => true, null);
+        var tracker = new AavtCompilationCaptureTracker();
+        EmbeddedDirectiveCompilationCapture? captured = null;
+        AssertEx.True(service.Register("rukari.moreeffects", new[] { "#aavt", "#char" },
+            compilation => captured = tracker.Capture(compilation, true)).Success);
+
+        // FL stays unregistered here: argument interpretation belongs to the peer mod.
+        foreach (DirectiveCompilationBoundary boundary in Enum.GetValues<DirectiveCompilationBoundary>())
+        foreach (string ending in new[] { "\r\n", string.Empty })
+        {
+            string source = " \t#FL-Move;slot=2;x=1.25 \t\r\n"
+                + "#aavt;char;3;set;x=10\r\n"
+                + "正文\r\n#FL-Move;slot=4;x=-3" + ending;
+            string expected = " \t#FL-Move;slot=2;x=1.25 \t\r\n"
+                + "正文\r\n#FL-Move;slot=4;x=-3" + ending;
+            string official = service.Process(source, boundary, 100, true);
+            EmbeddedDirectiveCompilationCapture result = AssertEx.NotNull(captured);
+            AssertEx.Equal(expected, official);
+            AssertEx.Equal(expected, result.Extraction.SanitizedText);
+            AssertEx.Equal(CommandIdentity.CompiledScript(expected), result.Identity);
+            AssertEx.Equal(1, result.Extraction.RemovedLineCount);
+            AssertEx.Equal(0, result.Extraction.Errors.Count);
+            AssertEx.Equal(2, result.Extraction.Commands.Single().LineNumber);
+            AssertEx.Equal("#char;3;set;x=10;duration=0;easing=linear",
+                result.Extraction.Commands.Single().CanonicalDirective);
+        }
+
+        // Removing our last line must preserve the preceding foreign CRLF.
+        AssertEx.Equal("#FL-Move;slot=2;x=7\r\n",
+            service.Process("#FL-Move;slot=2;x=7\r\n#aavt;char;3;reset",
+                DirectiveCompilationBoundary.Continuous, 101, true));
+    }
+
+    public static void MixedFlCapturesReplaceOwnCanonicalCommandsAndPermitDeletion()
+    {
+        using var service = new EmbeddedDirectiveService(static () => true, static () => true, null);
+        var tracker = new AavtCompilationCaptureTracker();
+        var captures = new List<EmbeddedDirectiveCompilationCapture>();
+        AssertEx.True(service.Register("rukari.moreeffects", new[] { "#aavt", "#char" },
+            compilation => captures.Add(tracker.Capture(compilation, true))).Success);
+        const string foreignAndBody = "#FL-Move;slot=2;x=7\r\n正文";
+
+        string first = service.Process("#aavt;char;3;set;x=10\r\n" + foreignAndBody,
+            DirectiveCompilationBoundary.Continuous, 110, true);
+        service.Process(first, DirectiveCompilationBoundary.ScriptText, 110, true);
+        AssertEx.Equal(foreignAndBody, first);
+        AssertEx.Equal("#char;3;set;x=10;duration=0;easing=linear",
+            captures[0].Extraction.Commands.Single().CanonicalDirective);
+        AssertEx.False(captures[0].AavtSeenEarlierInCompilation);
+        AssertEx.False(captures[1].Extraction.HasEmbeddedDirectives);
+        AssertEx.True(captures[1].AavtSeenEarlierInCompilation);
+
+        string replacement = service.Process("#aavt;char;3;set;x=20\r\n" + foreignAndBody,
+            DirectiveCompilationBoundary.Continuous, 111, true);
+        service.Process(replacement, DirectiveCompilationBoundary.ScriptText, 111, true);
+        AssertEx.Equal(captures[0].Identity, captures[2].Identity);
+        AssertEx.Equal("#char;3;set;x=20;duration=0;easing=linear",
+            captures[2].Extraction.Commands.Single().CanonicalDirective);
+        AssertEx.False(captures[2].AavtSeenEarlierInCompilation);
+        AssertEx.True(captures[3].AavtSeenEarlierInCompilation);
+
+        string nonVisual = service.Process("#aavt;continue\r\n" + foreignAndBody,
+            DirectiveCompilationBoundary.Continuous, 112, true);
+        service.Process(nonVisual, DirectiveCompilationBoundary.ScriptText, 112, true);
+        AssertEx.Equal(captures[0].Identity, captures[4].Identity);
+        AssertEx.True(captures[4].Extraction.HasOnlyNonVisualDirectives);
+        AssertEx.True(captures[4].Extraction.HasContinueDirective);
+        AssertEx.Equal(0, captures[4].Extraction.Commands.Count);
+        AssertEx.True(captures[5].AavtSeenEarlierInCompilation);
+
+        // A new authored compile that deletes our final marker permits a tombstone;
+        // the unregistered FL line gives no AAVT authority to suppress that deletion.
+        string deleted = service.Process(foreignAndBody,
+            DirectiveCompilationBoundary.Continuous, 113, true);
+        service.Process(deleted, DirectiveCompilationBoundary.ScriptText, 113, true);
+        AssertEx.Equal(captures[0].Identity, captures[6].Identity);
+        foreach (EmbeddedDirectiveCompilationCapture result in captures.Skip(6))
+        {
+            AssertEx.Equal(foreignAndBody, result.Extraction.SanitizedText);
+            AssertEx.False(result.Extraction.HasEmbeddedDirectives);
+            AssertEx.False(result.Extraction.HasContinueDirective);
+            AssertEx.Equal(0, result.Extraction.Commands.Count);
+            AssertEx.Equal(0, result.Extraction.Errors.Count);
+            AssertEx.False(result.AavtSeenEarlierInCompilation);
+        }
+
+        service.Process("正文", DirectiveCompilationBoundary.Continuous, 114, true);
+        AssertEx.False(captures[8].Extraction.HasEmbeddedDirectives);
+        AssertEx.False(captures[8].AavtSeenEarlierInCompilation);
+        AssertEx.Equal(CommandIdentity.CompiledScript("正文"), captures[8].Identity);
+        AssertEx.False(captures[8].Identity.Sha256 == captures[6].Identity.Sha256);
+    }
+
+    public static void ForeignFlArgumentsChangeCompiledIdentityButKeepOwnCanonicalCommands()
+    {
+        using var service = new EmbeddedDirectiveService(static () => true, static () => true, null);
+        var tracker = new AavtCompilationCaptureTracker();
+        var captures = new List<EmbeddedDirectiveCompilationCapture>();
+        AssertEx.True(service.Register("rukari.moreeffects", new[] { "#aavt", "#char" },
+            compilation => captures.Add(tracker.Capture(compilation, true))).Success);
+        const string own = "#aavt;char;3;move;dx=10;duration=800\r\n";
+        const string first = "#FL-Move;slot=2;x=7\r\n正文";
+        const string changed = "#FL-Move;slot=2;x=8\r\n正文";
+        AssertEx.Equal(first, service.Process(own + first, DirectiveCompilationBoundary.Continuous, 120, true));
+        AssertEx.Equal(changed, service.Process(own + changed, DirectiveCompilationBoundary.Continuous, 121, true));
+        AssertEx.Equal(CommandIdentity.CompiledScript(first), captures[0].Identity);
+        AssertEx.Equal(CommandIdentity.CompiledScript(changed), captures[1].Identity);
+        AssertEx.Equal(captures[0].Identity.Utf16Length, captures[1].Identity.Utf16Length);
+        AssertEx.Equal(captures[0].Identity.LineCount, captures[1].Identity.LineCount);
+        AssertEx.False(captures[0].Identity.Sha256 == captures[1].Identity.Sha256);
+        AssertEx.Equal(captures[0].Extraction.Commands.Single(), captures[1].Extraction.Commands.Single());
+        AssertEx.Equal("#char;3;move;dx=10;duration=800;easing=linear",
+            captures[1].Extraction.Commands.Single().CanonicalDirective);
+        AssertEx.True(captures.All(result => result.Extraction.Errors.Count == 0));
+    }
 }
