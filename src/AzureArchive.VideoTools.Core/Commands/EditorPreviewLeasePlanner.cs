@@ -234,7 +234,7 @@ public sealed class EditorPreviewLeaseGate
     {
         if (selection?.CompiledScript == null || selection.Scene == null
             || selection.SelectionGeneration <= 0
-            || selection.SelectionRequestId <= 0
+            || selection.SelectionRequestId < 0
             || selection.ObservationSequence < 0)
         {
             return Result.Fail(

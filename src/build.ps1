@@ -42,9 +42,9 @@ if ($CoreOnly) {
         [IO.Directory]::CreateDirectory($runtimeUi) | Out-Null
         foreach ($file in Get-ChildItem -LiteralPath $skin -File -Recurse) {
             $relative = [IO.Path]::GetRelativePath($skin,$file.FullName)
-            $target = Join-Path $runtimeUi $relative
-            [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
-            Copy-Item -LiteralPath $file.FullName -Destination $target -Force
+            $uiDestination = Join-Path $runtimeUi $relative
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $uiDestination)) | Out-Null
+            Copy-Item -LiteralPath $file.FullName -Destination $uiDestination -Force
         }
     }
 } else {
@@ -66,9 +66,19 @@ if ($CoreOnly) {
     }
     & (Join-Path $repo 'scripts/Test-RukariDependencies.ps1') -GameRoot $resolvedGame -Configuration $Configuration -Scope StableModules -OutputPath (Join-Path $repo "artifacts/mod-dependencies-$Configuration.json")
 }
+$testSummaries = @()
 if (-not $SkipTests) {
     foreach ($suite in @("AzureArchive.VideoTools.Tests/bin/$Configuration/net6.0/AzureArchive.VideoTools.Tests.dll","Rukari.Lib.Tests/bin/$Configuration/net6.0/Rukari.Lib.Tests.dll","Rukari.CharacterVoice/Tests/bin/$Configuration/net6.0/Rukari.CharacterVoice.Tests.dll","Rukari.SpineSupport/Tests/bin/$Configuration/net6.0/Rukari.SpineSupport.Tests.dll")) {
-        Run-DotNet @((Join-Path $repo $suite))
+        Run-DotNet @((Join-Path $repo $suite)) | Tee-Object -Variable suiteLines
+        $summary = @($suiteLines | Where-Object { $_ -match '^TEST SUMMARY total=\d+ failed=\d+$|^\d+/\d+ .+ tests passed\.$' })
+        if ($summary.Count -ne 1) { throw "Missing or ambiguous test summary: $suite" }
+        if ($summary[0] -match '^TEST SUMMARY total=(\d+) failed=(\d+)$') {
+            $total = [int]$Matches[1]; $failed = [int]$Matches[2]
+        } elseif ($summary[0] -match '^(\d+)/(\d+) .+ tests passed\.$') {
+            $total = [int]$Matches[2]; $failed = $total - [int]$Matches[1]
+        } else { throw "Unrecognized test summary: $suite" }
+        if ($total -le 0 -or $failed -ne 0) { throw "Test suite did not pass: $suite" }
+        $testSummaries += [ordered]@{Path=$suite;Total=$total;Failed=$failed;Summary=[string]$summary[0]}
     }
 }
 $outputs = @()
@@ -86,7 +96,12 @@ if (-not $CoreOnly -and -not $SkipTests) {
 $records = @(Get-ChildItem -LiteralPath $repo -File -Recurse | Where-Object {
     $_.FullName.Substring($repo.Length + 1) -notmatch '(^|[\\/])(bin|obj|artifacts)[\\/]' -and $_.Extension -in @('.cs','.csproj','.sln','.props','.targets','.ps1','.json')
 } | ForEach-Object { [ordered]@{Path=[IO.Path]::GetRelativePath($repo,$_.FullName).Replace('\','/');SHA256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} })
-$receipt = [ordered]@{SchemaVersion=2;BuiltAt=(Get-Date -Format o);Target=$Target;GameRoot=$resolvedGame;GameInputs=$gameInputs;Lib='0.4.1';MoreEffects='1.4.0';Configuration=$Configuration;Scope=($CoreOnly ? 'managed core only' : 'four products and four examples');Compilation='passed';ManagedTests=($SkipTests ? 'not-run' : 'passed: 396 Core + 136 Lib + 53 Voice + 26 Spine');Native='not-run';Sources=$records;Outputs=$outputs;GameStarted=$false;Installed=$false}
+$productVersions = [ordered]@{}
+foreach ($project in @('Rukari.Lib.Runtime','Rukari.CharacterVoice','Rukari.MoreEffects','Rukari.SpineSupport')) {
+    $manifest = Get-Content -LiteralPath (Join-Path $repo ($project + '/package/manifest.json')) -Raw | ConvertFrom-Json
+    $productVersions[$project] = [string]$manifest.version_number
+}
+$receipt = [ordered]@{SchemaVersion=2;BuiltAt=(Get-Date -Format o);Target=$Target;GameRoot=$resolvedGame;GameInputs=$gameInputs;Lib=$productVersions['Rukari.Lib.Runtime'];MoreEffects=$productVersions['Rukari.MoreEffects'];CharacterVoice=$productVersions['Rukari.CharacterVoice'];SpineSupport=$productVersions['Rukari.SpineSupport'];Configuration=$Configuration;Scope=($CoreOnly ? 'managed core only' : 'four products and four examples');Compilation='passed';ManagedTests=($SkipTests ? 'not-run' : "passed: $((@($testSummaries | ForEach-Object { $_.Total }) -join ' + '))");TestSuites=$testSummaries;Native='not-run';Sources=$records;Outputs=$outputs;GameStarted=$false;Installed=$false}
 $receiptDirectory = Join-Path $repo 'artifacts'
 [IO.Directory]::CreateDirectory($receiptDirectory) | Out-Null
 [IO.File]::WriteAllText((Join-Path $receiptDirectory "source-handover-build-$Configuration.json"),($receipt | ConvertTo-Json -Depth 7),$utf8)

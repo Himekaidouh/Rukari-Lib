@@ -3,6 +3,7 @@ using System.Globalization;
 using AzureArchive.VideoTools.Api;
 using AzureArchive.VideoTools.Core.Characters;
 using AzureArchive.VideoTools.Core.Commands;
+using AzureArchive.VideoTools.Core.VisualEditor;
 using AzureArchive.VideoTools.Interop;
 
 namespace AzureArchive.VideoTools.Runtime;
@@ -18,6 +19,7 @@ internal sealed class CharacterPresetEditorSession
 
     private readonly CharacterPresetDirectiveParser _parser = new();
     private readonly CharacterPresetCommandFamilyCompiler _compiler = new();
+    private readonly VisualEditorSlotPreference _slotPreference = new();
     private long _lastRead;
     private EditorCommandDocumentSnapshot? _source;
     private int _direction = 1;
@@ -69,6 +71,7 @@ internal sealed class CharacterPresetEditorSession
             : VisualEditorBehaviour.PresetSlotForSelection(_source.RuntimeSelectionKey);
         if (graphicalSlot is >= 1 and <= 5 && graphicalSlot != _lastGraphicalSlot) PublicSlot = graphicalSlot;
         _lastGraphicalSlot = graphicalSlot;
+        _slotPreference.Remember(_source?.RuntimeContextId, PublicSlot);
         LoadFromSource();
         Notice = Existing != null && Existing.Kind != Kind
             ? "应用后替换本槽原有动作。" : string.Empty;
@@ -109,8 +112,11 @@ internal sealed class CharacterPresetEditorSession
         if (selectionChanged)
         {
             int graphicalSlot = VisualEditorBehaviour.PresetSlotForSelection(next.RuntimeSelectionKey);
-            PublicSlot = graphicalSlot is >= 1 and <= 5 ? graphicalSlot : 1;
+            int rememberedSlot = _slotPreference.Restore(next.RuntimeContextId);
+            PublicSlot = rememberedSlot is >= 1 and <= 5 ? rememberedSlot
+                : graphicalSlot is >= 1 and <= 5 ? graphicalSlot : 1;
             _lastGraphicalSlot = graphicalSlot;
+            _slotPreference.Remember(next.RuntimeContextId, PublicSlot);
         }
         LoadFromSource();
         Notice = hadDraft ? "台词或内容已变化，旧草稿已清除。" : string.Empty;
@@ -118,8 +124,9 @@ internal sealed class CharacterPresetEditorSession
 
     internal void SelectSlot(int slot)
     {
-        if (slot is < 1 or > 5 || slot == PublicSlot) return;
+        if (!Editable || slot is < 1 or > 5 || slot == PublicSlot) return;
         PublicSlot = slot;
+        _slotPreference.Remember(_source!.RuntimeContextId, slot);
         LoadFromSource();
         Notice = Existing != null && Existing.Kind != Kind
             ? "应用后替换本槽原有动作。" : string.Empty;

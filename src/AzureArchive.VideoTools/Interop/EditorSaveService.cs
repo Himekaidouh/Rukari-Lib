@@ -8,16 +8,10 @@ using Rukari.Lib.Editor;
 namespace AzureArchive.VideoTools.Interop;
 
 /// <summary>
-/// On-demand save for the editor (2026-09-21): the three steps the automatic path runs, triggered by
-/// the author instead of by waiting.
-/// <para>
-/// The interface's own save button runs <c>Save(false)</c> and then <c>Compile()</c>; the overload
-/// that writes the playable archive — <c>Compile(fileName)</c> — is never reached from any interface
-/// action, which is why a saved project can still play back its previous revision. This service
-/// calls all three in order and reports them separately, so a partial result is never shown as
-/// success. Nothing here is invented: every call is the editor's own API, reached through the live
-/// <see cref="Studio.Scripts.StudioCommon"/> component.
-/// </para>
+/// Explicit save -> build -> playable publication through the editor's existing entry points.
+/// An optional managed publication provider stays scoped across all three calls, so companion
+/// resources can follow an observed official AAS promotion without another automatic compilation.
+/// Automatic builds do not request this chain. Each completed step is reported separately.
 /// </summary>
 internal sealed class EditorSaveService : IEditorSaveService
 {
@@ -62,6 +56,40 @@ internal sealed class EditorSaveService : IEditorSaveService
                 "编辑器没有工程名，保存被跳过。");
         }
 
+        IDisposable? publicationScope = null;
+        if (runtime != null)
+        {
+            ModResult<IEditorPublicationScopeService> provider = runtime.GetService<IEditorPublicationScopeService>();
+            if (provider.Success)
+            {
+                try
+                {
+                    ModResult<IDisposable> begun = provider.Value.Begin(name);
+                    if (!begun.Success) return ModResult<EditorSaveReceipt>.Fail(begun.Error!);
+                    if (begun.Value == null)
+                        return ModResult<EditorSaveReceipt>.Fail(ModErrorCode.ProviderFailed, "配音发布范围未建立，未执行保存。");
+                    publicationScope = begun.Value;
+                }
+                catch (Exception ex)
+                {
+                    return ModResult<EditorSaveReceipt>.Fail(ModErrorCode.ProviderFailed,
+                        $"准备配音发布失败，未执行保存：{ex.GetType().Name}: {ex.Message}");
+                }
+            }
+            else if (provider.Error?.Code != ModErrorCode.NotFound)
+            {
+                return ModResult<EditorSaveReceipt>.Fail(provider.Error!);
+            }
+        }
+
+        using (publicationScope)
+        {
+            return SaveAndPublishCore(common, name);
+        }
+    }
+
+    private static ModResult<EditorSaveReceipt> SaveAndPublishCore(Studio.Scripts.StudioCommon common, string name)
+    {
         long started = Stopwatch.GetTimestamp();
         bool saved = false;
         bool compiled = false;

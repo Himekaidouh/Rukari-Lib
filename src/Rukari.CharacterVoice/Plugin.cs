@@ -17,16 +17,18 @@ using MonoBehaviour = unitycore::UnityEngine.MonoBehaviour;
 namespace Rukari.CharacterVoice;
 
 [BepInPlugin(Guid, Name, Version)]
-[BepInDependency("rukari.lib.runtime", ">=0.4.1 <0.5.0")]
+[BepInDependency("rukari.lib.runtime", ">=0.4.2 <0.5.0")]
 public sealed class Plugin : BasePlugin
 {
     public const string Guid = "rukari.charactervoice";
     public const string Name = "人物配音支持";
-    public const string Version = "1.6.2";
+    public const string Version = "1.6.4";
     internal static ManualLogSource Logger { get; private set; } = null!;
     private static VoiceAuthoringSession? _voice;
     private static VoiceToolPage? _page;
     private static IDisposable? _serviceLease;
+    private static VoicePublicationScopeService? _publicationScope;
+    private static IDisposable? _publicationScopeLease;
     private static IDisposable? _pageLease;
     private static IDisposable? _settingsLease;
     private static IDisposable? _helpLease;
@@ -75,6 +77,14 @@ public sealed class Plugin : BasePlugin
                     "Owns AAVT directive voice bindings and imported sound resources; native playback and shared editor transactions; native lifecycle validation required per game build."));
             if (!registered.Success) throw new InvalidOperationException(registered.Error!.Message);
             _serviceLease = registered.Value;
+            _publicationScope = new VoicePublicationScopeService(() => runtime.State == RuntimeState.Ready,
+                () => runtime.IsMainThread, VoicePublicationRuntime.CaptureExplicitIdentity,
+                VoicePublicationRuntime.EnterExplicitScope);
+            var publicationScope = runtime.RegisterService<IEditorPublicationScopeService>(Guid, _publicationScope,
+                new(EditorPublicationScopeCapabilities.Manual, Guid, "0.1.0", CapabilityLevel.Experimental,
+                    "Managed scope for explicit save/compile/publish; verifies current session and resource root; no additional automatic compilation."));
+            if (!publicationScope.Success) throw new InvalidOperationException(publicationScope.Error!.Message);
+            _publicationScopeLease = publicationScope.Value;
             var page = new VoiceToolPage(_voice, editor.Value,
                 ProjectVoiceImportStore.CaptureCurrentProjectOnMainThread,
                 (project, scan, cancellation) => new ProjectVoiceImportStore(project).ImportAsync(scan, cancellation)) { ReadPublicationStatus = VoicePublicationRuntime.ReadCurrentStatus };
@@ -83,7 +93,8 @@ public sealed class Plugin : BasePlugin
             if (!registeredPage.Success) throw new InvalidOperationException(registeredPage.Error!.Message);
             _pageLease = registeredPage.Value;
             var playbackSettings = new VoicePlaybackSettingsPage(() => VoicePlaybackRuntime.PostPlaybackDelaySeconds,
-                VoicePlaybackRuntime.SavePostPlaybackDelay);
+                VoicePlaybackRuntime.SavePostPlaybackDelay, () => VoicePlaybackRuntime.VolumePercent,
+                VoicePlaybackRuntime.SaveVolumePercent);
             var globalSettings = runtime.GetService<IModSettingsService>();
             var settingsPage = globalSettings.Success
                 ? globalSettings.Value.RegisterPage(Guid, Name, playbackSettings)
@@ -102,8 +113,8 @@ public sealed class Plugin : BasePlugin
                 else Logger.LogWarning("指令帮助登记失败：" + published.Error!.Message);
             }
             AddComponent<VoiceBehaviour>();
-            Logger.LogInfo($"人物配音支持 {Version} ready; project voice folder import, independent voice playback, global post-voice delay (0-10s), and "
-                + "portable published voice companion; native STA folder picker; dependency=Rukari lib 0.4.1; "
+            Logger.LogInfo($"人物配音支持 {Version} ready; project voice folder import, independent voice playback, global voice strength (0-100%, default 50% unchanged), global post-voice delay (0-10s), and "
+                + "portable published voice companion; native STA folder picker; dependency=Rukari lib >=0.4.2 <0.5.0; "
                 + "legacy #aavt voice identifiers retained.");
         }
         catch
@@ -120,6 +131,8 @@ public sealed class Plugin : BasePlugin
         Interlocked.Exchange(ref _helpLease, null)?.Dispose();
         Interlocked.Exchange(ref _page, null)?.Dispose();
         Interlocked.Exchange(ref _serviceLease, null)?.Dispose();
+        Interlocked.Exchange(ref _publicationScopeLease, null)?.Dispose();
+        Interlocked.Exchange(ref _publicationScope, null)?.Dispose();
         Interlocked.Exchange(ref _voice, null)?.Dispose();
         VoiceSupportPatch.Stop();
     }

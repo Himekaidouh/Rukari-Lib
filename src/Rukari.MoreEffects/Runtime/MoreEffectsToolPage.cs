@@ -1,3 +1,4 @@
+using Rukari.Lib.Editor;
 using Rukari.Lib;
 using Rukari.Lib.Tools;
 
@@ -43,8 +44,24 @@ internal static class MoreEffectsToolPage
 }
 
 // The legacy correlation probes remain stage-specific (compiled scene identity/preview lease).
-// The common editor transaction service invalidates its own tokens through its single prefix pair.
+// The existing DataList observer notifies the optional managed token-invalidation capability.
 internal static class SharedModIntegration
 {
-    internal static void InvalidateSelection() { }
+    internal static void InvalidateSelection()
+    {
+        try
+        {
+            var documents = ModServices.Current?.GetService<IEditorDocumentService>();
+            var invalidation = documents?.Success == true
+                ? documents.Value as IEditorSelectionInvalidation : null;
+            if (invalidation == null) return;
+            var result = invalidation.InvalidateSelection();
+            if (!result.Success)
+                Plugin.Logger.LogWarning($"Shared selection invalidation rejected: {result.Error?.Code}.");
+        }
+        catch (Exception ex)
+        {
+            Plugin.Logger.LogWarning($"Shared selection invalidation failed: {ex.GetType().Name}.");
+        }
+    }
 }

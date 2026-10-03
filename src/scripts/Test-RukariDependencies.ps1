@@ -29,17 +29,18 @@ $definitions = @(
 )
 if ($Scope -eq 'StableModules') { $definitions = @($definitions | Where-Object Project -ne 'Rukari.Captions') }
 if ($Scope -eq 'FirstRelease') {
-    $definitions = @($definitions | Where-Object Name -in @('RukariLib','更多的画面效果'))
+    $definitions = @($definitions | Where-Object Name -in @('RukariLib','更多的画面效果','人物配音支持'))
 }
-$libVersion = [string]([xml](Get-Content (Join-Path $repo 'Rukari.Lib.Runtime\Rukari.Lib.Runtime.csproj') -Raw)).Project.PropertyGroup.Version
+$libVersion = [string](Get-Content -LiteralPath (Join-Path $repo 'Rukari.Lib.Runtime/package/manifest.json') -Raw | ConvertFrom-Json).version_number
 if ($InstallationRoot) {
     $profile = (Get-Content -LiteralPath (Join-Path $InstallationRoot 'ActiveProfile.txt') -Raw).Trim()
     $enabled = (Get-Content -LiteralPath (Join-Path $InstallationRoot "profiles\$profile\modconfig.json") -Raw | ConvertFrom-Json).EnabledMods
-    if ($Scope -eq 'FirstRelease' -and ($enabled.Count -ne 2 -or
-        @(Compare-Object @($definitions.Name) @($enabled.name)).Count)) { throw 'Expected exactly the two first-release modules.' }
+    if ($Scope -eq 'FirstRelease' -and ($enabled.Count -ne 3 -or
+        @(Compare-Object @($definitions.Name) @($enabled.name)).Count)) { throw 'Expected exactly the three first-release modules.' }
     $libVersion = [string]($enabled | Where-Object name -eq RukariLib).version
 }
 $failures = [Collections.Generic.List[string]]::new()
+$boundaryRecords = [Collections.Generic.List[object]]::new()
 $records = @()
 foreach ($definition in $definitions) {
     if ($InstallationRoot) {
@@ -76,6 +77,21 @@ foreach ($definition in $definitions) {
                 $dependency[0].ConstructorArguments[1].Type.FullName -ne 'System.String') { throw "Missing versioned BepInEx dependency: $dllPath" }
             $requirement = [string]$dependency[0].ConstructorArguments[1].Value
             $parsed = [BepInEx.BepInDependency]::new('rukari.lib.runtime',$requirement)
+            if ($definition.Project -in @('Rukari.CharacterVoice','Rukari.MoreEffects')) {
+                # Check the declaration read from the actual DLL with the installed loader's parser.
+                foreach ($boundary in @(
+                    @{Version='0.4.1';Expected=$false},
+                    @{Version='0.4.2';Expected=$true},
+                    @{Version='0.5.0';Expected=$false}
+                )) {
+                    $accepted = $parsed.VersionRange.IsSatisfied($boundary.Version,$false,$false)
+                    $boundaryRecords.Add([ordered]@{Name=$definition.Name;DllRequirement=$requirement;
+                        LibVersion=$boundary.Version;Expected=$boundary.Expected;Accepted=$accepted})
+                    if ($accepted -ne $boundary.Expected) {
+                        $failures.Add("$($definition.Name): dependency '$requirement' has an unexpected result for lib $($boundary.Version)")
+                    }
+                }
+            }
             $satisfied = $parsed.VersionRange.IsSatisfied($libVersion,$false,$false)
             if (-not $satisfied) { $failures.Add("$($definition.Name): DLL requires '$requirement', selected lib is $libVersion") }
             if (@($manifest.dependencies).Count -ne 1 -or $manifest.dependencies[0] -cne "RukariLib/$libVersion") {
@@ -92,7 +108,7 @@ foreach ($definition in $definitions) {
     } finally { $assembly.Dispose() }
 }
 $report = [ordered]@{ LoaderCoreSHA256=(Get-FileHash (Join-Path $core 'BepInEx.Core.dll')).Hash;
-    Checks=$records; Failures=@($failures.ToArray()); Native='not-run' }
+    Checks=$records; BoundaryChecks=@($boundaryRecords.ToArray()); Failures=@($failures.ToArray()); Native='not-run' }
 if ($OutputPath) {
     [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($OutputPath))) | Out-Null
     [IO.File]::WriteAllText([IO.Path]::GetFullPath($OutputPath), ($report | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))

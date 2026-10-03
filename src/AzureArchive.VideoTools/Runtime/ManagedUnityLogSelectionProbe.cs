@@ -1,157 +1,120 @@
 using System;
-using System.Collections.Generic;
-using System.Security.Cryptography;
-using System.Text;
+using AzureArchive.VideoTools.Api;
+using AzureArchive.VideoTools.Core.Commands;
 using BepInEx.Logging;
+using Rukari.Lib;
 
 namespace AzureArchive.VideoTools.Runtime;
 
 internal static class ManagedUnityLogSelectionProbe
 {
-    private const int Capacity = 16;
     private static readonly object Gate = new();
-    private static readonly Queue<ManagedLogEntry> Entries = new(Capacity);
+    private static readonly ManagedSelectionLogCorrelation Correlation = new();
     private static ManagedUnityLogListener? _listener;
     private static long _sequence;
-    private static DataListMarker _marker;
+    private static EditorInputSceneCaptureProof? _inputProof;
 
     public static void Install()
     {
-        if (_listener != null)
-        {
-            return;
-        }
-
+        if (_listener != null) return;
         _listener = new ManagedUnityLogListener();
         BepInEx.Logging.Logger.Listeners.Add(_listener);
         Plugin.Logger.LogInfo(
-            "Managed Unity-log selection probe installed; it accepts only BepInEx-managed string data.");
+            "Managed Unity-log selection probe installed; managed hashes are confirmed "
+            + "by the existing main-thread pump, without a Selectable callback patch.");
     }
 
-    public static void MarkDataList(int requestId)
+    public static void MarkDataList(int requestId, ApiResult<SceneSnapshot> capturedScene,
+        EditorInputSceneCaptureProof? inputProof)
     {
+        ArgumentNullException.ThrowIfNull(capturedScene);
+        IModRuntime? runtime = ModServices.Current;
+        int mainThreadId = runtime is { State: RuntimeState.Ready, IsMainThread: true }
+            ? Environment.CurrentManagedThreadId : 0;
+        EditorPreviewSceneAddress? scene = capturedScene.Success && capturedScene.Value != null
+            ? CoreScene(capturedScene.Value.Address) : null;
         lock (Gate)
         {
-            _marker = new DataListMarker(requestId, _sequence);
+            _inputProof = inputProof;
+            Correlation.Begin(requestId, _sequence, mainThreadId,
+                PlayerAdvanceObservationWindow.IssuedSequence,
+                PlayerAdvanceObservationWindow.ClosedSequenceWatermark, scene);
         }
     }
 
-    public static SelectionCorrelation CompleteSelection()
+    // The listener only captures managed metadata. Existing Update/LateUpdate
+    // calls this before draining preview windows; no native hook is added.
+    public static void PumpOnMainThread()
     {
+        IModRuntime? runtime = ModServices.Current;
+        if (runtime is not { State: RuntimeState.Ready, IsMainThread: true }) return;
+        ManagedSelectionLogCandidate? candidate;
+        EditorInputSceneCaptureProof? inputProof;
+        lock (Gate) { candidate = Correlation.Pending; inputProof = _inputProof; }
+        if (candidate == null) return;
         lock (Gate)
         {
-            if (_marker.RequestId == 0)
-            {
-                return SelectionCorrelation.NoMarker;
-            }
-
-            List<ManagedLogEntry> afterMarker = new();
-            foreach (ManagedLogEntry entry in Entries)
-            {
-                if (entry.Sequence > _marker.UnityLogSequence)
-                {
-                    afterMarker.Add(entry);
-                }
-            }
-
-            ManagedLogEntry first = afterMarker.Count > 0
-                ? afterMarker[0]
-                : default;
-            ManagedLogEntry latest = afterMarker.Count > 0
-                ? afterMarker[afterMarker.Count - 1]
-                : default;
-            return new SelectionCorrelation(
-                true,
-                _marker.RequestId,
-                _marker.UnityLogSequence,
-                _sequence,
-                afterMarker.Count,
-                first,
-                latest);
+            if (!Correlation.IsPending(candidate)) return;
         }
+
+        // This is the same fresh selected-scene API previously called by the
+        // selection postfix. No new native property or retained wrapper is used.
+        ApiResult<SceneSnapshot> liveScene = Plugin.Api.Editor.GetSelectedScene();
+        EditorPreviewSceneAddress? live = liveScene.Success && liveScene.Value != null
+            ? CoreScene(liveScene.Value.Address) : null;
+        string inputError = string.Empty;
+        if (inputProof != null)
+        {
+            var documents = runtime.GetService<Rukari.Lib.Editor.IEditorDocumentService>();
+            var read = documents is { Success: true, Value: not null } ? documents.Value.ReadSelection() : null;
+            var confirmation = EditorInputSceneCapturePlanner.Confirm(inputProof, read?.Success == true ? read.Value : null);
+            if (!confirmation.Success) { live = null; inputError = confirmation.Error; }
+        }
+        string error;
+        lock (Gate)
+        {
+            bool currentCandidate = Correlation.IsPending(candidate);
+            bool completed = Correlation.TryComplete(candidate, Environment.CurrentManagedThreadId,
+                PlayerAdvanceObservationWindow.IssuedSequence, live, out error);
+            if (currentCandidate) _inputProof = null;
+            if (completed)
+            {
+                EditorSelectionEventProbe.PublishManagedLog(candidate, liveScene);
+                return;
+            }
+        }
+
+        Plugin.Logger.LogWarning(
+            $"Managed-log selection rejected: generation={candidate.Marker.Generation}; "
+            + $"request={candidate.Marker.RequestId}; reason={error}; inputConfirmation={inputError}.");
     }
 
     private static void Capture(LogEventArgs eventArgs)
     {
         if (!string.Equals(eventArgs.Source.SourceName, "Unity", StringComparison.Ordinal)
-            || eventArgs.Data is not string text)
-        {
-            return;
-        }
-
-        ManagedLogEntry entry = CreateEntry(text);
+            || eventArgs.Data is not string text) return;
+        string error;
         lock (Gate)
         {
-            entry = entry with { Sequence = ++_sequence };
-            Entries.Enqueue(entry);
-            while (Entries.Count > Capacity)
-            {
-                Entries.Dequeue();
-            }
+            long sequence = ++_sequence;
+            CompiledScriptIdentity? identity = text.Length <= ManagedSelectionLogCorrelation.MaximumScriptCharacters
+                ? CommandIdentity.CompiledScript(text) : null;
+            if (Correlation.TryObserveFirst(sequence, identity, Environment.CurrentManagedThreadId,
+                    PlayerAdvanceObservationWindow.IssuedSequence,
+                    PlayerAdvanceObservationWindow.ClosedSequenceWatermark, out error)) return;
         }
+
+        if (error is "no-data-list-marker" or "first-log-already-observed") return;
+        Plugin.Logger.LogWarning($"Managed-log first selection message rejected: reason={error}.");
     }
 
-    private static ManagedLogEntry CreateEntry(string text)
-    {
-        byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(text));
-        string hash = Convert.ToHexString(digest);
-        int lineCount = 1;
-        foreach (char character in text)
-        {
-            if (character == '\n')
-            {
-                lineCount++;
-            }
-        }
-
-        string preview = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
-        if (preview.Length > 96)
-        {
-            preview = preview.Substring(0, 96);
-        }
-
-        return new ManagedLogEntry(0, text.Length, lineCount, hash, preview);
-    }
+    private static EditorPreviewSceneAddress CoreScene(SceneAddress scene) => new(
+        scene.ProjectKey, scene.NodeGuid, scene.SceneIndex, scene.Fingerprint);
 
     private sealed class ManagedUnityLogListener : ILogListener
     {
         public LogLevel LogLevelFilter => LogLevel.Message;
-
-        public void LogEvent(object sender, LogEventArgs eventArgs)
-        {
-            Capture(eventArgs);
-        }
-
-        public void Dispose()
-        {
-        }
-    }
-
-    private readonly record struct DataListMarker(int RequestId, long UnityLogSequence);
-
-    internal readonly record struct ManagedLogEntry(
-        long Sequence,
-        int Length,
-        int LineCount,
-        string Hash,
-        string Preview);
-
-    internal readonly record struct SelectionCorrelation(
-        bool HasMarker,
-        int RequestId,
-        long StartSequence,
-        long EndSequence,
-        int MessagesAfterDataList,
-        ManagedLogEntry First,
-        ManagedLogEntry Latest)
-    {
-        public static SelectionCorrelation NoMarker => new(
-            false,
-            0,
-            0,
-            0,
-            0,
-            default,
-            default);
+        public void LogEvent(object sender, LogEventArgs eventArgs) => Capture(eventArgs);
+        public void Dispose() { }
     }
 }

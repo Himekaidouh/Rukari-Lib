@@ -3,7 +3,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>Rukari.Lib.Runtime</AssemblyName>
     <RootNamespace>Rukari.Lib.Runtime</RootNamespace>
-    <Version>0.4.1</Version>
+    <Version>0.4.2</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>

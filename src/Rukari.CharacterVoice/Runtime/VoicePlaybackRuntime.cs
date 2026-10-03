@@ -15,6 +15,9 @@ internal static class VoicePlaybackRuntime
 {
     private const int MaximumUnfinishedLoads = 128;
     private static readonly VoicePlaybackGate Gate = new();
+    private static readonly VoicePlaybackVolumeAdmission VolumeAdmission = new();
+    private static readonly VoicePlaybackVolumeLease VolumeLease = new();
+    private static readonly VoicePlaybackVolumeStartQualification VolumeStartQualification = new();
     private static readonly HashSet<string> NativeLoads = new(StringComparer.Ordinal);
     private static readonly Queue<string> LoadSweep = new();
     private static readonly HashSet<string> Reported = new(StringComparer.Ordinal);
@@ -23,6 +26,7 @@ internal static class VoicePlaybackRuntime
     private static int _ownerPlayerInstanceId;
     private static bool _ownerPreview;
     private static bool _installed;
+    private static bool _usesNativeStartedCallback;
     private static bool _replayingLoaded;
     private static bool _readingNativeVoiceState;
     private static bool _ownsAudioSource;
@@ -35,6 +39,21 @@ internal static class VoicePlaybackRuntime
     private static double _loadingTimeout = 10;
     private static double _playbackTimeout = 300;
     private static ConfigEntry<float>? _postPlaybackDelay;
+    private static ConfigEntry<float>? _volumePercent;
+    private static float _requestVolumePercent = VoicePlaybackVolumePolicy.DefaultPercent;
+    private static int _volumeLogCount;
+    private static long _volumeConsideredRequest;
+
+    internal static float VolumePercent => VoicePlaybackVolumePolicy.Normalize(
+        _volumePercent?.Value ?? VoicePlaybackVolumePolicy.DefaultPercent);
+
+    internal static void SaveVolumePercent(float percent)
+    {
+        if (!IsMainThread() || _volumePercent is null)
+            throw new InvalidOperationException("Voice playback settings are unavailable.");
+        _volumePercent.Value = VoicePlaybackVolumePolicy.Normalize(percent);
+        Plugin.Logger.LogInfo($"[voice] Global Mod voice strength saved: {VolumePercent:0}%; midpoint 50% preserves official output; effective from next owned voice request.");
+    }
 
     internal static float PostPlaybackDelaySeconds =>
         (float)VoicePlaybackDelayPolicy.Normalize(_postPlaybackDelay?.Value ?? 0);
@@ -53,6 +72,9 @@ internal static class VoicePlaybackRuntime
         if (!config.Bind("Voice", "Enabled", true,
                 "Enable owned voice directives and wait for their audio. Restart required.").Value) return false;
         _mainThreadId = Environment.CurrentManagedThreadId;
+        _volumePercent = config.Bind("Voice", "VolumePercent", VoicePlaybackVolumePolicy.DefaultPercent,
+            new ConfigDescription("Strength of imported Mod voice playback in this profile: 0% mute, 50% unchanged, 100% up to 2x the current official voice source level (clamped to the source limit). The first non-default request on each source observes volume without writing; a later different request may apply it. An in-flight request retains its setting; an existing zero baseline stays zero. Native getter, write and restoration each require validation.",
+                new AcceptableValueRange<float>(0f, VoicePlaybackVolumePolicy.MaximumPercent)));
         _postPlaybackDelay = config.Bind("Voice", "PostPlaybackDelaySeconds", 0f,
             new ConfigDescription("Extra wait after an owned voice finishes, including its trailing silence. Shared by all Mod voice bindings in this profile; applies from the next playback. Official AUTO timing is unchanged.",
                 new AcceptableValueRange<float>(0f, VoicePlaybackDelayPolicy.MaximumSeconds)));
@@ -65,7 +87,8 @@ internal static class VoicePlaybackRuntime
         var harmony = new Harmony(Plugin.Guid + ".voice-playback");
         try
         {
-            MethodInfo setVoice = Require(typeof(AudioManager), "SetVoice", typeof(string));
+            MethodInfo setVoice = VoicePlaybackMethodPolicy.ResolveSetVoice(typeof(AudioManager),
+                typeof(Il2CppSystem.Action), out _usesNativeStartedCallback);
             MethodInfo voicePlaying = AccessTools.PropertyGetter(typeof(AudioManager), "isVoicePlaying")
                 ?? throw new MissingMethodException("AudioManager.get_isVoicePlaying");
             MethodInfo touch = Require(typeof(Test), "OnTouchAreaClicked");
@@ -104,7 +127,7 @@ internal static class VoicePlaybackRuntime
             // session, all on Clear. A player clear is instead covered by the bounded wait: every phase now
             // releases on its own deadline, so a stuck gate can no longer block dialogue advance.
             _installed = true;
-            Plugin.Logger.LogInfo("Voice playback candidate installed; scope=aavt/voice/; shared native preload admission/cache/source; loading and manual advance gate; bounded playback deadline; Clear left unpatched; lifetimePending=true.");
+            Plugin.Logger.LogInfo($"Voice playback candidate installed; scope=aavt/voice/; setVoice-uses-native-started-callback={_usesNativeStartedCallback}; callback wrapper is not read or retained; shared native preload admission/cache/source; bounded loading/manual/playback gate; Clear left unpatched; lifetimePending=true.");
             return true;
         }
         catch (Exception ex)
@@ -115,24 +138,32 @@ internal static class VoicePlaybackRuntime
         }
     }
 
-    public static bool SetVoicePrefix(string name)
+    public static bool SetVoicePrefix(string __0)
     {
+        string name = __0;
         if (!IsMainThread()) return true;
         bool owned = name?.StartsWith(VoiceDirectivePolicy.NativeIdentifierPrefix, StringComparison.Ordinal) == true;
-        if (_replayingLoaded) return owned && Gate.Active && string.Equals(name, Gate.VoiceIdentifier, StringComparison.Ordinal);
         if (!owned)
         {
+            // Restore before the original SetVoice replaces the shared source, even if
+            // normal completion already released audio/wait ownership.
+            RestoreOwnedVolume();
             ResetOnMainThread("native-voice-replaced-owned-request");
             return true;
         }
-        if (_pollingSuspended) return false;
+        if (_replayingLoaded) return Gate.Active && string.Equals(name, Gate.VoiceIdentifier, StringComparison.Ordinal);
+        if (_pollingSuspended)
+        {
+            if (_usesNativeStartedCallback) ResetOnMainThread("suspended-owned-call-passed-to-native");
+            return _usesNativeStartedCallback;
+        }
         try
         {
             ResetOnMainThread("new-voice-request");
             if (string.IsNullOrEmpty(name) || !VoiceDirectivePolicy.TryDecodeNativeIdentifier(name, out _))
             {
                 ReportOnce("invalid-key", "Owned voice skipped: malformed identifier.", true);
-                return false;
+                return _usesNativeStartedCallback;
             }
             Test player = Test.Instance;
             AudioManager audio = AudioManager.Instance;
@@ -140,12 +171,41 @@ internal static class VoicePlaybackRuntime
             if (ReferenceEquals(player, null) || ReferenceEquals(audio, null) || ReferenceEquals(manager, null))
             {
                 ReportOnce("missing-owner", "Owned voice skipped: player or audio/resource manager unavailable.", true);
-                return false;
+                return _usesNativeStartedCallback;
             }
             ObserveManager(manager);
             _ownerPlayerInstanceId = player.GetInstanceID();
             _ownerPreview = player.previewMode;
             long sequence = Gate.Begin(name, Now(), _loadingTimeout, _ownerPreview ? 0 : PostPlaybackDelaySeconds);
+            VolumeStartQualification.Begin(sequence);
+            _requestVolumePercent = VolumePercent; // One managed snapshot, including cold-load retries.
+            if (_usesNativeStartedCallback)
+            {
+                // A cached clip may start inside the original SetVoice call, so its
+                // postfix need not expose a quiet frame. For non-default volume only,
+                // observe the already-used raw predicate before handing over. Quiet
+                // here permits the later playing edge; existing playback here does
+                // not authorize volume and must become quiet after this call instead.
+                if (!VoicePlaybackVolumePolicy.IsNeutral(_requestVolumePercent)
+                    && !VolumeAdmission.IsDisabled)
+                {
+                    try
+                    {
+                        if (!ReadNativePlaying(audio))
+                            VolumeStartQualification.Observe(sequence, false);
+                    }
+                    catch (Exception ex)
+                    {
+                        VolumeAdmission.Disable();
+                        LogVolume("pre-start-observation-fault=" + ex.GetType().Name
+                            + "; volume-subfeature-disabled", sequence, 0, null);
+                    }
+                }
+                // fix6 owns the asynchronous start and the supplied onStarted callback.
+                // Never swallow that call or retain its Action wrapper for a later replay.
+                Gate.MarkStarting(sequence, Now(), _loadingTimeout);
+                return true;
+            }
             if (IsCached(manager, name))
             {
                 Gate.MarkStarting(sequence, Now());
@@ -175,7 +235,7 @@ internal static class VoicePlaybackRuntime
         {
             FailCurrent("start-error");
             ReportFailure("start", ex);
-            return false;
+            return _usesNativeStartedCallback;
         }
     }
 
@@ -183,7 +243,8 @@ internal static class VoicePlaybackRuntime
         object __instance,
         ref bool __result)
     {
-        if (!IsMainThread() || _preloadAdmissionSuspended) return true;
+        if (!IsMainThread() || !VoicePlaybackMethodPolicy.ShouldInterceptPreload(
+                _usesNativeStartedCallback, _pollingSuspended, _preloadAdmissionSuspended)) return true;
         bool owned = false;
         try
         {
@@ -236,15 +297,18 @@ internal static class VoicePlaybackRuntime
         }
     }
 
-    public static void SetVoicePostfix(string name)
+    public static void SetVoicePostfix(string __0)
     {
+        string name = __0;
         if (!IsMainThread() || Gate.Phase != VoicePlaybackPhase.Starting
             || !string.Equals(name, Gate.VoiceIdentifier, StringComparison.Ordinal)) return;
         try
         {
-            _ownsAudioSource = true;
             AudioManager audio = AudioManager.Instance;
-            if (!ReferenceEquals(audio, null)) ObserveOwnedPlayback(ReadNativePlaying(audio));
+            if (!ReferenceEquals(audio, null))
+            {
+                ObserveOwnedPlayback(ReadNativePlaying(audio));
+            }
             ReportOnce("playback-start", "Owned voice native cached-play callback reached; automatic and ordinary-click waits active; lifetimePending=true.");
         }
         catch (Exception ex)
@@ -288,6 +352,7 @@ internal static class VoicePlaybackRuntime
 
     internal static void Stop()
     {
+        RestoreOwnedVolume();
         if (!_installed) return;
         ResetOnMainThread("voice-module-stopped");
         _installed = false;
@@ -297,7 +362,7 @@ internal static class VoicePlaybackRuntime
 
     public static void TickOnMainThread()
     {
-        if (!_installed || !IsMainThread() || (!Gate.Active && NativeLoads.Count == 0)) return;
+        if (!_installed || !IsMainThread() || (!Gate.Active && NativeLoads.Count == 0 && !VolumeLease.HasLease)) return;
         // Release an expired wait FIRST, before any engine access and before the suspension guard. A gate that
         // is already stuck must be able to time out even after an engine failure stopped normal polling;
         // otherwise the dialogue advance block survives with no recovery path.
@@ -323,7 +388,7 @@ internal static class VoicePlaybackRuntime
             }
             ObserveManager(manager);
             SweepOneCompletedLoad(manager);
-            if (!Gate.Active) return;
+            if (!Gate.Active) { RestoreOwnedVolume(); return; }
             if (!IsOwnerCurrent(out _))
             {
                 ResetOnMainThread("player-context-changed");
@@ -333,6 +398,9 @@ internal static class VoicePlaybackRuntime
             string identifier = Gate.VoiceIdentifier!;
             if (Gate.Phase == VoicePlaybackPhase.Loading)
             {
+                // The callback-capable mode is always Starting/Playing and must never
+                // synthesize an argument-less replay that drops official onStarted.
+                if (_usesNativeStartedCallback) { FailCurrent("unexpected-callback-mode-loading"); return; }
                 if (!IsCached(manager, identifier)) return;
                 NativeLoads.Remove(identifier);
                 if (!Gate.IsCurrent(sequence, identifier)) return;
@@ -362,21 +430,26 @@ internal static class VoicePlaybackRuntime
     }
 
     /// <summary>
-    /// Releases a wait while polling is suspended, using managed state only. No engine object is touched, so
-    /// this cannot re-enter the failing boundary; the audio source is left to the engine.
+    /// Releases the wait using managed state. A confirmed independent volume lease gets its
+    /// bounded cleanup, but the failed playback-polling boundary is never retried here.
     /// </summary>
     private static void ReleaseExpiredWhileSuspended()
     {
-        if (!Gate.Active) return;
-        if (!Gate.Expire(Now())) return;
+        if (!Gate.Active) { RestoreOwnedVolume(); return; }
+        bool expired = Gate.Expire(Now());
+        if (!expired && Gate.Phase != VoicePlaybackPhase.Completed) return;
+        RestoreOwnedVolume();
         _ownsAudioSource = false;
+        if (!expired) return;
         ReportOnce("suspended-release-" + Gate.LastReason,
-            $"Owned voice wait released while polling is suspended: {Gate.LastReason}. Dialogue advance is unblocked without touching the audio engine; restart to retry playback.", true);
+            $"Owned voice wait released while polling is suspended: {Gate.LastReason}. Dialogue advance is unblocked without retrying playback polling; restart to retry playback.", true);
     }
 
     public static void ResetOnMainThread(string reason)
     {
-        if (!IsMainThread() || (!Gate.Active && !_ownsAudioSource)) return;
+        if (!IsMainThread()) return;
+        VolumeStartQualification.Reset();
+        if (!Gate.Active && !_ownsAudioSource && !VolumeLease.HasLease) return;
         Gate.Cancel(reason);
         StopOwnedAudio();
         _ownerPlayerInstanceId = 0;
@@ -442,9 +515,31 @@ internal static class VoicePlaybackRuntime
     private static bool ObserveOwnedPlayback(bool nativePlaying)
     {
         VoicePlaybackPhase previous = Gate.Phase;
+        // Only raw observations while Starting feed the qualifier. A synthetic false
+        // during PostPlaybackDelay cannot qualify a later request. Legacy cached starts
+        // retain their existing behavior; fix6 must see quiet before its first true.
+        bool mayAdjustVolume = !_usesNativeStartedCallback || (previous == VoicePlaybackPhase.Starting
+            && VolumeStartQualification.Observe(Gate.RequestSequence, nativePlaying));
+        if (previous == VoicePlaybackPhase.Starting && nativePlaying)
+        {
+            _ownsAudioSource = true;
+            // The already used native predicate confirms playback. Consider volume at
+            // most once for this request, whether start is immediate or asynchronous.
+            if (_volumeConsideredRequest != Gate.RequestSequence)
+            {
+                _volumeConsideredRequest = Gate.RequestSequence;
+                if (mayAdjustVolume) ApplyOwnedVolume();
+                else if (!VoicePlaybackVolumePolicy.IsNeutral(_requestVolumePercent))
+                    LogVolume("adjustment-skipped; native-playing-without-observed-quiet", Gate.RequestSequence, 0, null);
+            }
+        }
         bool wait = Gate.ObserveNativeWait(nativePlaying, Now(), _playbackTimeout);
         if (Gate.Phase is VoicePlaybackPhase.PostPlaybackDelay or VoicePlaybackPhase.Completed)
+        {
+            VolumeStartQualification.Reset();
+            RestoreOwnedVolume();
             _ownsAudioSource = false; // The clip has ended; do not stop a later source during the quiet wait.
+        }
         if (previous == VoicePlaybackPhase.Playing && Gate.Phase != previous)
             Plugin.Logger.LogInfo($"[voice] Audio finished; request={Gate.RequestSequence}; postDelaySeconds={Gate.PostPlaybackDelaySeconds:0.0}; phase={Gate.Phase}; preview={_ownerPreview}.");
         return wait;
@@ -474,13 +569,15 @@ internal static class VoicePlaybackRuntime
 
     private static void FailCurrent(string reason)
     {
-        if (!Gate.Fail(Gate.RequestSequence, reason)) return;
+        if (!Gate.Fail(Gate.RequestSequence, reason)) { RestoreOwnedVolume(); return; }
         StopOwnedAudio();
         ReportOnce("failure-" + reason, $"Owned voice skipped and dialogue wait released: {reason}.", true);
     }
 
     private static void StopOwnedAudio()
     {
+        // A lease owns its cleanup independently of the clip/wait ownership flags.
+        RestoreOwnedVolume();
         if (!_ownsAudioSource) return;
         _ownsAudioSource = false;
         try
@@ -491,6 +588,129 @@ internal static class VoicePlaybackRuntime
             if (!ReferenceEquals(source, null)) source.Stop();
         }
         catch (Exception ex) { ReportFailure("stop-owned-audio", ex); }
+    }
+
+    private static bool IsOwnedStartingRequest(long sequence) => IsMainThread() && _ownsAudioSource
+        && Gate.Phase == VoicePlaybackPhase.Starting && Gate.RequestSequence == sequence;
+
+    // Called once when the existing native playing predicate first confirms this
+    // request. Default 50% adds no native volume reads/writes. No ongoing polling.
+    private static void ApplyOwnedVolume()
+    {
+        long request = Gate.RequestSequence;
+        if (!IsOwnedStartingRequest(request) || VolumeAdmission.IsDisabled
+            || VoicePlaybackVolumePolicy.IsNeutral(_requestVolumePercent)) return;
+        int identity = 0;
+        try
+        {
+            AudioManager audio = AudioManager.Instance;
+            if (ReferenceEquals(audio, null)) throw new InvalidOperationException("Owned audio manager unavailable.");
+            var source = audio.voiceSource;
+            if (ReferenceEquals(source, null)) throw new InvalidOperationException("Owned voice source unavailable.");
+            identity = source.GetInstanceID();
+            if (identity == 0) throw new InvalidOperationException("Owned volume source identity unavailable.");
+            if (!VolumeAdmission.NeedsObservation(request, identity)) return;
+            float baseline = source.volume; // First new boundary: one getter, no write on first request.
+            if (!IsOwnedStartingRequest(request)) return;
+            bool mayWrite = VolumeAdmission.ObserveBaseline(request, identity, baseline);
+            if (VolumeAdmission.IsDisabled)
+            {
+                LogVolume("baseline-rejected; volume-subfeature-disabled", request, identity, null);
+                return;
+            }
+            if (!mayWrite)
+            {
+                LogVolume("getter-only; adjustment=deferred-until-next-voice", request, identity, baseline);
+                return;
+            }
+            if (!VolumeLease.TryPrepare(request, identity, baseline, _requestVolumePercent, out float desired)) return;
+
+            // Reacquire and check the current ownership/source just before writing. The
+            // previously observed wrapper is never retained beyond this call.
+            source = audio.voiceSource;
+            if (!IsOwnedStartingRequest(request) || ReferenceEquals(source, null) || source.GetInstanceID() != identity)
+            {
+                VolumeLease.TryRestore(request, identity, float.NaN, out _);
+                LogVolume("write-skipped; owned-request-or-source-changed", request, identity, null);
+                return;
+            }
+            if (!VolumeLease.MarkWriteAttempted(request, identity)) return;
+            source.volume = desired;
+            float verified = source.volume; // Same getter, independent write/readback validation.
+            if (!float.IsFinite(verified) || verified != desired || !VolumeLease.MarkApplied(request, identity, verified))
+            {
+                VolumeAdmission.Disable();
+                LogVolume("write-confirmation-rejected; volume-subfeature-disabled", request, identity, null);
+                return;
+            }
+            LogVolume("write-confirmed; validation-scope=this-volume-call", request, identity, verified);
+        }
+        catch (Exception ex)
+        {
+            // Never fail the voice gate or stop playback for an optional volume fault.
+            // A possibly effective write retains only primitive intent for later
+            // fresh exact comparison. Never retry the native boundary recursively.
+            VolumeAdmission.Disable();
+            if (!VolumeLease.WriteAttempted) VolumeLease.TryRestore(request, identity, float.NaN, out _);
+            LogVolume("application-fault=" + ex.GetType().Name + "; volume-subfeature-disabled", request, identity, null);
+        }
+    }
+
+    private static void RestoreOwnedVolume()
+    {
+        if (!VolumeLease.HasLease || !IsMainThread()) return;
+        long request = VolumeLease.RequestSequence;
+        if (!VolumeLease.WriteAttempted)
+        {
+            VolumeLease.TryRestore(request, VolumeLease.SourceIdentity, float.NaN, out _);
+            return; // Preparing an intent alone must not cause a native volume read/write.
+        }
+        int identity = 0;
+        try
+        {
+            AudioManager audio = AudioManager.Instance;
+            if (ReferenceEquals(audio, null)) throw new InvalidOperationException("Volume cleanup manager unavailable.");
+            var source = audio.voiceSource;
+            if (ReferenceEquals(source, null)) throw new InvalidOperationException("Volume cleanup source unavailable.");
+            identity = source.GetInstanceID();
+            if (identity != VolumeLease.SourceIdentity)
+            {
+                VolumeLease.TryRestore(request, identity, float.NaN, out _);
+                LogVolume("restore-skipped; source-changed", request, identity, null);
+                return;
+            }
+            float current = source.volume;
+            if (!VolumeLease.TryRestore(request, identity, current, out float baseline))
+            {
+                LogVolume("restore-skipped; no-write-attempt-or-external-volume-change", request, identity, null);
+                return;
+            }
+            // Best-effort compare-before-restore, not atomic CAS: same-value ABA changes
+            // cannot be distinguished without an official change/version boundary.
+            source.volume = baseline;
+            LogVolume("baseline-restore-setter-returned; restore-readback=not-observed", request, identity, baseline);
+        }
+        catch (Exception ex)
+        {
+            VolumeAdmission.Disable();
+            VolumeLease.TryRestore(request, identity, float.NaN, out _);
+            LogVolume("restore-fault=" + ex.GetType().Name + "; volume-subfeature-disabled", request, identity, null);
+        }
+    }
+
+    private static void LogVolume(string status, long request, int sourceIdentity, float? observed)
+    {
+        if (_volumeLogCount >= 32) return;
+        _volumeLogCount++;
+        // Log only primitive identities/numbers and fixed statuses; logging cannot make
+        // an optional volume fault escape into the containing playback postfix.
+        try
+        {
+            string number = observed is float finite && float.IsFinite(finite)
+                ? finite.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) : "unavailable";
+            Plugin.Logger.LogInfo($"[voice-volume] request={request}; source-instance={sourceIdentity}; value={number}; {status}; native-volume-acceptance=not-globally-verified.");
+        }
+        catch (Exception) { }
     }
 
     /// <summary>

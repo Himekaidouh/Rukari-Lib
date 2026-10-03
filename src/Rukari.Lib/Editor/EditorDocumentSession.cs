@@ -14,7 +14,7 @@ internal interface IEditorDocumentBackend
     ModResult<EditorBackendDocument> Write(EditorBackendDocument expected, string text);
 }
 
-internal sealed class EditorDocumentSession : IEditorDocumentService
+internal sealed class EditorDocumentSession : IEditorDocumentService, IEditorSelectionInvalidation
 {
     private readonly IEditorDocumentBackend _backend;
     private readonly Func<bool> _ready;
@@ -29,6 +29,14 @@ internal sealed class EditorDocumentSession : IEditorDocumentService
         => (_backend, _ready, _mainThread) = (backend, ready, mainThread);
 
     internal void InvalidateSelection() { _observed = null; _token = string.Empty; }
+
+    ModResult<bool> IEditorSelectionInvalidation.InvalidateSelection()
+    {
+        var error = Guard();
+        if (error != null) return ModResult<bool>.Fail(error);
+        InvalidateSelection();
+        return ModResult<bool>.Ok(true);
+    }
 
     public ModResult<EditorDocumentSnapshot> ReadSelection()
     {

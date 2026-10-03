@@ -71,6 +71,63 @@ internal static class EditorDocumentSessionTests
         Check.Equal(0, fixture.Backend.WriteCalls, "An invalidated draft must never reach the writer.");
     }
 
+    internal static void OptionalInvalidationCapabilityRejectsAnOldDraftWithoutReadingLineB()
+    {
+        var fixture = new Fixture();
+        IEditorDocumentService documents = fixture.Session;
+        var invalidation = documents as IEditorSelectionInvalidation;
+        Check.True(invalidation != null, "The existing document service must supply the optional capability.");
+        var documentA = fixture.Backend.Current;
+        var oldDraft = fixture.Read();
+        fixture.Backend.Current = documentA with { ContextId = "project:line-b" };
+        int readsBeforeInvalidation = fixture.Backend.ReadCalls;
+
+        Check.True(Check.Success(invalidation!.InvalidateSelection()), "The ready main thread must invalidate the token.");
+        Check.Equal(readsBeforeInvalidation, fixture.Backend.ReadCalls,
+            "Event invalidation must not read line B or enter the native backend.");
+        fixture.Backend.Current = documentA;
+        var returned = fixture.Read();
+        Check.Equal(oldDraft.ContextId, returned.ContextId);
+        Check.Equal(oldDraft.Revision, returned.Revision);
+        Check.True(oldDraft.SelectionToken != returned.SelectionToken,
+            "A to B to A must reject the old draft even when B was never read.");
+        Check.Failure(ModErrorCode.Conflict, documents.Replace(Request(oldDraft, "abandoned draft")));
+        Check.Equal(0, fixture.Backend.WriteCalls, "The event-invalidated draft must never reach the writer.");
+    }
+
+    internal static void OptionalInvalidationGuardsPreserveTheTokenAndNeverTouchTheBackend()
+    {
+        var fixture = new Fixture();
+        IEditorSelectionInvalidation invalidation = fixture.Session;
+        var draft = fixture.Read();
+        int readsBeforeInvalidation = fixture.Backend.ReadCalls;
+        fixture.Ready = false;
+        Check.Failure(ModErrorCode.NotReady, invalidation.InvalidateSelection());
+        fixture.Ready = true;
+        Check.OnWorker(() =>
+        {
+            Check.Failure(ModErrorCode.WrongThread, invalidation.InvalidateSelection());
+            return true;
+        });
+        Check.Equal(readsBeforeInvalidation, fixture.Backend.ReadCalls,
+            "Rejected invalidation must not read the backend.");
+        Check.Equal(0, fixture.Backend.WriteCalls, "Rejected invalidation must not write the backend.");
+        Check.Equal(draft.SelectionToken, fixture.Read().SelectionToken,
+            "Not-ready or worker requests must not discard a valid main-thread draft.");
+
+        fixture.Backend.OnWrite = () =>
+        {
+            int readsDuringWrite = fixture.Backend.ReadCalls;
+            Check.Failure(ModErrorCode.Busy, invalidation.InvalidateSelection());
+            Check.Equal(readsDuringWrite, fixture.Backend.ReadCalls,
+                "Reentrant invalidation must not enter the backend.");
+        };
+        var written = fixture.Replace(draft, "outer write");
+        Check.Equal("outer write", written.Selection.AdditionalPrompt,
+            "Rejected reentrant invalidation must not interfere with the guarded transaction.");
+        Check.Equal(1, fixture.Backend.WriteCalls);
+    }
+
     internal static void ExternalEditPreventsSharedUndoFromOverwritingIt()
     {
         var fixture = new Fixture();

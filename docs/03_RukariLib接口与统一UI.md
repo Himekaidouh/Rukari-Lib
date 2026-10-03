@@ -1,6 +1,6 @@
-# Rukari Lib 0.4.1：公共接口、编辑事务与统一 UI
+# Rukari Lib 0.4.2：公共接口、编辑事务与统一 UI
 
-本文说明本交付包中 Rukari Lib 的实际实现。公共托管契约位于 `Rukari.Lib`，游戏内宿主位于 `Rukari.Lib.Runtime`；更多的画面效果 1.4.0 使用这些共享服务。源码链接均相对于本交付包。
+本文说明本交付包中 Rukari Lib 的实际实现。公共托管契约位于 `Rukari.Lib`，游戏内宿主位于 `Rukari.Lib.Runtime`；更多的画面效果 1.4.1 与人物配音支持 1.6.4 使用这些共享服务，并要求 Lib 0.4.2。源码链接均相对于本交付包。
 
 ## 1. 公共库与游戏内宿主各自负责什么
 
@@ -138,7 +138,7 @@ backend 的 native wrapper 仅存在于一次同步操作中；`ContextId` 中�
 
 官方人物、表情、音乐、音效、背景和弹图选择窗口打开时，整个工具入口、侧栏与展开的工具页也隐藏，关闭后只恢复入口，须重新展开。Runtime 的 `EditorWorkspaceContext.IsToolWorkspaceVisible` 负责这条显示边界；`IsNodeEditorVisible` 仍表示底下的 Script 工作台存活，文档提供者不得用暂时遮挡作为清空立绘、镜头或屏幕文字草稿的依据。工具页仍按已有 `OnHidden` 关闭语义处理自己的临时状态。
 
-当前 AAfix 4 适配从该 inspector 的祖先定位 `UI Root/WindowPanel`，非泛型查询 `WindowManager`，读当前 `blocking` 及其面板可见状态。选择器的 GameObject 初始便可为 active，不能据此判断弹窗已打开；`activeWindow` 也可能保留旧引用，不能凭它单独阻断工具。窗口状态读取失败时工具保持隐藏。该检测不缓存场景包装器，不增加 Harmony 补丁，也不调用官方窗口的 Show/Hide。
+选择窗口适配从该 inspector 的祖先定位 `UI Root/WindowPanel`，非泛型查询 `WindowManager`，读当前 `blocking` 及其面板可见状态。选择器的 GameObject 初始便可为 active，不能据此判断弹窗已打开；`activeWindow` 也可能保留旧引用，不能凭它单独阻断工具。窗口状态读取失败时工具保持隐藏。该检测不缓存场景包装器，不增加 Harmony 补丁，也不调用官方窗口的 Show/Hide。
 
 `IToolboxService.IsOpen` 实际表示叶子面板已打开且渲染器可用，并同时满足节点可见、全局设置未打开。仅显示工具栏或条目列不等同于 `IsOpen=true`。
 
@@ -151,6 +151,8 @@ backend 的 native wrapper 仅存在于一次同步操作中；`ContextId` 中�
 当前实现最多16个已登记页面；一个普通页面最多8个按钮、10,000条列表项。宿主复制按钮和列表数组并检查非空、唯一 ID；提供者也不能在返回后继续修改这些列表。页面读取失败显示该页的错误状态，不把错误当成另一个功能动作。
 
 保留五参数的原 `RegisterPage` 签名，显式图标通过另一个重载提供；`ToolButton.Skin` 使用新增的 init 属性保留原构造签名。
+
+Lib 0.4.2 的 `ToolPageSnapshot.ListNavigation` 是可选 init 属性，保持原六参数构造与六项解构。`ToolListNavigationOptions` 为页面指定托管 `ContextId` 与 `ToolListSearchMode`；未提供时继续筛选，`Locate` 模式保留完整列表并跳到匹配页，不触发选择或绑定。导航记忆按工具页和上下文隔离，只在本次会话内保留。详见[配音列表导航](13_fix6配音列表页码与搜索定位.md)。新消费者使用这些类型时，最低契约版本为 0.4.2。
 
 依据：[ToolContracts](../src/Rukari.Lib/Tools/ToolContracts.cs)、[普通页面注册和读取](../src/Rukari.Lib.Runtime/Tools/ToolsHost.cs)。
 
@@ -263,3 +265,9 @@ Lib测试既有临时生成的最小皮肤测试，也有检查实际随包图�
 典型接入顺序为：检查 `ModServices.Current` 与状态，读取 capability，在 `InvokeAsync` 内重新查找服务，保存成功登记的 lease。需要编辑台词时先读取选择快照，在自己的草稿中保存原token与revision，验证后提交精确替换；卸载时停止提供者工作并释放相应lease。
 
 与指令净化、保存发布和预览/正式播放的关系，见 [04_指令编辑保存编译与播放](04_指令编辑保存编译与播放.md)。
+
+## 10. 手动发布作用域（0.4.2）
+
+`IEditorPublicationScopeService` 是可选兄弟接口，capability 为 `rukari.editor.publication-scope`；冻结的 `IEditorSaveService` 不变。`Begin(expectedProjectName)` 核对当前运行状态、主线程、工程会话和资源根，返回供整条同步保存、编译、命名发布链持有的 `IDisposable` 票据。票据只确定资源处理上下文，Begin 本身不保存、复制或播放资源。
+
+提供者缺失时普通保存仍可用；提供者存在但验证失败时不得开始保存。调用者在所有返回和异常路径按逆序释放票据，避免将上一工程的上下文借给下一次发布。人物配音提供服务，更多画面效果的手动保存服务消费它。详见[重复发布与显式作用域](12_fix6重播选槽与卡顿修复.md)。

@@ -531,6 +531,7 @@ internal static class PlayerCommandObservationRuntime
             _updateStage = "archive-poll";
             PollArchiveChanges(options.Stage, update);
             _updateStage = "pending-embedded-previews";
+            ManagedUnityLogSelectionProbe.PumpOnMainThread();
             DrainPendingEmbeddedPreviews(options.Stage, update);
             DrainPrefixOnlyEvents(options.Stage);
             _updateStage = "index-load";
@@ -593,6 +594,7 @@ internal static class PlayerCommandObservationRuntime
             // AdvanceScenario and editor selection may run after this
             // behaviour's Update. Drain their managed observations here,
             // then settle pending/inherited state before Unity renders.
+            ManagedUnityLogSelectionProbe.PumpOnMainThread();
             DrainClosedWindows(options.Stage, update);
             DrainPendingEmbeddedPreviews(options.Stage, update);
             ScanSlotPendings(options);

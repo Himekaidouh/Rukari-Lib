@@ -1,7 +1,9 @@
 #requires -Version 7.0
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$OutputDirectory
+    [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$OutputDirectory,
+    [ValidateSet('Candidate','Stable')][string]$ReleaseChannel = 'Candidate',
+    [string]$UserAcceptancePath
 )
 
 # Three end-user ZIPs. Build provenance stays in artifacts, outside the delivery directory.
@@ -47,6 +49,20 @@ Assert-EmptyOutput
 if ((Is-Within $outputRoot $srcRoot) -and -not (Is-Within $outputRoot (Join-Path $srcRoot 'artifacts'))) {
     throw 'OutputDirectory inside src must be under artifacts.'
 }
+$acceptancePath = $null
+$acceptanceReference = $null
+if ($ReleaseChannel -eq 'Stable' -and [string]::IsNullOrWhiteSpace($UserAcceptancePath)) {
+    throw 'Stable packages require -UserAcceptancePath pointing to recorded user acceptance evidence.'
+}
+if (-not [string]::IsNullOrWhiteSpace($UserAcceptancePath)) {
+    $acceptancePath = [IO.Path]::GetFullPath($UserAcceptancePath)
+    Assert-NoReparse $acceptancePath
+    if (-not (Test-Path -LiteralPath $acceptancePath -PathType Leaf)) {
+        throw "User acceptance evidence is missing: $acceptancePath"
+    }
+    # Evidence is an external reference, never a ZIP payload or a blanket native test result.
+    $acceptanceReference = [ordered]@{Kind='user-confirmation';Path=$acceptancePath;SHA256=(Hash $acceptancePath)}
+}
 $build = Get-Content -LiteralPath (Join-Path $srcRoot 'artifacts/source-handover-build-Release.json') -Raw | ConvertFrom-Json
 if ([string]::IsNullOrWhiteSpace($build.GameRoot) -or (Is-Within $outputRoot $build.GameRoot)) {
     throw 'A full build is required; the delivery directory cannot be inside the game installation.'
@@ -84,7 +100,9 @@ foreach ($definition in $definitions) {
         [pscustomobject]@{Path=(Join-Path $stage $_.Path);Entry=$_.Path;SHA256=$_.SHA256}
     })
     $inputs += [pscustomobject]@{Path=$guide;Entry='安装说明.txt';SHA256=(Hash $guide)}
-    $zipName = $definition.Name + '-' + $package.Version + '-AA1.0-test-' + (Get-Date -Format 'yyyyMMdd') + '.zip'
+    $zipSuffix = if ($ReleaseChannel -eq 'Stable') { '-AA1.0-fix6.zip' }
+        else { '-AA1.0-fix6-candidate-' + (Get-Date -Format 'yyyyMMdd') + '.zip' }
+    $zipName = $definition.Name + '-' + $package.Version + $zipSuffix
     $zipPath = Join-Path $auditRoot $zipName
     $stream = [IO.File]::Open($zipPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
     try {
@@ -119,6 +137,9 @@ foreach ($definition in $definitions) {
 # Publish only the three completed, verified ZIPs. Receipts and four-package build staging stay outside.
 Assert-EmptyOutput
 if ((Hash $receiptPath) -cne $receiptHash) { throw 'Validated package receipt changed during packaging.' }
+if ($acceptanceReference -and (Hash $acceptancePath) -cne $acceptanceReference.SHA256) {
+    throw 'User acceptance evidence changed during packaging.'
+}
 [void][IO.Directory]::CreateDirectory($outputRoot)
 foreach ($archive in $archives) {
     $sourceZip = Join-Path $auditRoot $archive.File
@@ -127,9 +148,10 @@ foreach ($archive in $archives) {
     if ((Hash $targetZip) -cne $archive.SHA256) { throw "Delivery hash mismatch: $($archive.File)" }
 }
 New-Json (Join-Path $auditRoot 'user-package-receipt.json') ([ordered]@{
-    SchemaVersion=1;PackagedAt=(Get-Date -Format o);OutputDirectory=$outputRoot;PackageReceiptSHA256=$receiptHash
-    Packages=@($archives.ToArray());Target='AA 1.0';Status='test';Compilation=$receipt.Compilation
-    ManagedTests=$receipt.ManagedTests;Native='not-run';GameStarted=$false;Installed=$false;GitHubReleasePublished=$false
+    SchemaVersion=2;PackagedAt=(Get-Date -Format o);OutputDirectory=$outputRoot;PackageReceiptSHA256=$receiptHash
+    Packages=@($archives.ToArray());Target='AA 1.0 fix6';Status=$ReleaseChannel.ToLowerInvariant();Compilation=$receipt.Compilation
+    ManagedTests=$receipt.ManagedTests;Native='not-run';UserAcceptanceEvidence=$acceptanceReference
+    GameStarted=$false;Installed=$false;GitHubReleasePublished=$false
 })
 $archives | Select-Object Name,Version,File,Length,Entries,SHA256 | Format-Table -AutoSize
 Write-Output "User packages: $outputRoot"

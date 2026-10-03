@@ -632,7 +632,8 @@ internal sealed class EditorCommandDocumentService : IEditorCommandDocumentServi
             Array.AsReadOnly(
                 ResolveOfficialTransitionSlots(scene.Value.Address).ToArray()))
         {
-            RuntimeSelectionKey = shared.SelectionToken
+            RuntimeSelectionKey = shared.SelectionToken,
+            RuntimeContextId = shared.ContextId
         });
     }
 

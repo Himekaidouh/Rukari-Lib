@@ -1,0 +1,2050 @@
+{
+  "SchemaVersion": 1,
+  "RecordedAt": "2026-10-03T13:42:02.7276379+08:00",
+  "ReleaseTag": "v2026.10.03",
+  "Target": "AA 1.0 fix6",
+  "Status": "stable",
+  "StableBaseline": "fix6-voice-navigation-20261003",
+  "ReleaseChangesFromBaseline": "19 metadata, dependency-check, package-script and guide files; runtime behavior unchanged",
+  "UserAcceptance": {
+    "Statement": "两项都正常，可作为正式版",
+    "Scope": [
+      "配音窗关闭重开保留页码",
+      "搜索名称跳到匹配页"
+    ],
+    "EvidenceSHA256": "7105ED1DFA927DCB171A7712874D3F0713F47AE43E46CD5427F809D99766064F",
+    "BaselineBuildSHA256": "838E783CEE7E34C7FBA0426F10106CA590F0B7561A704AA2FD550D0794ABDCE1",
+    "BaselineInstallSHA256": "26131AAAAB8A6F819F7287F9C030B1079D1EC33FB0EF27A540E7F2B071744F39"
+  },
+  "Build": {
+    "Compilation": "passed",
+    "Scope": "four products and four examples",
+    "TestSuites": [
+      {
+        "Path": "AzureArchive.VideoTools.Tests/bin/Release/net6.0/AzureArchive.VideoTools.Tests.dll",
+        "Total": 423,
+        "Failed": 0,
+        "Summary": "TEST SUMMARY total=423 failed=0"
+      },
+      {
+        "Path": "Rukari.Lib.Tests/bin/Release/net6.0/Rukari.Lib.Tests.dll",
+        "Total": 149,
+        "Failed": 0,
+        "Summary": "149/149 Rukari lib tests passed."
+      },
+      {
+        "Path": "Rukari.CharacterVoice/Tests/bin/Release/net6.0/Rukari.CharacterVoice.Tests.dll",
+        "Total": 80,
+        "Failed": 0,
+        "Summary": "80/80 independent voice tests passed."
+      },
+      {
+        "Path": "Rukari.SpineSupport/Tests/bin/Release/net6.0/Rukari.SpineSupport.Tests.dll",
+        "Total": 26,
+        "Failed": 0,
+        "Summary": "26/26 independent spine support tests passed."
+      }
+    ],
+    "TotalTests": 678.0,
+    "SourceInputCount": 418,
+    "GameInputCount": 13,
+    "GameInputs": [
+      {
+        "Path": "GameAssembly.dll",
+        "SHA256": "2B8C36F681A3932071D4E609BB034034B087D4D87DFA88A7FFC1A4A206169528"
+      },
+      {
+        "Path": "UnityPlayer.dll",
+        "SHA256": "DF965F4BA87CE9976D55B0699671779E0EF921F75D5407689AC0DDD514FEF1BC"
+      },
+      {
+        "Path": "AzureArchive_Data/globalgamemanagers",
+        "SHA256": "5457D335ECBA8B6DAF3094B4FA2A978AEA8767F9ED5C997A35D699DAE31433E8"
+      },
+      {
+        "Path": "AzureArchive_Data/level1",
+        "SHA256": "B9AF43A2F6F8804080BA3241EDF374C7EA4374B377345DA6FDA4300E8F409D1F"
+      },
+      {
+        "Path": "AzureArchive_Data/level2",
+        "SHA256": "EC5B51E009F7BDD9A44E205C0C37D6AB12FB7B45DC1510F67BCD0DCC019CF536"
+      },
+      {
+        "Path": "BepInEx/interop/Assembly-CSharp.dll",
+        "SHA256": "160BD64002509311C6A261291F8587CFD98E233B716C94F49B1DB7BB17525ABC"
+      },
+      {
+        "Path": "BepInEx/interop/spine-csharp.dll",
+        "SHA256": "61FBC66BF8C42B9988908EE9D07C0AB4E1A669EA991F9CE3DFA715FE6DB70EF0"
+      },
+      {
+        "Path": "BepInEx/interop/spine-unity.dll",
+        "SHA256": "A23D241C4C806C704BC688E1B190904CB5FC03FF72A000B58052ACE386787D44"
+      },
+      {
+        "Path": "BepInEx/core/BepInEx.Core.dll",
+        "SHA256": "352AACC2D5356489A00891F76DB28B6463C81D25BCB02F90035171A669B7E35B"
+      },
+      {
+        "Path": "BepInEx/core/BepInEx.Unity.IL2CPP.dll",
+        "SHA256": "62C8246A3076BFE459EC80C482381228D0EB1DDE3434FE97AE5255FEF406FE72"
+      },
+      {
+        "Path": "BepInEx/core/Il2CppInterop.Runtime.dll",
+        "SHA256": "65AB051A681C2C1E52DF7596FF738BE401AAE72CFF882FF18241CF54A3EA38A4"
+      },
+      {
+        "Path": "BepInEx/core/0Harmony.dll",
+        "SHA256": "6C898933B52149E8BCF6722305C7E4D94ADD47C9E53B364096F91721624C0877"
+      },
+      {
+        "Path": "BepInEx/patchers/ModTheAzureArchive.dll",
+        "SHA256": "9E3F26880208F0DAF7443ABB146D69EC6C549FCA7D60141A68B4DA8BF368FAE7"
+      }
+    ],
+    "Native": "not-run",
+    "SkippedFixtures": [
+      "import symlink fixture: platform permission unavailable",
+      "scanner symlink fixture: platform permission unavailable"
+    ],
+    "BuildReceiptSHA256": "888E701699AF60D71C8768239C89C4595534598BAAB84C5843658E720CA8737C",
+    "Outputs": [
+      {
+        "Path": "Rukari.Lib.Runtime/bin/Release/Rukari.Lib.Runtime.dll",
+        "SHA256": "D7E89AF32A0C1E476DA9D32B768347FC8EE9A747915488064D5AA30605C0185E"
+      },
+      {
+        "Path": "Rukari.CharacterVoice/bin/Release/Rukari.CharacterVoice.dll",
+        "SHA256": "7ED715D30BBBC8F363F528A70F6E08D080930FACDB75827EAC97012B7B964E7B"
+      },
+      {
+        "Path": "Rukari.MoreEffects/bin/Release/Rukari.MoreEffects.dll",
+        "SHA256": "530FABB69EC6B9E0ED2CF6F02D86F64938DD7E7CF4B79D32E47024C00450A4F9"
+      },
+      {
+        "Path": "Rukari.SpineSupport/bin/Release/Rukari.SpineSupport.dll",
+        "SHA256": "E4CD6C2061B21F1795C34CD30BEFA65733960E158FA298F2E823F069FADFA6EE"
+      },
+      {
+        "Path": "Rukari.Lib/bin/Release/net6.0/Rukari.Lib.dll",
+        "SHA256": "4F4CA9237C8F4922AD7873302CA908C3DDA430D8EFF2D566F488009C84A57D37"
+      },
+      {
+        "Path": "AzureArchive.VideoTools.Core/bin/Release/net6.0/AzureArchive.VideoTools.Core.dll",
+        "SHA256": "731DB05F56F3F769C1363C120DE1BBF6C5B95413FDB9DDE72578C72A85F67540"
+      },
+      {
+        "Path": "AzureArchive.VideoTools.Formats/bin/Release/net6.0/AzureArchive.VideoTools.Formats.dll",
+        "SHA256": "87A732D38DE3278B3F81E4C67BF8025502D23BB8FB4685E96BF2671AFC58BAAB"
+      }
+    ]
+  },
+  "Dependencies": {
+    "PluginCount": 3,
+    "Passed": true,
+    "Checks": [
+      {
+        "Name": "RukariLib",
+        "PluginGuid": "rukari.lib.runtime",
+        "PluginVersion": "0.4.2",
+        "DllRequirement": null,
+        "SelectedLib": "0.4.2",
+        "Satisfied": true,
+        "SHA256": "D7E89AF32A0C1E476DA9D32B768347FC8EE9A747915488064D5AA30605C0185E"
+      },
+      {
+        "Name": "人物配音支持",
+        "PluginGuid": "rukari.charactervoice",
+        "PluginVersion": "1.6.4",
+        "DllRequirement": ">=0.4.2 <0.5.0",
+        "SelectedLib": "0.4.2",
+        "Satisfied": true,
+        "SHA256": "7ED715D30BBBC8F363F528A70F6E08D080930FACDB75827EAC97012B7B964E7B"
+      },
+      {
+        "Name": "更多的画面效果",
+        "PluginGuid": "rukari.moreeffects",
+        "PluginVersion": "1.4.1",
+        "DllRequirement": ">=0.4.2 <0.5.0",
+        "SelectedLib": "0.4.2",
+        "Satisfied": true,
+        "SHA256": "530FABB69EC6B9E0ED2CF6F02D86F64938DD7E7CF4B79D32E47024C00450A4F9"
+      }
+    ],
+    "BoundaryChecks": [
+      {
+        "Name": "人物配音支持",
+        "DllRequirement": ">=0.4.2 <0.5.0",
+        "LibVersion": "0.4.1",
+        "Expected": false,
+        "Accepted": false
+      },
+      {
+        "Name": "人物配音支持",
+        "DllRequirement": ">=0.4.2 <0.5.0",
+        "LibVersion": "0.4.2",
+        "Expected": true,
+        "Accepted": true
+      },
+      {
+        "Name": "人物配音支持",
+        "DllRequirement": ">=0.4.2 <0.5.0",
+        "LibVersion": "0.5.0",
+        "Expected": false,
+        "Accepted": false
+      },
+      {
+        "Name": "更多的画面效果",
+        "DllRequirement": ">=0.4.2 <0.5.0",
+        "LibVersion": "0.4.1",
+        "Expected": false,
+        "Accepted": false
+      },
+      {
+        "Name": "更多的画面效果",
+        "DllRequirement": ">=0.4.2 <0.5.0",
+        "LibVersion": "0.4.2",
+        "Expected": true,
+        "Accepted": true
+      },
+      {
+        "Name": "更多的画面效果",
+        "DllRequirement": ">=0.4.2 <0.5.0",
+        "LibVersion": "0.5.0",
+        "Expected": false,
+        "Accepted": false
+      }
+    ],
+    "ReceiptSHA256": "F37E3F7AAB3081CCD0876C8FE631C03131DF2ADB6351D674C2921E32D0A785B4"
+  },
+  "UserPackages": [
+    {
+      "Name": "RukariLib",
+      "Version": "0.4.2",
+      "File": "RukariLib-0.4.2-AA1.0-fix6.zip",
+      "SHA256": "24EC8C9C8C3E4A055E9EAFCCED496A27C1A2AE28F675161E1CB23DA2D7EE0812",
+      "Length": 2866676,
+      "EntryCount": 13,
+      "Inputs": [
+        {
+          "Entry": "mods/RukariLib/0.4.2/Rukari.Lib.Runtime.dll",
+          "SHA256": "D7E89AF32A0C1E476DA9D32B768347FC8EE9A747915488064D5AA30605C0185E"
+        },
+        {
+          "Entry": "mods/RukariLib/0.4.2/Rukari.Lib.dll",
+          "SHA256": "4F4CA9237C8F4922AD7873302CA908C3DDA430D8EFF2D566F488009C84A57D37"
+        },
+        {
+          "Entry": "mods/RukariLib/0.4.2/manifest.json",
+          "SHA256": "59F4B1F9EC4CB600E1C370CA4EE16FBE197D104A07EAEBBB8FC8E8335CFADF88"
+        },
+        {
+          "Entry": "mods/RukariLib/0.4.2/icon.png",
+          "SHA256": "49C8879FA48AE6C6FF67901A914D2187277ADA5108ED5A576B067B45C3793BE9"
+        },
+        {
+          "Entry": "mods/RukariLib/0.4.2/LICENSE",
+          "SHA256": "E91B7B419BA116F350AB9838D6C7850B2814A85674A65205DA3D55253948C154"
+        },
+        {
+          "Entry": "mods/RukariLib/0.4.2/ART_NOTICE.md",
+          "SHA256": "27DF8731E97BF73C5B9FE7D106C1B83C55948389E5005326F8005884B77B35F6"
+        },
+        {
+          "Entry": "mods/RukariLib/0.4.2/ui/NOTICE.md",
+          "SHA256": "27454B4960B9400FDF6D278D60D706203760CBE4EE3D11B43814BE3EF2CA4A41"
+        },
+        {
+          "Entry": "mods/RukariLib/0.4.2/ui/ui-assets.sha256",
+          "SHA256": "1F2FD5153D8FC4CEE608B360967B4DBF633226E703BC8E20F63CD34563E4A24A"
+        },
+        {
+          "Entry": "mods/RukariLib/0.4.2/ui/atlases/Common.png",
+          "SHA256": "D1BAF00243B09ED89811E928E36A2FC5DFF8EBE8D22B652C39D4B476889CC7A3"
+        },
+        {
+          "Entry": "mods/RukariLib/0.4.2/ui/decorations/Popup_Img_Deco_1.png",
+          "SHA256": "4E4AF3E5291BC6A7DF85D15B58B4DCEFB8C5D02853B0013BA7ECDE68B1DED236"
+        },
+        {
+          "Entry": "mods/RukariLib/0.4.2/ui/decorations/Popup_Img_Deco_2.png",
+          "SHA256": "7024E70953DC5A13E2579E040715183E048705A1C295B048CBC8E1CEFCB79CA8"
+        },
+        {
+          "Entry": "mods/RukariLib/0.4.2/ui/metadata/Common.json",
+          "SHA256": "FE442F3990C923CC823607DEB468D3AAC6EA037FDBE5DFB7634063DDF7DBE182"
+        },
+        {
+          "Entry": "安装说明.txt",
+          "SHA256": "918DE0DF501878C8F84F38773DDAC93EBB0033CAC6EFD2015D8B411D30E8213D"
+        }
+      ]
+    },
+    {
+      "Name": "更多的画面效果",
+      "Version": "1.4.1",
+      "File": "更多的画面效果-1.4.1-AA1.0-fix6.zip",
+      "SHA256": "AF9E8E78EB014C0603EFFA0D32922D5279D61B7E4003F8FCBC2201E515B79E6B",
+      "Length": 623477,
+      "EntryCount": 8,
+      "Inputs": [
+        {
+          "Entry": "mods/更多的画面效果/1.4.1/Rukari.MoreEffects.dll",
+          "SHA256": "530FABB69EC6B9E0ED2CF6F02D86F64938DD7E7CF4B79D32E47024C00450A4F9"
+        },
+        {
+          "Entry": "mods/更多的画面效果/1.4.1/AzureArchive.VideoTools.Core.dll",
+          "SHA256": "731DB05F56F3F769C1363C120DE1BBF6C5B95413FDB9DDE72578C72A85F67540"
+        },
+        {
+          "Entry": "mods/更多的画面效果/1.4.1/AzureArchive.VideoTools.Formats.dll",
+          "SHA256": "87A732D38DE3278B3F81E4C67BF8025502D23BB8FB4685E96BF2671AFC58BAAB"
+        },
+        {
+          "Entry": "mods/更多的画面效果/1.4.1/manifest.json",
+          "SHA256": "DD1CB24C706B93A010DC9855F390244339AD4F6D32DA6B5AF1580D401A2319C2"
+        },
+        {
+          "Entry": "mods/更多的画面效果/1.4.1/icon.png",
+          "SHA256": "8A5BE448FA8701FE5940CF5D3CA55A5AAC0D60D134387D586AB88C62BFB070FA"
+        },
+        {
+          "Entry": "mods/更多的画面效果/1.4.1/LICENSE",
+          "SHA256": "E91B7B419BA116F350AB9838D6C7850B2814A85674A65205DA3D55253948C154"
+        },
+        {
+          "Entry": "mods/更多的画面效果/1.4.1/ART_NOTICE.md",
+          "SHA256": "27DF8731E97BF73C5B9FE7D106C1B83C55948389E5005326F8005884B77B35F6"
+        },
+        {
+          "Entry": "安装说明.txt",
+          "SHA256": "6C3312BBDCB02F50583A068310DC3071119C780DFAA7A0B0EE584A71D1B86B5C"
+        }
+      ]
+    },
+    {
+      "Name": "人物配音支持",
+      "Version": "1.6.4",
+      "File": "人物配音支持-1.6.4-AA1.0-fix6.zip",
+      "SHA256": "F78E8B9A43BEAB5B14B4D0EEFADE06A3D045BB5713B01255A5F7307B1C431D61",
+      "Length": 242592,
+      "EntryCount": 6,
+      "Inputs": [
+        {
+          "Entry": "mods/人物配音支持/1.6.4/Rukari.CharacterVoice.dll",
+          "SHA256": "7ED715D30BBBC8F363F528A70F6E08D080930FACDB75827EAC97012B7B964E7B"
+        },
+        {
+          "Entry": "mods/人物配音支持/1.6.4/manifest.json",
+          "SHA256": "05339694D1649E1372A3B355088577FB7710F429907E484261D1808E0DC1B6E2"
+        },
+        {
+          "Entry": "mods/人物配音支持/1.6.4/icon.png",
+          "SHA256": "E86F236B24DFDDD5D4D7598453E66A8AEE2255C1254EF6689E0F85BA966D6D30"
+        },
+        {
+          "Entry": "mods/人物配音支持/1.6.4/LICENSE",
+          "SHA256": "E91B7B419BA116F350AB9838D6C7850B2814A85674A65205DA3D55253948C154"
+        },
+        {
+          "Entry": "mods/人物配音支持/1.6.4/ART_NOTICE.md",
+          "SHA256": "27DF8731E97BF73C5B9FE7D106C1B83C55948389E5005326F8005884B77B35F6"
+        },
+        {
+          "Entry": "安装说明.txt",
+          "SHA256": "6A36CCC53440B4798E3E2DAF8DC184D7E691591883A075AC95DEBC99F1A728E3"
+        }
+      ]
+    }
+  ],
+  "PackageReceiptSHA256": "4C63CA0FE299876A12A101F65DFC637F304EA97CF3C3FB8D7040CA72BFD36E1A",
+  "SourceInputByteHashes": [
+    {
+      "Path": "build.ps1",
+      "SHA256": "71355165320889EB87498B158890148F636B669C1C39B0AEC239E54AEF457840"
+    },
+    {
+      "Path": "Directory.Build.props",
+      "SHA256": "4FDDA6A39C3CA2A29F5246ECE789BE6103D3E9FD2AD6F0FC2713F4DE92B2F41A"
+    },
+    {
+      "Path": "Directory.Build.targets",
+      "SHA256": "12453F2533A714AA65108E6917AF258AC8741BF16817DE52B1C859C7239974FC"
+    },
+    {
+      "Path": "Rukari.Mods.sln",
+      "SHA256": "24365C4DB66AAFD0145A03DEC70E4E2961BA7A24DD968501921DFEC64691FE9A"
+    },
+    {
+      "Path": "assets/rukari-lib/ui/metadata/Common.json",
+      "SHA256": "FE442F3990C923CC823607DEB468D3AAC6EA037FDBE5DFB7634063DDF7DBE182"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Core/PatchGuard.cs",
+      "SHA256": "4D670A0353A5C528FC561176F6568ACE3B14E2DDD0721316CF84CA4B2CCE2950"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Core/RuntimeCapabilityService.cs",
+      "SHA256": "EC7A6D36AA3F3DAE27F038328428535E88AFD6C1939E5CAAD4C02A6B53FD0B08"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/ActiveProjectPairSource.cs",
+      "SHA256": "2F486532D763556316C551276409FCE77036D8AD2A97C64C92F23ED54224E42A"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/AzureArchiveApiHost.cs",
+      "SHA256": "C3C0C213CD881DAF352EEA7247F0C3CE3BC269ED677FE3F3D865B85F82FC9535"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/CharacterActionService.cs",
+      "SHA256": "8F1C50B3E0125BA700982CFC358D6E3B6AF65CA5CC000CA79E7EB3FED81B1182"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/CharacterTransformCommandDispatcher.cs",
+      "SHA256": "E83CBA7DB5A1AB7B996855336A151FAB5EDB308F1509BAEA86C3391B8E7DE555"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/CharacterTransformService.cs",
+      "SHA256": "11BD8F8890DFE29022A4A3DD6749BCD519E42FB9B4306FEEF033468189967959"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/ConfiguredSceneResolutionService.cs",
+      "SHA256": "3E7D25AFE510B85247F0F88147A664BDD0BDDDC0D12790769471E3CD38187294"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/ContinuousCompilerService.cs",
+      "SHA256": "F1DE18CA4589C1272A884DCF1CABBAA4238F7CB5DF07003155CEBF452D28876C"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/EditorNotifications.cs",
+      "SHA256": "6D18AB5FEADF7D6C794AA76501BE83143C66792B916D01FF6317E94871FAC514"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/EditorSaveService.cs",
+      "SHA256": "34DD6E62EA6810BFE7A71764C76BA5479E73D6ECBE58F956D0F6A45D3EF2C9BF"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/EditorSceneService.cs",
+      "SHA256": "2F0F6E0E8542E9DDBC18191B7F8F181A8458A29F9E0EB5137B5079AFE2B95683"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/InteropMemberAccess.cs",
+      "SHA256": "5C3158A596312D755D57E5F04AE06EB5A682CCE502E1D8261D292EB4908E073B"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/InteropObjectGuard.cs",
+      "SHA256": "C82369890A08D382BC4B7842A28450B67FFCD10C7522BE664572233FB069312E"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/LiveEditorProjectKeySource.cs",
+      "SHA256": "0CD7B9A9F72FF735B5803031609B24E2CC1B2B68188EB2AD8F3EE0FB51ED0477"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/LiveProjectGraphService.cs",
+      "SHA256": "2B0C53E16D44F694A27ABBD0E64524630B69F01EE6658E50A318F733813E5575"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/ManagedSceneIdentityService.cs",
+      "SHA256": "73934BB0806C16948B8DD4B06FC67AF0551038967E4BB1B2FB8ECF532B000DEB"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/PlayerRuntimeContextService.cs",
+      "SHA256": "EA1E7C712B69A65729C2BEFE8F6C28B4D943D41BB7C6341A3A7E2D3F23AF392F"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/ScenarioFileService.cs",
+      "SHA256": "37CB661A0086EA5BD02BCF410713D3E2C9C5DEC926D7605F364D83B0AFE657FF"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/ScenarioPlaybackService.cs",
+      "SHA256": "D50CBACC9D81463A7EEF89E6717BC14B3FA697D7CC845E0AA51AF74B8C1D654D"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/SceneCameraService.cs",
+      "SHA256": "6989C4C30EEBD3EB5B39748BE2C48A9D923CEF9CBDE2B5FD687D005A83874DA7"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Interop/ScreenTextRuntimeService.cs",
+      "SHA256": "9280229A82CEC0D50E80876A5DE7D4AAB1FF282A0E8F77D1E626716965D23D0C"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/AutoDialogueDelayPatch.cs",
+      "SHA256": "AD75E070A8F188369B85B8C4A6FEA3E147A32D0BA2EC7C927B5CD5FCB4EB31EE"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/CharacterTransformProofOptions.cs",
+      "SHA256": "2D59283774EE00DE1195570C617432C2C9B6A1444A11306D67747F764874287A"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/ContinueDialogueRuntime.cs",
+      "SHA256": "873E3B24A8D313AC2722B0534EBF366938AA91FD33622F0C52805F9141598B95"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/DialogueFlowObservationProbe.cs",
+      "SHA256": "576E13087068E590E5A6BF539DE46F89AA8C260C9388ED758D442A7FB86D0BE2"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/EditorDataListEventProbe.cs",
+      "SHA256": "53A91293F21090F6053B7CB50C8C07DE397C5A73E4D33054C9DD3D4DB962BF0B"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/EditorEmbeddedDirectivePatch.cs",
+      "SHA256": "AA6FA4937D418D19F6767DDD8D2A641FA392D49314F392C0C6EE645EB074F607"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/EditorSelectionEventProbe.cs",
+      "SHA256": "D49DD634D41680DAA4853D16DB2EDC606730DC8B8EE8FD5AB067B7A9599CCA35"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/EmbeddedEditorDirectiveCache.cs",
+      "SHA256": "705C9E4500CBF7C271AA1721B8FAFF1C97BA4CD06009CA3D785DAAC4A96499EC"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/EmbeddedEditorPreviewLease.cs",
+      "SHA256": "7500979399195B3725C880EDE5879A090249EB90F42597135BF851B2015C67A8"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/ManagedUnityLogSelectionProbe.cs",
+      "SHA256": "91E1B78C781168C7B044E94438B14F03E40418E909A442B0A6027922A53CB677"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/PlayerAdvanceObservationWindow.cs",
+      "SHA256": "AC95840C4C30B1400CEAD5F236817E8BB153A236B7A9D6AFBC6CEA53113D6633"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/PlayerAdvanceScenarioObservationPatch.cs",
+      "SHA256": "E67C65BAC573AC71DE52D1703B1B2D8864503A4048C1739FC1F6567B35958D60"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/PlayerCommandObservationBehaviour.cs",
+      "SHA256": "83753C5933FE6124B190A2C9BA1F26D1AC35ADECA631279D368A3E643E5E6956"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/PlayerCommandObservationLog.cs",
+      "SHA256": "A8D4AFAD861A4C25C130ED4460BCFED2A4FBE64BCD97992940B3AA1B7E099D90"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/PlayerCommandObservationRuntime.cs",
+      "SHA256": "6D76CE1A305CCB1602D6BE6BEA70CE52CAB2C85C25C94FC440E36DEF354B8D24"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/PlayerManagedUnityLogObservationProbe.cs",
+      "SHA256": "40E791004B1FB3E876966AC1EB81C070ABD9B4BC97F139FD4E9571184CD5D53C"
+    },
+    {
+      "Path": "AzureArchive.VideoTools/Runtime/VisualEditorOptions.cs",
+      "SHA256": "E6A5221A49292D87B40998F9D379BFF41479FFE415801016AC2B919859985018"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/AzureArchive.VideoTools.Core.csproj",
+      "SHA256": "4193EB3E543C0402A489B4CFB3334791AFE92800C0CA1E87F0CA6FA178B18E8B"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Cameras/SceneCameraCommandValidator.cs",
+      "SHA256": "16E3692464AFAA15C11D1117524070BF8BF7818FEBD0EC182DD0F0C278EF331A"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Cameras/SceneCameraContracts.cs",
+      "SHA256": "2852789EA1153F1AB41679149EF1EF3DCA511DF5F7773527F0982CA83103EA5D"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Cameras/SceneCameraDirectiveParser.cs",
+      "SHA256": "BC3A51F50359D10FEB8A210EEDF76C725F080D1FC25398A013A9BDB8279575FE"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Cameras/SceneCameraPlanner.cs",
+      "SHA256": "90D3C38F7E7DA984CEF7C4234F19E1362B11B530D2C97F43C571EBEAE15A3BFD"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterAngleMath.cs",
+      "SHA256": "A02A0FAECBEF44E67373B43C219780F157D7FEE76C8373A561FFC91B369C1FF2"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterInheritedStartPlanner.cs",
+      "SHA256": "FE3E38E081049FB5432D91C64FA4B2FE17ACFABE9CF37B9056BBC1D4E3BAA656"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterPresetBezier.cs",
+      "SHA256": "95FC86F1739C172F495F80275220306FE7DBE5686113D3066F641C7F25F3DD72"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterPresetCommandValidator.cs",
+      "SHA256": "EC1EF504CC8993202682313368D3FCF5B56AE8EE2BF88968E96C78BE23E40BAE"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterPresetContracts.cs",
+      "SHA256": "B42781E3107BC0FC83450081881C80CAB04F483110CCB8DEF6DF84FD5EF3DF56"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterPresetDirectiveParser.cs",
+      "SHA256": "A47B59297FA29383931EEF6AD855D3C82039FAB24BD3DBCEA45D7C148E1BA631"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterPresetEvaluator.cs",
+      "SHA256": "81EAD638036AE9664D17C85F5A25445B3EF78856C2F43AA2E26AB00F1C051E3D"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterPresetPoseOverlay.cs",
+      "SHA256": "2B760672E0F803401920D6727015CF86E0E24430B04ED22207B9D8FA10FCDF87"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterScreenRotation.cs",
+      "SHA256": "7CCD73633BC8D4459C606D4D76A5D2EA7C068E4D7C9A4633361DD0ED6F20E6B9"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterTransformBaselineStore.cs",
+      "SHA256": "170507F6427FE1F45693F186188BD7F94C81042C897FE081A9E9D7D57F7F1FA2"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterTransformCommandValidator.cs",
+      "SHA256": "D568E9ECB1107E7274517F70042944D878E332492867D1AB8130BFA529822479"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterTransformContracts.cs",
+      "SHA256": "DB0CCA868CFFFCCB8C0737265B31164B5BBC8D9E7EF896742B8BAEA045404784"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterTransformDirectiveParser.cs",
+      "SHA256": "C87AA003107C4BC43C5FD026446F453EC3546571D86804A6DD175CC3ECF3F924"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterTransformOriginBaselineStore.cs",
+      "SHA256": "27BDB280A33CDD6C3907BDCC5E51429D7253FB7D80245BD2A67C12E02BD6DBC5"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/CharacterTransformPlanner.cs",
+      "SHA256": "1E3BB92C0CC2CB78AECC8E26B7024E71E344286DE400DCD72B7F193A4687B421"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/SlotPendingStore.cs",
+      "SHA256": "5D8E0AFE08A88738731D84B546E8AD499DCCB07784AF0E044219C18CEE828BF8"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Characters/SlotPendingTargetPlanner.cs",
+      "SHA256": "088CFA690B29862174A1B8F61D7561520B87D99F03FBB79EBE47005A690B9C99"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/AavtDirectiveOwnershipPolicy.cs",
+      "SHA256": "45A03F0364E3C966317A1EF31650AAD811EEF85D5C21D635699507403196B44B"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/AdvanceWindowAdmissionPolicy.cs",
+      "SHA256": "AD75C47525F4BF40BB74535B9EFF1C0A9481CEF3140CF0CFF09F6D2F4A3B3701"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/CharacterPresetCommandFamilyCompiler.cs",
+      "SHA256": "650EFBBB314015BD6C04C823E56F13F24A46A9A6BAE64345F963DC43EBB43C61"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/CharacterTransformCommandFamilyCompiler.cs",
+      "SHA256": "2E87F9B0B58A24CE36C8C133E7E75B7D328E375DE874FB2EFCFAFF309AD55386"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/CommandIdentity.cs",
+      "SHA256": "64675E94673BD72162EEC652087B13337AD3419EA102E40280A0F0E3F98B16B8"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/CommandResourceIdentity.cs",
+      "SHA256": "E06CF96209C9BDF3B86BFDF27C08CA6521FBE2341DF66B3259E6D13CA98949F8"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/CommandTimelineCompiler.cs",
+      "SHA256": "EC483A534EB72A1DE89C0750693362217F9EC75B6F4098B54C00D474D5DDBD1F"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/CommandTimelineContracts.cs",
+      "SHA256": "8C703791D4A00A4ED375348205FFEA3CCDB9E47A53ADFD2FD4DEE5DF7C361D97"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/CommandTimelineEditor.cs",
+      "SHA256": "B3C7CD6FDD8B397D62DD0D009A90E4AD0242A6FEB071240153FC2A08FDBBBEFD"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/CommandWorkspaceStoreContracts.cs",
+      "SHA256": "DEE5DFB0BD2CD81197976C5A0ABDF6124BA01A856B97E3D381E67E643B0A0F52"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/EditorCommandDocumentComposer.cs",
+      "SHA256": "C592E3EB21C3192EC2534428CAD7CE2DC85AF23F1ABCFD2B5F5EB034B28973D9"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/EditorCommandUndoStore.cs",
+      "SHA256": "124B74D0AAC90F1D8813A1A83F1783D5861F8B61BC4922A59D64D95439FE31CB"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/EditorInputSceneCaptureProof.cs",
+      "SHA256": "037A06F2731A6D75BA081F9FC4F0270194603F638CCCB8AD07AF146516E4B769"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/EditorPreviewLeasePlanner.cs",
+      "SHA256": "C2B661C8921110B49025B0D55F250A3AE31873E1BFCC9BC7965BE29205A7CC51"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/EmbeddedAavtDirectiveExtractor.cs",
+      "SHA256": "0067B44AD7AB9313522726340A95397C87F2BBC13704B9430EB23358CD110DC2"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/EmbeddedDirectiveCompilationTracker.cs",
+      "SHA256": "022125C28F65F4F33F05BAE81DE91490B2A050FEA7EAE742B72EFFD5CE65D556"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/EmbeddedDirectiveDiagnostics.cs",
+      "SHA256": "CC3FA7ACD7B6E2669E50888A57D0DDD46787762BE4239DBB42789F5CBA223026"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/EmbeddedPreviewCommandGuard.cs",
+      "SHA256": "D79E305AACF06545F05B01B047C7CFF2B1FD8AB80E13A800505EADFC2905986E"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/EmbeddedProjectCommandCompiler.cs",
+      "SHA256": "67FCB5E5049888FFC3D050D9CB651B9B32E240642B8A8EF7C8CDD1792AB8670F"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/LiveProjectGraphComposer.cs",
+      "SHA256": "8AA85E8A97995DC6ADF8BC807FEF562B86A0F6AFC6A2B5E6826B39A7425F4B27"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/ManagedDispatchSchedule.cs",
+      "SHA256": "A9FE43F89DDA8A0835A5B6D17CE9BEC7404B55E67E1F427DFB1C2A1B96AF4904"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/ManagedSelectionLogCorrelation.cs",
+      "SHA256": "F95A4C8E74FB4ADB12C97454C6DB2BE428661DCAF543DC1F88E59440130F697A"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/PlaybackCommandBinding.cs",
+      "SHA256": "DBBAB16069B9E1CFD70821894FA4D9DFB8768FFA81BA740C975BC56B571644D1"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/PlaybackCommandProjectionComposer.cs",
+      "SHA256": "3BB8A4B27B6938C93669C968A5D9F1A7456C77382E7798D6A57DEE128061AFA4"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/PlaybackCommandWindowObservation.cs",
+      "SHA256": "9DF453368D7C8F6486EC77675831B0B77B1C42768332E6DD640180EFA310E697"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/PlaybackDispatchCanaryGate.cs",
+      "SHA256": "807D1BC06FC55FE7581C4404C400F5EBF457224B380D53DD0F0CAC0BB8B95E00"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/PlaybackSceneDispatchGate.cs",
+      "SHA256": "5A8D20B7BBE24511EED198AE58BC6D0D5A69CF195DD847B1F48BAC18D4F4EA3F"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/PreviewCameraChainResolver.cs",
+      "SHA256": "3B16FEF4C1CB91455151F7BEACD5E61364E503014DA140C6343BFBDA3666B353"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/PreviewChainApplyPolicy.cs",
+      "SHA256": "B5A074A9FA147F8692A7FB6276BA2E799D9BA31AAD79D92F80CA741BFAD98E1A"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/PreviewChainDirectiveIndex.cs",
+      "SHA256": "90B38AD0858DB6F55F55592219622C0E2970E5A2AA4133CB97519C5ECBE558C1"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/PreviewChainResolver.cs",
+      "SHA256": "623562EC8C87C864B1CE948113EC6C66D27E52A4C5A849E3836BDCDB62E8AEFC"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/PreviewSpineOverlayChainResolver.cs",
+      "SHA256": "DABD99CFB07CCFE13C0F81B7EACE6B776B52EE11C56D8C2C039DDB7F65C8054B"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/SceneCameraCommandFamilyCompiler.cs",
+      "SHA256": "701F6F479CBCD67AA70F3BBC4B1DAFFCE7F56D2EA4F3250231EF26588E442F64"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/SlotPendingCommandFamilyCompiler.cs",
+      "SHA256": "20761735AA8597B849A5DBAB89BB335C76294D47B731A9DB94C387A5401B3F59"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Commands/SpineOverlayCommandFamilyCompiler.cs",
+      "SHA256": "2B5433236F852A63F0722CD56938DD0E82FB4B0EBA54CD391D65C405C61ACB40"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Compilation/ContinuationProjectionCompiler.cs",
+      "SHA256": "D28DA2EF5195408F0E8FD0CACFCEC765971B5F23AEA738BC55BFA4464BB558AD"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Compilation/ContinuationProjectionContracts.cs",
+      "SHA256": "BF17F0E250351CE98D66B8771171F01AD34C3ACB969A85A7F0D5DE316C3E28E4"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Compilation/PlaybackProjectionBinding.cs",
+      "SHA256": "17CA645224F65C987A2F31DBF7EC26F5FDB925A1670677B0E34AF5E7D658B915"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Continuity/ContinuationContracts.cs",
+      "SHA256": "E8EB1F75812B0F9ADC676B224E5768EE6580255D73D354A6583F5C62D3EF017A"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Continuity/ContinuationEngine.cs",
+      "SHA256": "4EA4D74EFB24AAD46FFC8B9E0AAE606EFE7C67B3A346C3BD08B7478CFD64F2A0"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Foundation/VideoToolsFoundation.cs",
+      "SHA256": "F2555F74EADF8C287943E37BCF6CBE0DCE93D8A896633E6F8969204688E1156A"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Mapping/ActiveProjectPairArbiter.cs",
+      "SHA256": "91EB9B1EBBB89E10BEB046C8F50388F792CE385CDC6E6E72055A5FA4E1BF2ECD"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Mapping/ArchiveSnapshotCache.cs",
+      "SHA256": "ABBB99B92ED5EE605CE29AA74E6328C2C12E369BA64DCC028C2874FCF498F615"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Mapping/ObservedSceneIdentityResolver.cs",
+      "SHA256": "E958561F9BE4F2A554BFDB2E14145FD3DAC700F5001640C9359F9F1091A63336"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Mapping/PlaybackScriptIndex.cs",
+      "SHA256": "5826BB08C725EBA7AF6F32DC969CEEF696170268D61E727A7E48ACC0C137AFAF"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Mapping/ProjectPlaybackMapping.cs",
+      "SHA256": "49B4B9C5C261593BC6EFDFFBCC4EB34AB501D04396E3D1436773906DCF5C265D"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Playback/AutoDialogueDelayPolicy.cs",
+      "SHA256": "38170E9BC2819A0370CC332CA405AA6B689DA2D5D7F405C4B1383D66BAC4273B"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Playback/MainThreadStallPolicy.cs",
+      "SHA256": "33280D571190ABEA2D5AA2FA7E9AF2A6845E1463383336697F61C5312D89718A"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Playback/PlaybackArchiveContracts.cs",
+      "SHA256": "37BF9D88D8BF1EACCFFA4B05414BB31008AA0A7F9D615D58156BAE2B1DF44752"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Playback/PlaybackContracts.cs",
+      "SHA256": "84E769E05A6AD4E212B73CFB2E739E4DA4E8FC589ABD578F6B915C2583FDCDC5"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Playback/PlayerRuntimeContext.cs",
+      "SHA256": "D6DAA2FF930EAAD3BFA2F8AA24457C2DA698CE74006364E189D5F71A5FA7D5ED"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Projects/DataRootStampSet.cs",
+      "SHA256": "81C1139A4082DECB10C2FF34D901BF4E7A32979DF388F31E0B8CE42F72A403A3"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Projects/LiveProjectKeyComposer.cs",
+      "SHA256": "880376DD0D47E58B021C3E235D47527A366FA44843893DCC72FC3272D9EA9848"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Projects/ProjectContracts.cs",
+      "SHA256": "8A90C4282464E849694903A8A7AA0F74B01178603BF397812450F36B863CF395"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Projects/ProjectPairScanner.cs",
+      "SHA256": "E9433B09546B15A9A7A2838652EDA6AA163E1637FC8159BE1624EDA3DF7E500B"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Projects/ProjectPublicationConsistency.cs",
+      "SHA256": "88B271942E73EDE398E8051E7D0CD3403B86C39487A923B4CFF18C2CD93C5001"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Projects/StoryGraphPredecessorResolver.cs",
+      "SHA256": "E2A067212F1E72EA941AC31CF839F57145A3400A043B06B3635A17072701F444"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Results/Result.cs",
+      "SHA256": "A3B2DAB440F6B8AE5E56BAC4282A5E0C789AE417F74D8D9B3939036A48713EB7"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Spines/SpineLobbyAnimationPolicy.cs",
+      "SHA256": "912B6261A574561E5F6C88DA24CB8BCDB2190F81F03713C78E617D27BFFD3EB2"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Spines/SpineLobbyThumbnailFit.cs",
+      "SHA256": "FB7E540A39A4AFA5224414A0CD0832EA12EBC38577F8787BC1D9DB426570272D"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Spines/SpineOverlayContracts.cs",
+      "SHA256": "7F2FF2F0E5850CF579D9026E41BC34A045EDC0250B077000E5C7D163816870F7"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Spines/SpineOverlayDirectiveParser.cs",
+      "SHA256": "A069B23093CAA70C630CB44E76FDBDC2D4C815FE117F67D1E695A0064EEF94E3"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/VisualEditor/ScreenTextDirective.cs",
+      "SHA256": "FD36434C7C4CCC9DC9D51FE0B2BF76CDFEFB111F29D066D55AC41D0234DA747C"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/VisualEditor/ScreenTextSequenceVisualMath.cs",
+      "SHA256": "58CC4C78E5654174A50F40B8964ED8785EA9E0FA027D883980CB8D1B866BEEAB"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/VisualEditor/VisualCameraDraftBuilder.cs",
+      "SHA256": "676A8A3FCD57DD2072DFE661D672BE7E1C946D47A9961F56B56D742328DD2EB0"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/VisualEditor/VisualCameraFrameMath.cs",
+      "SHA256": "1012D6FCC66F76D516A91F064E960B295BFFCF48F5C441CD85EF2CF30F09E7F7"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/VisualEditor/VisualCharacterDraftBuilder.cs",
+      "SHA256": "AE19AF0A5C7B70F194B437E7734197201504D104228A8085F04DF904776DC633"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/VisualEditor/VisualEditorCanvasMath.cs",
+      "SHA256": "ED788CAFED11B7A810DA1CA55851F6895440EA7AD0EB2DE3E7FF1E120606F72D"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/VisualEditor/VisualEditorInputGuardMath.cs",
+      "SHA256": "88C0729DCA2B9B07FDDF37DD7D314577587353F8DE8F462F22B24E0FF98B971F"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/VisualEditor/VisualEditorSlotPreference.cs",
+      "SHA256": "4472DFDE7A571CA79B1A302289210B3F7DA83F26D6FCB4DA8BA11576BE266516"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Voices/ImportedVoiceCatalogPolicy.cs",
+      "SHA256": "400A7CFFC71FCAB071C48AC8A5F58CD7A5025E2AF22EDB771123DB1FCD13FC4D"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Voices/VoiceAuthoringSession.cs",
+      "SHA256": "C46792B75C9F1184301D2CAF43E89C97DDAA022707EADFBDF120667899916F91"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Voices/VoiceDirectivePolicy.cs",
+      "SHA256": "E893F0FF5441C980E6D21736C470BBF947E4789FC747D934BA4032522FD6037C"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Voices/VoicePlaybackGate.cs",
+      "SHA256": "B9D8E91CB077DE43BE6769A67B70599A9DD2615AE9342A6108061E9896B4B5F4"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Workspaces/ModWorkspaceCompatibilityGate.cs",
+      "SHA256": "7D2EF8517509C23769B48C153ABD643B3654F78A6255F174BB0674FBCCDD8080"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Workspaces/ModWorkspaceContracts.cs",
+      "SHA256": "E1F9D01FFCA8B5C6880C393966E688A67C97D6A914B1E0274FE10EE4AF926D21"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Core/Workspaces/ModWorkspaceMigrationPipeline.cs",
+      "SHA256": "E655FAA4D8257D9814F222A8F88528F43F67BF37408EDA7A6CB598A0CF5B8FFA"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/AzureArchive.VideoTools.Formats.csproj",
+      "SHA256": "2AF4F5D4AC2866286D3EBB8DAF7B1D372909F1170816F220200F2C3C338EBE4E"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/AzureArchiveFileFoundation.cs",
+      "SHA256": "14683650925BBAA9B45F770ED0BEAD66C52FD2F587D8C405EFC05DFA6262E35D"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Aap/AapProjectReader.cs",
+      "SHA256": "C751EFAA648337B86CDEC063FEE90A94CAD43E7BAD75163345D0BD9C1207AB24"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Aap/AapProjectReaderOptions.cs",
+      "SHA256": "8A5B508117C0A55CB9365905CF46D866CABAD6B4E6A206CF2BC07CD343A11B71"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Aap/AapVideoToolsFoundation.cs",
+      "SHA256": "BBE18DC26E6321D065E12431AA2F28B5EFEA00402C643DA070CE947AF9524BBC"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Aap/CanonicalJsonFingerprint.cs",
+      "SHA256": "FA28785AC0CD35808E50839B42E943CBCF65ACA700461D5B3F9798E9927AAB01"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Aas/AasScenarioReader.cs",
+      "SHA256": "067AD95EA0464C16A0A6507B904F3580C92F04B0D706E9CD2DF63BC94772A731"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Aas/AasScenarioReaderOptions.cs",
+      "SHA256": "C0FE34AA8FFFD10A51708994831BC4374CEE7EE4132D8E2117638BD620D77C8B"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Aas/CheckedFlatBuffer.cs",
+      "SHA256": "5EE0C5BA9799FB77DD6E02F7065F0BBD54D3B644E99B77500CDB9F594545C7FF"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Sidecar/JsonContinuationProjectionStore.cs",
+      "SHA256": "13C934DEBC50187BFD8029A92F4F3DCF70885B40B7A35C8968417BD1F5BF6926"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Sidecar/JsonContinuationProjectionStoreOptions.cs",
+      "SHA256": "1080F596D61D6C80B104C5176932CD0DC4C3E3E7C9FC0022538E9EB7479845E2"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Sidecar/JsonContinuationStore.cs",
+      "SHA256": "E517859857539287157149047E3E5A8D57E38C07020F807A256F401FE33E0B77"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Sidecar/JsonContinuationStoreOptions.cs",
+      "SHA256": "C07001CF3BF5F640DC2327093A12B404CF49D0FF6270E0AD6F8165E59CF027F5"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Workspace/CommandWorkspaceAuthoringService.cs",
+      "SHA256": "05B4D9FFA0CE0F6D88399DA066346CB76DED58341C57AD88EAEA42795D7885BE"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Workspace/JsonCommandWorkspaceStore.cs",
+      "SHA256": "C59578AE58949F8AC7588487F6D2FFBFD421A927D9F60626F26ED9BE07984377"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Workspace/JsonCommandWorkspaceStoreOptions.cs",
+      "SHA256": "E71A29B114FDA11C2D27929438FC708091AB2D6ECCEC87B78E1EB017C50A0B6C"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Workspace/JsonModWorkspaceStore.cs",
+      "SHA256": "C5E308889DC8B0974E19878E358D190016DEDC42A34854B4402B3E4D4612AA20"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Formats/Workspace/JsonModWorkspaceStoreOptions.cs",
+      "SHA256": "9357432EB933BC657EF9E2887C4F202338235B58F154627BE433F09B8B4FA2C6"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/AapCharacterPositionInspector.cs",
+      "SHA256": "8A439E26A338D5B90B5C76E5A58D038140693BDF811A9355C8C7B94A0B2418EB"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/AapProjectReaderTests.cs",
+      "SHA256": "3135E15A5C2AD3352A28AAE777AE71F62A0FAF31B91E861E0F28B269F88467BD"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/AapSmokeVerifier.cs",
+      "SHA256": "760A90D9657BEA9D34F7B37989C2D4234A7EC08F9000D023988C2B90820AD9F9"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/AasScenarioReaderTests.cs",
+      "SHA256": "186D53F9D6094CA98ED9CD09871897AAE261D315A23154765251B58A67B7D049"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/AasSmokeVerifier.cs",
+      "SHA256": "93B525BDA18B9CC4369AAD5D69A70A6A0FBE739524E4652134958AF291401271"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/AasTailInspector.cs",
+      "SHA256": "25D088A83BB6EA4E7A07BE62CD38C6FBF5CE08D1F5F463F99F646EB3395232FD"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/AdvanceWindowAdmissionPolicyTests.cs",
+      "SHA256": "5E9F3DD53B7F57FB9283575240F288428C7EF4CC3ED4355F128E7D86C275C92B"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/ArbitrationBenchmark.cs",
+      "SHA256": "8E03718AD31E134A6D9A1C41B4D0C772650DB43F6AAAC374C503569089C0820F"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/AutoDialogueDelayTests.cs",
+      "SHA256": "0DC7885817C4CDF3B73B34F7DC2A0D5FCEE3515232FB1F6DCB1DE3BEAEC680D8"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/AutoProjectDiscoveryTests.cs",
+      "SHA256": "3651C836EAA1796CDE1414F128556F331360610948112CF5078B3601E55F22B3"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/AzureArchive.VideoTools.Tests.csproj",
+      "SHA256": "41CAD0BEFDBDC931F60A775A240E805327CD9128ED0D741A8C58D7067BE76AB0"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/CharacterPresetBezierTests.cs",
+      "SHA256": "7E9BC6C7AFB6EBEF847E28DDA33C6FE15664F0C146382189DCD359C45ACF494E"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/CharacterPresetPipelineTests.cs",
+      "SHA256": "B46DA74D7E83F8FA7880CB8B0EA9D650E923317585E981495CA40D51E283FA8C"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/CharacterPresetPoseOverlayTests.cs",
+      "SHA256": "417FA93B57C32019C6EBDC96D7B9DDC6CE3ABDB628BDBD5032E29748E268AA6A"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/CharacterPresetTests.cs",
+      "SHA256": "6588F5738562DFE588F3F1B413CDA0CF67DCDB52317EAFDC553324ED47759D60"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/CharacterTransformTests.cs",
+      "SHA256": "242770C4783144111E716DB6D57C9A868FB382A94143959CDB70AF666F797F99"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/CommandTimelineTests.cs",
+      "SHA256": "F91E736A6BF993F4D69F0EE4892EFCF51097AD8FE0AB447B2984834E8D906280"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/CommandWorkspaceProofWriter.cs",
+      "SHA256": "ABCABB3F42113C868B10F0AAEDEC03527E290AA88C3656434C51CD1E5F71D17C"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/CommandWorkspaceSmokeVerifier.cs",
+      "SHA256": "65F66BB22B5C668B7D6C1CC62939E50CE329DBF54D017F9AFA26EF72A5B73A19"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/ContinuationEngineTests.cs",
+      "SHA256": "A685D85518A3C2A85E570B0D31BF35635B51AE07270309579F00549568C110E6"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/ContinuationProjectionCompilerTests.cs",
+      "SHA256": "755FB74400A374F0004E0E38B29392466554DD53E577ADFDBB1DE326462CFBAD"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/EditorCommandDocumentTests.cs",
+      "SHA256": "575327362B9EC4ABD6C0E5F3D1C4987A25DE0E3B0739CE2CFBACC9C132BAB2F3"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/EditorInputSceneCaptureProofTests.cs",
+      "SHA256": "209C2B8A8BC4137037CAC1EEB5632B3B9299879FD316A37E67283A3B128EC90C"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/EditorPreviewLeaseTests.cs",
+      "SHA256": "EE5E8143A01FA30CF88A27833DCA20AD77D907A1E44A0AA33CC811CFA6E7BF94"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/EmbeddedAavtDirectiveTests.cs",
+      "SHA256": "CF83C1261A6907078BE400F3AAB8B5F99FE01EB5534573F67FE0889EE95838CC"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/EmbeddedDiagnosticsTests.cs",
+      "SHA256": "B8E79F3B734CED40109FE51F5D935831F969A7E6887511B7207B348C9685094B"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/ImportedVoiceCatalogTests.cs",
+      "SHA256": "18374A9F95A52CC6D55ACE0AE7747A82A2C89789D43DD233675E7BC184CFADA5"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/JsonCommandWorkspaceStoreTests.cs",
+      "SHA256": "D136D3E4EB07055654552F7E62D659831D9BB8634F2880312676E977828719FA"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/JsonContinuationProjectionStoreTests.cs",
+      "SHA256": "DA6639433F352B32959B97FB68C662EE6C18B181FB1C34CB76FFE62CABDCBECD"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/JsonContinuationStoreTests.cs",
+      "SHA256": "79024BB5928506A96D45524FBF0CCB1605044355E5017647A3138CA88EAC35DD"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/JsonModWorkspaceStoreTests.cs",
+      "SHA256": "F54CB5CB4D7E6C9DA67E9FA5222FBA2407F21E18423230844B5D7E99978CA7F4"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/LiveProjectGraphTests.cs",
+      "SHA256": "0C66A73DEFFFFF6AFA7CC586D217C37317F53D6D9B4D0BF02D4EA0C05DE36268"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/LiveProjectKeyComposerTests.cs",
+      "SHA256": "B790D2F6BAD13FBFBD59FB1B0618B18E4A77FB07871E37081EF2556E428EB754"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/MainThreadStallPolicyTests.cs",
+      "SHA256": "08BBF4767C5DBB908F1709B1D6C308E135FCD9FAB650FEAB002D9EA54F6DEDB4"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/ManagedDispatchScheduleTests.cs",
+      "SHA256": "67D38F654DE8FB5838B582F9083B8847B1882365B679261D264663439B423F02"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/ManagedSelectionLogCorrelationTests.cs",
+      "SHA256": "446C64A05C276B4908D8E445C4EB135EC6AA251C1EE44BD4230CFE5A9BA20A92"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/MappingSmokeVerifier.cs",
+      "SHA256": "2DABA4AC29342D35CF2BAC59FEFF8622C570C072A5861E0DB20FF9555A3E7247"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/ModAbiCheck.cs",
+      "SHA256": "21052C8986752D24DD42196A8308672785E46C0F5BAA8B0D847677C220D3E636"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/ModWorkspaceCompatibilityTests.cs",
+      "SHA256": "03198C762630F35C5714376F82226B3A2AF7F152D017A70A10B12737C695C133"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/ObservedSceneIdentityResolverTests.cs",
+      "SHA256": "F542ADEE5EF9EB4CBF1452C2570C355C1E2753F02EF9F3BB7D4B4DA92FBE4611"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/PlaybackDispatchCanaryGateTests.cs",
+      "SHA256": "9D95BB3D43244A08E26C7358A61D2CE78F5F74A5641C4219942DCCDE66CCE6C7"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/PlaybackProjectionBinderTests.cs",
+      "SHA256": "6AF3DBF02115DC8EFF3E237B5020608569D60E998FD5AEB5044686AF3FBD90C7"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/PlaybackSceneDispatchGateTests.cs",
+      "SHA256": "D8C0B6C4DA0B17E8AFCDF44892BCC1514F316B38E89D7C185159D38287270067"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/PlaybackScriptIndexTests.cs",
+      "SHA256": "2205F621009D637B9099B2BD0CC0B0EEFD449C258FBB4806A84CE1272ABD05ED"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/PlayerRuntimeContextTests.cs",
+      "SHA256": "3E89CF2E72890BB3E24A16A292FBC9F250837D8E86C44C868050693EB9543D1E"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/PreviewCameraChainTests.cs",
+      "SHA256": "942ED943AF5887DCF28762446E82F306DC4CF3717400D48CA85A4A839A73B187"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/PreviewChainApplyPolicyTests.cs",
+      "SHA256": "A4D8140CF06C90AA08732F329A44C903B3DE0385FB888998B5172B63F521A62B"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/PreviewChainTests.cs",
+      "SHA256": "2C93AC46732A5950C6F8F7E667737F04F406325FD9A119ECB38F6923A4F7DA79"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/Program.cs",
+      "SHA256": "D3AF46D00BF51283B076EA4469E2C36BB8712591429DC741C2D170005C79493C"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/ProjectPlaybackMapperTests.cs",
+      "SHA256": "E7023EE0DB36C473B45E77E26AE5CB53DA79B307A415827AA0F75EF6BF144DE8"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/ProjectPublicationConsistencyTests.cs",
+      "SHA256": "5D5A052B0A7126C550B1EDA770E4D3DB7E96B7DA174662F167089F7D016B7D5F"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/SceneCameraTests.cs",
+      "SHA256": "2EDC73BF2DE55B42641D3AC89B774329255D2F2A08C1375DE5A60E6F9794CB7E"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/SceneIdentitySmokeVerifier.cs",
+      "SHA256": "67A6AAED96AE733A2021EA5FB3C29FEDB0C60451C9765C2A5B82AF87CF4BC58A"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/SharedDirectiveCompilationTests.cs",
+      "SHA256": "5D55389F790C8EE97B7C0BAC53DB53A68629F5CE7398ED16EFFE40F83561AADA"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/SharedVoiceAuthoringTests.cs",
+      "SHA256": "148585DF88182859A811AF4DC70E09F002275BFC4774871D2EF16470886155D2"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/SlotPendingTests.cs",
+      "SHA256": "FB04F5E880C448FBC30ECD6857905EA5857C89D4E7DC5CEE47EAB97C16E2A912"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/SpineLobbyAnimationTests.cs",
+      "SHA256": "D3F8C63461EBFC78C548AD312C906E77C2606D3FE7050B2176261156F1FC5946"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/SpineLobbyThumbnailFitTests.cs",
+      "SHA256": "830A2834ABF9E9EE74626A0CD9F7568F9855AB0BF57A03D9ABA26004CA15D0D8"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/SpineOverlayTests.cs",
+      "SHA256": "2CA112688F34D8775A945665AEBCD0811C74F7FF86EB8DC940F9AACAC6EDAA61"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/SyntheticAap.cs",
+      "SHA256": "CBF9A8322AFD4CFBA3CACF1E727DC47A946A2E104222F1384A749E3D0207D3D9"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/SyntheticAas.cs",
+      "SHA256": "54994B08AC7B3EB9BD486BAEB175426AE04B7FCFE925DD8DF6A7EE75C6AE6537"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/TestInfrastructure.cs",
+      "SHA256": "66C41E1E9A2ABEDEE38164318056AD8586CA164108297B702532201ECAF69BCD"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/VisualEditorSlotPreferenceTests.cs",
+      "SHA256": "2FE08F63473772DF705B54A2833B4AAAB7218C54DD32C6F96A0B62A9F0DCD82D"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/VisualEditorTests.cs",
+      "SHA256": "9D8233520FABAFED8EA5D249FFE19B521CE38C4183EBCA7CB3C6AB3B6945F8E4"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/VoiceAuthoringTests.cs",
+      "SHA256": "B503860EEC0514FC805C08C2739099C47CF4FC246C8AA589B07EA48D186BE444"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/VoiceDirectiveTests.cs",
+      "SHA256": "4C5AD13E02265FA4E14C041CF6ACE2EF4D90755F8FD3B63C38E94AEDDC2B828B"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/VoiceIntegrationTests.cs",
+      "SHA256": "CB6FFDF29E70CFDA71DB3FEDDD7A756CE71B0A4814CD3BE59D4B80CDF3623EC3"
+    },
+    {
+      "Path": "AzureArchive.VideoTools.Tests/VoicePlaybackGateTests.cs",
+      "SHA256": "1B9B1F224ACFF5477863C071AD8A02A4D8D9017F38BB440C84BEA82E380221F7"
+    },
+    {
+      "Path": "examples/EmbeddedDirectiveClient/DirectiveClient.cs",
+      "SHA256": "4BCCE13A6C0205B38C821E231E7DE6D0F7F7B12168B05B4F27F556D1FE1FD42E"
+    },
+    {
+      "Path": "examples/EmbeddedDirectiveClient/EmbeddedDirectiveClient.csproj",
+      "SHA256": "6BBB8CA13539725B516CABFC5D5D1710C66FF7B64018EC6D0EA27B70A3331DCE"
+    },
+    {
+      "Path": "examples/EmbeddedDirectiveClient/manifest.json",
+      "SHA256": "DF769C03E7E899AD53F594AFAA103C55B639B528EF16E1A71A3412D594F7E8A2"
+    },
+    {
+      "Path": "examples/EmbeddedDirectiveClient/Plugin.cs",
+      "SHA256": "5B83CB5C8C70FFAACA529FF2F881FF3E4AF1DB41B80C32D1B8EDA1AC460AD2DA"
+    },
+    {
+      "Path": "examples/SharedVoiceClient/SharedVoiceClient.csproj",
+      "SHA256": "0487550F873EFE75B23F01889C495CBD46F96938B0DD2708D39387BE48F0BCD3"
+    },
+    {
+      "Path": "examples/SharedVoiceClient/VoiceClient.cs",
+      "SHA256": "D9314A3F8932A9010B71A1B4FD780581E9FC7973ACC0B73399ABC3AFA888430E"
+    },
+    {
+      "Path": "examples/UiToolboxClient/UiToolboxClient.cs",
+      "SHA256": "1578013FB4B046EB0625FA3AB085D8DDBCBA461C3F9236A0AFCC726863A3D351"
+    },
+    {
+      "Path": "examples/UiToolboxClient/UiToolboxClient.csproj",
+      "SHA256": "66A5455BB5D16ACE246531B2E877FCDBFA0C943F5AEE68AF8DC6E4A37253DA35"
+    },
+    {
+      "Path": "examples/UiToolboxPlugin/manifest.json",
+      "SHA256": "B1A85978B852FAC23BABCC49A2603C0A15F4CA23740C86E10BBF60808BDA263B"
+    },
+    {
+      "Path": "examples/UiToolboxPlugin/Plugin.cs",
+      "SHA256": "DB058136A82E2BEA64CE02F09D8D46E23A8DC55A2F708BA7185628BDBFB2E45E"
+    },
+    {
+      "Path": "examples/UiToolboxPlugin/UiToolboxPlugin.csproj",
+      "SHA256": "610DD7419C1A66B4473D2A055A28F881199EC006673A4C86544D669BD32E77E7"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Plugin.cs",
+      "SHA256": "55EA1A11B41C3432876BA245D59100422DC9FB555D1021E175E176007BC7C631"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Rukari.CharacterVoice.csproj",
+      "SHA256": "0DAEA013F8E004C94B0879B8B2EAD542C825935CADF2536BF35EFD1C5B31DB27"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/ImportedVoiceCatalogPolicy.cs",
+      "SHA256": "1BA19420C602997A8F12C70BB4E9946078A949E6CDCD792466415F2D9EA4B2A8"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/ProjectVoiceImportPolicy.cs",
+      "SHA256": "6AFA1026814F9947296C024984384FB99E2933FFFFBFCCD0E451E658A8C28D3A"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/VoiceAuthoringSession.cs",
+      "SHA256": "1B5D71A0BD9555ED42A858BEE1E505666D1447CA4050784FD99C0C8331EC9473"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/VoiceCatalogKeyCandidates.cs",
+      "SHA256": "C8E5760CA24687D6B8D31162E6B5909DC5182A83D25DB6D4F9466282818C4AA1"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/VoiceDirectivePolicy.cs",
+      "SHA256": "8E0D54536AE850D0F923E3A9813787166BDF5D0DA81FFD2DAD7DB41CFBE78315"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/VoiceOverrideDiagnostics.cs",
+      "SHA256": "A976F9F5E32C729F9480400548C356D329F7E6BCAA2CA829CF2FBFF032BDC021"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/VoicePlaybackDelayPolicy.cs",
+      "SHA256": "11BB3A051FBA7C0A51A7C746C2469A41D9A57635EB2F98EBC86BA4A9A97246FB"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/VoicePlaybackGate.cs",
+      "SHA256": "8117E838466AC79CE1ECD9CF8F4CFE428DF942E02D4DCA0AEBF859F489CAE42D"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/VoicePlaybackMethodPolicy.cs",
+      "SHA256": "1C439DDAFB29EE6E3458BC30E3975CAAFCF6422D796F0F5E955C5B143128305B"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/VoicePlaybackVolumeAdmission.cs",
+      "SHA256": "0ABD21F216F1139D7C81EC81D242BE2DCD6071368168C9E581B39520B52B9BB0"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/VoicePlaybackVolumeLease.cs",
+      "SHA256": "6C787D46ABC5997DDEED630D1F325B043C51E40A88FD39B2BB83B637EC4BE02D"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/VoicePlaybackVolumePolicy.cs",
+      "SHA256": "34099D114EA5AA7BC7517EC1A6E7918ACFE009BEF6CD25EED46CCA6335253697"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/VoicePlaybackVolumeStartQualification.cs",
+      "SHA256": "8EA4E0005BC68943C4587A88EC6D9B7AAAAABA69F1714329DBE9C4EA790E95E2"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/VoicePromptEditor.cs",
+      "SHA256": "1068FAAC6F9202BAB3DF605B508F70CBE6CB8EEF5C2AE7224377C7DDE8BD9125"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/VoicePublicationPolicy.cs",
+      "SHA256": "99B3BE48156E69108A596D8AD8DE89F92A883137C3469D33929B24043501B195"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Core/VoicePublicationScopeService.cs",
+      "SHA256": "23F875ECF3DBCF72575A18BCEB47CE0CC6A2D1AB3D5128BD1081E74F7ADF4664"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Interop/ImportedVoiceCatalogService.cs",
+      "SHA256": "D500D8728960710FB498219B1E1EF33B4CEF50BF70C76EB377C150ECB9F16C49"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Interop/ProjectVoiceImportStore.cs",
+      "SHA256": "825F56B5DFC73DC62037ADC369D528E098DA1F8BA2D35A1FD1A27447FEC464DF"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Interop/SharedEditorVoiceBackend.cs",
+      "SHA256": "9C5E6F09F5E59E15C557E3BF52BE027E41E2878DCD5A8DFDB9F3615E11CDC390"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/package/manifest.json",
+      "SHA256": "05339694D1649E1372A3B355088577FB7710F429907E484261D1808E0DC1B6E2"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/AuthoringCatalogProbe.cs",
+      "SHA256": "C2B418319798CE5F16C5A8F0945FAF480FEEB1577779515E7967B42D184D90F0"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/AuthoringCompileCompatibility.cs",
+      "SHA256": "5FBA56DE58ABF4644BB11E4A0F5C882DA96FC073DA23162BF50FADBD8B0B1653"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/AuthoringSaveProbe.cs",
+      "SHA256": "AAD7DFB6F730A6C91AD3C55D4635342EE8535C8DEA2FF0BCBAE0110ACEBDA487"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/CompileRevisionGuard.cs",
+      "SHA256": "0469C9BC71FF87DEF161FB841D1C42822AA096D1F796D464857C9BBE207BE004"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/GameVoiceFileProbe.cs",
+      "SHA256": "C05E15AD96154E5090D2717283BF99E7A82921B389B233F6506DAD355058A7C9"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/PublishProbe.cs",
+      "SHA256": "60E80EEB9BAF6185C41DBD5D819EC16AFE8B5C52F655DC39E559556135D22272"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/VoiceFolderController.cs",
+      "SHA256": "366817F87BCAA96C08154B6DC8C458FCE7564DD5AB190F9748F04BBB77186474"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/VoiceFolderScanner.cs",
+      "SHA256": "8C104F4D6AAC64EED9FF12E97B9308EF7361EE724E67D383626FC23ECE0DD846"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/VoicePlaceholderProbe.cs",
+      "SHA256": "2DC036C9DC12ABF7AAD8254E9C68A1771AB190A29BE50898A46D95A854650E96"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/VoicePlaybackRuntime.cs",
+      "SHA256": "18F6B9949BE533E4C3AF19CF9A2F0DE3A38C606E3ACD6E4F66F5F6B0E92F51A2"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/VoicePlaybackSettingsPage.cs",
+      "SHA256": "45C1862AD67829DB7F28783D981CDDB9BD191CC6F1AD8408F30547B8B62D1918"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/VoicePublicationRuntime.cs",
+      "SHA256": "8DB8F19A98268F6C4852363F84638F9693589AFB3393806158427B1A8FFB5453"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/VoiceStageCopyGuard.cs",
+      "SHA256": "ED41E78ABABB272F062073420CA675AA185D07DD00586CFC53922A2332B7DE40"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/VoiceSupportPatch.cs",
+      "SHA256": "1549D6442F5A13C71FDAE8EDEFC9E072E17762C4BE867FA2A9985C799BFB434E"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/VoiceToolPage.cs",
+      "SHA256": "4284B35FE67CE734CC37E8AE925CA20DA816E90D518929D154734AE492516CB3"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Runtime/WindowsVoiceFolderPicker.cs",
+      "SHA256": "EE779F94A662F22F2D9ECFB57DF7071D022D0A776FBB589DC07BDF4A09E9EF6E"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Tests/AuthoringCompileCompatibilityTests.cs",
+      "SHA256": "A5B7F8BF7BAE7CA457FC56643EE926DE5CFC63CB1F019B11FE67E1DE08FDA766"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Tests/Program.cs",
+      "SHA256": "5F738F84B45C00ACE07C4752AF3C63309E1D994AEC5B6A8C2946691B1F0617CE"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Tests/ProjectVoiceImportTests.cs",
+      "SHA256": "DEFB4E55608ED7F24E13EFC39935B27665CA11A81EB8589FBFDB31E90DCAFDD4"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Tests/Rukari.CharacterVoice.Tests.csproj",
+      "SHA256": "A43183A018BC68D90453602B0B9C4B14CF0EC425D32B8CA557630C9DE2F23D70"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Tests/VoiceCatalogKeyCandidatesTests.cs",
+      "SHA256": "C30108C7F0E56ED36B15F2F1CE03EB8617DD8DF27533C4FE9D8D90D15F345C21"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Tests/VoiceFolderTests.cs",
+      "SHA256": "C3C63EA4E62ECBFAA49E1639157A641546BC592C38133A1D50A73E9B79968C14"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Tests/VoiceOverrideDiagnosticsTests.cs",
+      "SHA256": "4D3C3045CD3AF220E71F56AACDFDE35500266CB10CE60EDC5CC9F19ECEE99B92"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Tests/VoicePlaybackDelayTests.cs",
+      "SHA256": "F32380031D02085FAACAA732D0213ACB99B4878624D8CE82ADA1A3B052B1ACB6"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Tests/VoicePlaybackVolumeTests.cs",
+      "SHA256": "BB714F8D4E8BEEF42F595B10372E1A803F8F79FB0D73C98929F5E2F868B34FC9"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Tests/VoicePublicationScopeTests.cs",
+      "SHA256": "7D874C7E47CCD7310D8101E79BD4ADE8CFE993665F2D7D139541F04231E6D11D"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Tests/VoicePublicationTests.cs",
+      "SHA256": "0A00EDEB284F32881C710F04502F7F7A9319A70F8F2E04A6C57A80DF0719B0F7"
+    },
+    {
+      "Path": "Rukari.CharacterVoice/Tests/VoiceToolPageTests.cs",
+      "SHA256": "024A68E5F14ADBF9888D271DC931BF91E2631CB239653F5B47C6656A6B926981"
+    },
+    {
+      "Path": "Rukari.Lib/AssemblyInfo.cs",
+      "SHA256": "BEFFDD9F29903D6BAA3061AA51C75F0A9D81A95EA07D798BB174E3A8D3EF9F2B"
+    },
+    {
+      "Path": "Rukari.Lib/ModResult.cs",
+      "SHA256": "D424B83F31B7A702D17DFB69C7ACB22E5E90140F110A21C7D753322E7404067B"
+    },
+    {
+      "Path": "Rukari.Lib/ModRuntimeHost.cs",
+      "SHA256": "71991F7E31AB11593276452BDC31079F2EF6741F41A2B88EA406E997D52AD48A"
+    },
+    {
+      "Path": "Rukari.Lib/ModServices.cs",
+      "SHA256": "F7DB1B666A9CF04CA4BF7EFD13C0378F157FA836901E692297F28E6971659A64"
+    },
+    {
+      "Path": "Rukari.Lib/Rukari.Lib.csproj",
+      "SHA256": "960B88CF7D89B95CBEF1BBA38AD22B0A02762242E0C2BFC4A5B8219D9C6E5EF0"
+    },
+    {
+      "Path": "Rukari.Lib/RuntimeContracts.cs",
+      "SHA256": "2975A44BFB05D65AE4A1F5392EF8855C0860D74F5628967CFE7C10B3F380DD44"
+    },
+    {
+      "Path": "Rukari.Lib/Captions/CaptionMotionRules.cs",
+      "SHA256": "62BDB2E903E6C979CDB02D0E912B9C39B01C96402FA2318CECAF3208568918A3"
+    },
+    {
+      "Path": "Rukari.Lib/Captions/CaptionPlacementPolicy.cs",
+      "SHA256": "19E177FE9503D076EB5B7E6ADAA3D25967F6C743A1A0CD717EA34C4DA5838D85"
+    },
+    {
+      "Path": "Rukari.Lib/Captions/CaptionSheet.cs",
+      "SHA256": "CB0A38EA75D920F4E86EA679BE76B007DDF2AB9EA5A67064CD7A54E1DA1D859C"
+    },
+    {
+      "Path": "Rukari.Lib/Captions/CaptionStyle.cs",
+      "SHA256": "6ABF0FAF95C558D777A33DDFB2D9468404A00BE40371CAB1D4FC9522C477D17E"
+    },
+    {
+      "Path": "Rukari.Lib/Captions/CaptionTextEditor.cs",
+      "SHA256": "C2137B5FADD789EFE10743B32CB663E3500D8E9C450F7453DC20BA2E9AFA95B6"
+    },
+    {
+      "Path": "Rukari.Lib/Captions/CaptionTimeline.cs",
+      "SHA256": "B426517D492F70BFE754F68998A280690368D7210DBC3E11421ED2E2A6FF15CE"
+    },
+    {
+      "Path": "Rukari.Lib/Captions/SubtitleImport.cs",
+      "SHA256": "27C3EDF64B20C776226DA276E18267E8408191AD3472343B8591BDB5BC7FE906"
+    },
+    {
+      "Path": "Rukari.Lib/Captions/TtfNameReader.cs",
+      "SHA256": "80202E29790834AF815AA141E1621269A395B6A0D01E4C7488DDE24034563CCA"
+    },
+    {
+      "Path": "Rukari.Lib/Commands/CommandHelp.cs",
+      "SHA256": "2ACA5E078CE4ECF5AF652D5232AB322A716ACB32B66685F9DFDA53CD7037CE6A"
+    },
+    {
+      "Path": "Rukari.Lib/Commands/EmbeddedDirectiveCompilationTracker.cs",
+      "SHA256": "E2398297D49177FB08648E12B2CD6CEA615AEBBF4BEB49737CD33DD195350114"
+    },
+    {
+      "Path": "Rukari.Lib/Commands/EmbeddedDirectiveContracts.cs",
+      "SHA256": "828F4B6AE98818C46E3646650C029F9F67C25312C428CC17F01DAEB2608787FA"
+    },
+    {
+      "Path": "Rukari.Lib/Commands/EmbeddedDirectiveService.cs",
+      "SHA256": "2517A082D8AA63D5D2DC3A28472BCB30103064675180CD23C14DBB9A9605D528"
+    },
+    {
+      "Path": "Rukari.Lib/Editor/EditorContracts.cs",
+      "SHA256": "39F9B704A451F0181C829EED0C0990AA0FBD2B7FC17896A6411D1A7FC4B5DDB7"
+    },
+    {
+      "Path": "Rukari.Lib/Editor/EditorDocumentSession.cs",
+      "SHA256": "AA609F06AEB5A9B7EB73C691980BC320B8CAE0AB3EE4BE2BB16C3743C3A75B92"
+    },
+    {
+      "Path": "Rukari.Lib/Editor/EditorPublicationScopeContracts.cs",
+      "SHA256": "1584D9007E5D72E878D64D63EFF295056B45CE9E9572DF038F4E217362BB1CA6"
+    },
+    {
+      "Path": "Rukari.Lib/Editor/EditorSaveContracts.cs",
+      "SHA256": "135FF8AB197022C5734D6B8F855C8A3338B17A9BACC52575503C0629261D61A2"
+    },
+    {
+      "Path": "Rukari.Lib/Editor/EditorSelectionInvalidationContracts.cs",
+      "SHA256": "F5AD4CBFCD1D568181A26C657C507932CFD35E762CC14F25C12D416C0129F641"
+    },
+    {
+      "Path": "Rukari.Lib/Settings/ModSettingsService.cs",
+      "SHA256": "68C8C8303D5C3BEB587EC0A907FEEB51A9B499A309901847DB34BF61845CB924"
+    },
+    {
+      "Path": "Rukari.Lib/Settings/SettingsContracts.cs",
+      "SHA256": "FBDA303EF6AD0F10D1F6D6A7C082935FD431EA88475C8E8A626B3AAE58192617"
+    },
+    {
+      "Path": "Rukari.Lib/Spines/SpineOverlayContracts.cs",
+      "SHA256": "B0610D1E8493E68243732A64BFF669FB2071545432311ECC7FBAC15678EB0DFE"
+    },
+    {
+      "Path": "Rukari.Lib/Tools/AtlasExportPaths.cs",
+      "SHA256": "90A506DF57023483F1F99063B5CC7DDF83C8C45BFCCC415BB29F35E4A405E0D3"
+    },
+    {
+      "Path": "Rukari.Lib/Tools/AtlasSpriteCatalog.cs",
+      "SHA256": "2A51345F861ED252147827B974E5690B4AA6B831002A24A1F6206E001FC541AB"
+    },
+    {
+      "Path": "Rukari.Lib/Tools/BundledUiAssets.cs",
+      "SHA256": "43F867B95C63A13F2E2F7973BA0AB035081506CC3F83B5F00C344621B91E9C15"
+    },
+    {
+      "Path": "Rukari.Lib/Tools/EditorWorkspaceVisibilityState.cs",
+      "SHA256": "38E5BF5AEEBFDFD458595E8D96B0676B8757CBE4D91C858891C383C76B8FB10C"
+    },
+    {
+      "Path": "Rukari.Lib/Tools/RailIconStyle.cs",
+      "SHA256": "E0174C9670A8C6869672B99A49D706611E99DB2219A4319D394E6F6A4DA468C4"
+    },
+    {
+      "Path": "Rukari.Lib/Tools/ToolContracts.cs",
+      "SHA256": "A71C004B033775780BDAB06A358D6DC649641014304F03F64C07A396990C9E57"
+    },
+    {
+      "Path": "Rukari.Lib/Tools/ToolDrawerLayout.cs",
+      "SHA256": "D8D16A1C554D6A3D88D2B80FC10E324A1C8030C86A54322ED4FFD6F9AEE43F9A"
+    },
+    {
+      "Path": "Rukari.Lib/Tools/ToolListNavigation.cs",
+      "SHA256": "8C492FDB64152FEA7948D8FAC473F6BAABC6AF89113DE9409EEF1339D9B494FE"
+    },
+    {
+      "Path": "Rukari.Lib/Tools/ToolPalette.cs",
+      "SHA256": "71016E13C30264F9461B6DC852FBBBC215E53D73D3A404490DA38BEF6D0D81A0"
+    },
+    {
+      "Path": "Rukari.Lib/Tools/ToolPanelBuilder.cs",
+      "SHA256": "A69E58013543245FCA002B0F3E2E658A68B03076593471A53FCA571E59025012"
+    },
+    {
+      "Path": "Rukari.Lib/Tools/ToolPanelContracts.cs",
+      "SHA256": "0832D7A91A9A1EDA02B9324F83C24C4D8EDBA39C346855C2FBEFF68109F3388E"
+    },
+    {
+      "Path": "Rukari.Lib/Tools/ToolPanelSession.cs",
+      "SHA256": "0273518E8731BBA2D6339E4A0252F1C6C024C0BC4855D7D6058BB410095DBBA8"
+    },
+    {
+      "Path": "Rukari.Lib/Tools/ToolScroll.cs",
+      "SHA256": "A674938F132C976BCCB02D9E2B45668F256FAE13E846275C16440725BB98AA50"
+    },
+    {
+      "Path": "Rukari.Lib/Tools/ToolTreeState.cs",
+      "SHA256": "8D2BD69530D74C3A886A80C86C817B7A3A291A23632EA216D85011389079356B"
+    },
+    {
+      "Path": "Rukari.Lib/Voices/VoiceContracts.cs",
+      "SHA256": "C4951D94D528A32BB5AC8A7BA26AB417ACB87588EAC27D24028EBD02141998ED"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Plugin.cs",
+      "SHA256": "21F46FC09124B46698055C4E95B4CC6479459A03908336CE9B1DCE06662204F6"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Rukari.Lib.Runtime.csproj",
+      "SHA256": "6A10B8493E38B58FD39009152BA84337DC87A11F96370A045E52F30A7DCEB3D6"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Commands/CommandHelpHost.cs",
+      "SHA256": "497C0C5BF3F0594E6EF08A9BA1712BBEAF93FA4FF3BBA125D0927BCD49E6472B"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Commands/CommandHelpPatch.cs",
+      "SHA256": "8B5A1F00FA56BAE7CA6A6D1FE6A884E714DC775205F55D163D3C77423D3ACD99"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Commands/EmbeddedDirectiveHost.cs",
+      "SHA256": "8466F242851D38D3C8599221DA3352527A8A5BAD6E502427BFA0D1B921E0B0F0"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Commands/EmbeddedDirectivePatch.cs",
+      "SHA256": "D198807215383EC65E64C0DDFCB77F7E0377FC0AA68848A14CFE372B6CCECFEE"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Editor/EditorHost.cs",
+      "SHA256": "8AD2C4441E008FF791688ED1688A0DA8399BB0A03C4479F38E69A7EEA859F127"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Editor/EditorSaveToolPage.cs",
+      "SHA256": "43CAC6A89C5C2A3B25E6F250ABF26AB22336CB62999075BA95B33CF2341C25FF"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Editor/EditorWorkspaceContext.cs",
+      "SHA256": "8E25279CD9478582A817DAD7C8767B1661E8E657BF93600BBB9A52CB8DB8F51D"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Editor/NativeEditorDocumentBackend.cs",
+      "SHA256": "A201977D34403627F7420911099F04D437E6E78DB62C240A535BE88A34FB056B"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/package/manifest.json",
+      "SHA256": "59F4B1F9EC4CB600E1C370CA4EE16FBE197D104A07EAEBBB8FC8E8335CFADF88"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Settings/OfficialSettingsEntry.cs",
+      "SHA256": "3C373875CB35046B8E0D7DB5EC1651950BABA80271F61F6B8D5444745888AC80"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Settings/SettingsHost.cs",
+      "SHA256": "C106030B84F2B90E5DCBA8B376FED620C4F5AAD0DCB3E783C69B69F891581607"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Settings/SettingsWindow.cs",
+      "SHA256": "481543A46594519BE854D30ADBB36969445376795715C6A9A6F3BE226E34EA01"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Tools/AtlasEmblemSource.cs",
+      "SHA256": "6AEB5AEE68DB695F7743ECE0AD8EC021B7CA0F23478D8EA8924B8F4464481ABC"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Tools/OfficialButtonSkin.cs",
+      "SHA256": "4B4476F102FD3DF09E696631C782A941DD4CB2F7C5A1182B51857BB6ECA86948"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Tools/OfficialPopupFrame.cs",
+      "SHA256": "C0C06BE345AE2CD35F3B682116667EB2DE2967726635197EB27D05258AB5930E"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Tools/OfficialUiStyle.cs",
+      "SHA256": "AEA06958CB1F0D02A670BF200F4C41DBAC620AB247CDA0ABEDE40B45A61B9A53"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Tools/PngDecoder.cs",
+      "SHA256": "E79DE9634A2CC1B94CCA12E1F679324A9336A53E8ADD8ADE6341A1FBDE6684BE"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Tools/RailIconPainter.cs",
+      "SHA256": "C5D6A66E2F0D7DD714E4BC8CC29CB66967D616326C0445FEE0AC3C7A11BB95E9"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Tools/ToolboxDrawer.cs",
+      "SHA256": "965FB6EEDDDAE81CAEB78E0253C2864170EA540A81437608E600B270F6F99A60"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Tools/ToolInputService.cs",
+      "SHA256": "B2EF561D6942C580B1E00FC2CEB3EB5FDCAE7BEDDF52EA2069B036E4A40D537F"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Tools/ToolPlateSkin.cs",
+      "SHA256": "C416D46B3766CD892141DCAE817BA3C8BE20E8F2494B92F1F5CC64CE44FC9003"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Tools/ToolsHost.cs",
+      "SHA256": "BC4DEA70297E626296737223D0BEB4CCFA577A603327D67A160C84B0CC66165A"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Tools/ToolTheme.cs",
+      "SHA256": "BD9E716AC9DF6FB42BB916552B04967BB18811A9340B1D2206EC3E5258CEFE4B"
+    },
+    {
+      "Path": "Rukari.Lib.Runtime/Tools/UiAssetLifetime.cs",
+      "SHA256": "53350C4F687B51E3B23E28805C0AE344D62DD78C532AAA0A56D91DDD34FA8D1D"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/AtlasSpriteCatalogTests.cs",
+      "SHA256": "428AF9F3AEB25958AB311B3DF812D3B2D7325C69E85B3EE52AFE8561CF672225"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/BundledUiAssetsTests.cs",
+      "SHA256": "FBCFC9D09D1F7C4A207EA1E8DF364A87777A99FEB8645DE8BAF7611D06A794D6"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/CaptionTests.cs",
+      "SHA256": "3CE0FE2336CD8257C11F2AB7734B51EAD441B7C2408BBFE10FB67BFEA7DC80B5"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/Check.cs",
+      "SHA256": "928920102F4EA93CF6EEFDFDEB77106B0769A593C5C94C344B90DC701316659E"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/CommandHelpTests.cs",
+      "SHA256": "28B0E5E4CFAC9EF59229A0AB14606210CB9452C3368011BAFA44DD82A29D974B"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/EditorDocumentSessionTests.cs",
+      "SHA256": "24699F76B0D3CF9CDF67EF853067781C9A16BB444D2E08377AD8181905133E91"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/EmbeddedDirectiveTests.cs",
+      "SHA256": "AA6420A80FB1D3F282DC73AD13EFB1E1AE6FDB8F204B178F859D24D9B1ABB49C"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/ModSettingsTests.cs",
+      "SHA256": "B14099DF40C5D43A3D61C23A0D0AB4F65BCA9531D8D6749171ADA073CD002507"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/Program.cs",
+      "SHA256": "30B6BB05672F1F401C948B955BE5FF45413C27C754699BD706D96E8D29662773"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/PublicContractTests.cs",
+      "SHA256": "1E45E157CC6DB41BBD2A308810E82E99FF308AF7AB13F12203794AA6EF1E7FBB"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/Rukari.Lib.Tests.csproj",
+      "SHA256": "96BEBF4B49499DE557F429C4F92E2A5822D3AC45C8727EEF93F9F57E7773A5B9"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/RuntimeHostTests.cs",
+      "SHA256": "FE4D78C9EBEF3B9B73C171A214A1875C1B036D67814AF6DC030F229F1C6E4001"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/ToolListNavigationTests.cs",
+      "SHA256": "2F178B4AF54AC6C77B7B565FB5C9F656B877548FA154E696F87F6CBE86CFB3F3"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/ToolModuleCardTests.cs",
+      "SHA256": "0E65AD0FB58C3CBB907188297B029B1962B0C5994BE3E4A0E91DC9B08ACDEA7B"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/ToolPanelBuilderTests.cs",
+      "SHA256": "60296866449132D4941909DD03B3950845FEB46E874FDD1088CB3100747D19AA"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/ToolPanelSessionTests.cs",
+      "SHA256": "97CE1C78371427DB0F129F99CC44D2E1BBFA9EABB5AC263EFBF2200A724AF117"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/ToolPresentationTests.cs",
+      "SHA256": "30B9166341DEC2511EDD1442FB91CB95F2F7565AC5927A21D109D8AAF09A7F25"
+    },
+    {
+      "Path": "Rukari.Lib.Tests/ToolTreeStateTests.cs",
+      "SHA256": "622A25E8BBFD0ECD9BB27EF0EDF09B588CA756DF1B8D936102EE8ED4C9877639"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Plugin.cs",
+      "SHA256": "0BE313DE5F1A5B68443061EAE0246358BDA625F8B370024216A976EFF3968428"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Rukari.MoreEffects.csproj",
+      "SHA256": "44FE9058632E6A56E2F9DCBB6952240D9B4B06C99DA541C6F86F4287751E6EFF"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Api/Contracts.cs",
+      "SHA256": "43CE4F8A122420BBD99451FCEFBEA4759AFEF1F8DC41261270B84EF54A8D9D60"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Interop/EditorCommandDocumentService.cs",
+      "SHA256": "9F69A2CE6596D3760F994277EB158C14CFAFA455CF789AD0B594EB94C6C78EE1"
+    },
+    {
+      "Path": "Rukari.MoreEffects/package/manifest.json",
+      "SHA256": "DD1CB24C706B93A010DC9855F390244339AD4F6D32DA6B5AF1580D401A2319C2"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Runtime/CharacterPresetBezierContent.cs",
+      "SHA256": "24A227E3ED21E431F3CC0B4845D12E1A2CBC6C76BBEDA44342B952AEA5ECFDEF"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Runtime/CharacterPresetEditorSession.cs",
+      "SHA256": "3D7AAF40E6EFE52CC42182743BE6381ECB639F40794C1D4EDADD5B9C60BDC290"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Runtime/CharacterPresetGroupContent.cs",
+      "SHA256": "0949F90B4B4B3EEA4199A72B265EC52F880A780C865F8A6A0C10510A71C564BC"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Runtime/CharacterPresetRuntime.cs",
+      "SHA256": "74ABFF588EFC8D60370F8A87EA23B098D0514496F30246596BA34A4E8BABC18D"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Runtime/CharacterPresetToolContent.cs",
+      "SHA256": "7C831FEB42ABC5841349A91282CA5D0AD6C8042AFE4C0C2C865B87ADBBF3A97D"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Runtime/ExplicitTriggerBehaviour.cs",
+      "SHA256": "4FD363FA7EBF54F7CA0ECD5B5906410C5EE92BABE3FA4F727FDC196C17CC2C56"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Runtime/MoreEffectsCommandHelp.cs",
+      "SHA256": "91DC9EFFDDFD798107A2B779CECCCDD39B9133BDF65CD56295FAEFFE643F19D7"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Runtime/MoreEffectsToolPage.cs",
+      "SHA256": "9D561C01EE234228BE861C030DB26A0A4066B0DC7735606ACC99BC48331CADF9"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Runtime/PlayerCommandObservationOptions.cs",
+      "SHA256": "C4B7576E985D67960CE18D5251A6A208F2E96FA6F40198E574F769574C0B2AEA"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Runtime/VisualEditorBehaviour.cs",
+      "SHA256": "16066FE11B530EE532E9E2C751C170054A9744D5AE695D97FAC74020C96A93EE"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Runtime/VisualEditorHostedContent.cs",
+      "SHA256": "D69CB8DBD0BCC2EEC6E11EC9FCD17A501CE2C09F40CEFF837B72B8A7F1E3755F"
+    },
+    {
+      "Path": "Rukari.MoreEffects/Runtime/VisualEditorInputGuard.cs",
+      "SHA256": "056E72377886DCB6C8C86BBB7D36437AE0EC01D703435FCBDE3579C54436D422"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Plugin.cs",
+      "SHA256": "E10873F1B1B34D925DBF2C9F544C2405211E1E90AC65AD32F59A4CB866293130"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Rukari.SpineSupport.csproj",
+      "SHA256": "A63E137ECC590091610B7E53375786B6EDD2AF567E4381613CACCB6C19207362"
+    },
+    {
+      "Path": "Rukari.SpineSupport/package/manifest.json",
+      "SHA256": "FE88E4DB991BAE3B060562ABA4E1309E084E01F19AF4303B8086D73D3F27DFC5"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Runtime/LobbyAudioEvents.cs",
+      "SHA256": "05C740FC043E0E4B1D2DBEEF65308E7AF1C2B3CD16512101C71560CA1AE99CEC"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Runtime/LobbyBundledAudioPatch.cs",
+      "SHA256": "73DA0909531B94562FA9A8BBE8FFA5AC2DDC94A8EE693070D7EA307DFA0FBF1B"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Runtime/LobbyPlaybackWatcher.cs",
+      "SHA256": "74F6FA66940527C30A2709DA1DEF22C8AD54656A630B10D1BAAE961A938664B5"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Runtime/SpineLobbySupportPatch.cs",
+      "SHA256": "5872D82A274A5FCD5356DA0C1B2722F9CBDA72F6938DF5D042E63E66A516E91D"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Runtime/SpineLobbyThumbnailFitPatch.cs",
+      "SHA256": "F3F5D1FA8415B28F63B6F2DA591A952791BEEACE9E5C64745C9C8422D1D5925F"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Runtime/SpineOverlayCatalog.cs",
+      "SHA256": "D27E74E6FAAA601CEAC87C91390955899094F8209A9BD79FF68CAB9BC1126192"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Runtime/SpineOverlayCommandService.cs",
+      "SHA256": "E45A02146831EA728AE63C80198E4FF26FC9CC5CF19D3BB58F775636665B36AB"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Spines/LobbyEntranceAdvancePolicy.cs",
+      "SHA256": "F451A6C21B106435BF685D097897B9E9E97C3232154C86F2957F6D07F5C02F0A"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Spines/LobbyTransitionMixPolicy.cs",
+      "SHA256": "EA1D56544E0D5C0CB796182B10F1A47FA4A776473E9FE34409A0C222CCC67D12"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Spines/ProjectAudioPolicy.cs",
+      "SHA256": "28F93FBC04BB89CB614E8196E2D200C4913AD0D37CC5D6ABC3B4B4117FF3058B"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Spines/SpineAnimationClassifier.cs",
+      "SHA256": "65688AE80C40AA0086699CEB24D1F0C9699A521C01390B58B8E2DE96D5F0CE31"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Spines/SpineLobbyAnimationPolicy.cs",
+      "SHA256": "06DB3DB03218344C1B0D8B44E6A34206AD60AEDFF59A362246E0D59BA8842CE5"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Spines/SpineLobbyThumbnailFit.cs",
+      "SHA256": "C348E205AD181998BA4FEFB53FECE90175F78AE777373E6181A220B033A63051"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Spines/SpineLobbyTouchArea.cs",
+      "SHA256": "B35EA6EF9DFD3B727F9835AD61E6CB3AB2DA4FC2F20106CBB2993F20C54F459D"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Spines/SpineOverlayLineEditor.cs",
+      "SHA256": "D18662A8444DC93C3405D336B33DDE3C7245D609505BC469C23C450522B6B9C1"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Tests/LobbyEntranceAdvancePolicyTests.cs",
+      "SHA256": "52BE7F66C986614EC7E4BE500534CAF597D89DDEE1E8255F9AE8A46854C3F242"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Tests/Program.cs",
+      "SHA256": "5FC1BE932A88009E40CFCBFB9731BD8755C653D682A49C1BEB9BA9B0AC7F827E"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Tests/Rukari.SpineSupport.Tests.csproj",
+      "SHA256": "5E5E67C5E2287DCFB31E21F155CD8A0E84A588CE69BB804D79F4296FD5EE0DD5"
+    },
+    {
+      "Path": "Rukari.SpineSupport/Tests/SpineAnimationClassifierTests.cs",
+      "SHA256": "0F5D571E0C298038D66FD47B01270AE3A48CF138D3D76954A6DEEA555DC4B20E"
+    },
+    {
+      "Path": "scripts/New-ModPackages.ps1",
+      "SHA256": "447F46A10B034282A3D8854BA4E9822FF4816B9490C3C8022FBB6AF053FF8BC4"
+    },
+    {
+      "Path": "scripts/New-UserPackages.ps1",
+      "SHA256": "624947E7541053F10C4AAC8F4E0C9E2B1DADFE0FA4885D488D154001D97362A7"
+    },
+    {
+      "Path": "scripts/SourceInputs.targets",
+      "SHA256": "F152CE493A841200E8F1625D3DCF36D5045EAA3A40856DBC7938A0EEB24BD0D2"
+    },
+    {
+      "Path": "scripts/Test-RukariDependencies.ps1",
+      "SHA256": "A09BF5B126298E3E94DC412EF451B88AA0B129A5071A1043245AA13E8D61AA67"
+    }
+  ],
+  "SourceHashesNote": "Byte hashes at this local build. Git may normalize text line endings; bundled asset bytes are preserved by .gitattributes.",
+  "ExcludedUserPackages": [
+    "更多Spine动画支持",
+    "字幕"
+  ],
+  "NotIncluded": [
+    "official binaries",
+    "user projects",
+    "audio",
+    "private configs",
+    "logs",
+    "experimental native command pipeline"
+  ],
+  "GameStarted": false,
+  "Installed": false
+}

@@ -52,7 +52,7 @@ internal static class EditorDataListEventProbe
         // Main-thread postfix: capture the selected scene FIRST so the new
         // generation is born with a managed snapshot of exactly what the
         // editor showed when the row was opened.
-        ApiResult<SceneSnapshot> capturedScene = Plugin.Api.Editor.GetSelectedScene();
+        ApiResult<SceneSnapshot> capturedScene = Plugin.Host.EditorInternal.CaptureDataListScene(out var inputProof);
         // C feature: a DataList means the editor's scene selection changed —
         // mark the live editor graph stale for the next debounced rebuild.
         LiveProjectGraphService.Invalidate("data-list");
@@ -66,12 +66,15 @@ internal static class EditorDataListEventProbe
             index,
             capturedScene,
             PlayerAdvanceObservationWindow.ClosedSequenceWatermark);
-        ManagedUnityLogSelectionProbe.MarkDataList(index);
+        // This primitive is an opaque official request value, not a scene index.
+        // Keep the already captured managed scene for later full live re-verification.
+        ManagedUnityLogSelectionProbe.MarkDataList(index, capturedScene, inputProof);
         Plugin.Host.CapabilitiesInternal.Verified(
             "Editor.DataListEvent",
             "ScriptNodeInspector.DataList index reached the postfix; no instance or result was received");
         Plugin.Logger.LogInfo(
             $"Editor DataList index callback count={_callbackCount}; index={index}; "
-            + "no instance or result was received.");
+            + $"captureSource={(inputProof == null ? "selected-row" : "input-unique-visible-row")}; "
+            + $"capture={(capturedScene.Success ? "ok" : capturedScene.Error)}; no instance or result was received.");
     }
 }

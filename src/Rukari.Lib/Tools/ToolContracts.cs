@@ -36,6 +36,21 @@ public static class ToolButtonSkins
 /// <summary>A selectable managed row. IDs must be unique within the page and are never treated as paths.</summary>
 public sealed record ToolListItem(string Id, string Label, bool Selected = false, bool Enabled = true);
 
+/// <summary>How a page's search field navigates its resource list.</summary>
+public enum ToolListSearchMode
+{
+    /// <summary>Show only matching rows.</summary>
+    Filter,
+    /// <summary>Keep every row and jump to the first matching row's page. This never selects or applies a row.</summary>
+    Locate
+}
+
+/// <summary>
+/// Opts into session-local list navigation memory. ContextId identifies the project and list source,
+/// never a selected dialogue or native object. Changing it isolates the saved page and search text.
+/// </summary>
+public sealed record ToolListNavigationOptions(string ContextId, ToolListSearchMode SearchMode);
+
 /// <summary>
 /// Immutable page state. The host paginates and optionally filters Items; selecting a row sends
 /// ItemActionId with its ID as Value. Providers must return managed data only, and must not modify lists after return.
@@ -46,7 +61,14 @@ public sealed record ToolPageSnapshot(
     IReadOnlyList<ToolListItem>? Items = null,
     string Status = "",
     string ItemActionId = "select",
-    bool AllowSearch = true);
+    bool AllowSearch = true)
+{
+    /// <summary>
+    /// Optional navigation memory and search policy. An init-only property preserves the existing
+    /// six-argument constructor for already compiled providers. Null keeps the original filtering behavior.
+    /// </summary>
+    public ToolListNavigationOptions? ListNavigation { get; init; }
+}
 
 /// <summary>A shared toolbox. All operations and provider callbacks run on the game main thread.</summary>
 public interface IToolboxService

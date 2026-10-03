@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using AzureArchive.Automation;
 using Rukari.CharacterVoice.Core;
 using Rukari.CharacterVoice.Interop;
+using Rukari.Lib;
 
 namespace Rukari.CharacterVoice.Runtime;
 
@@ -34,6 +35,21 @@ internal static class VoicePublicationRuntime
         }
     }
     internal sealed record Promotion(string SourceRoot, string ProjectName, string Destination, string Hash);
+
+    internal static ModResult<VoicePublicationIdentity> CaptureExplicitIdentity()
+    {
+        // All native access stays in this synchronous main-thread capture. No wrapper is retained.
+        var project = ProjectVoiceImportStore.CaptureCurrentProjectOnMainThread();
+        if (!project.Success) return ModResult<VoicePublicationIdentity>.Fail(project.Error!);
+        if (project.Value is null)
+            return ModResult<VoicePublicationIdentity>.Fail(ModErrorCode.NotReady, "当前配音资源工程不可用。");
+        AuthoringEditorSession? session = AuthoringEditorSession.Current;
+        if (ReferenceEquals(session, null) || session.WasCollected || session.Pointer == IntPtr.Zero)
+            return ModResult<VoicePublicationIdentity>.Fail(ModErrorCode.NotReady, "当前编辑器会话不可用。");
+        return ModResult<VoicePublicationIdentity>.Ok(new(project.Value.RootPath, session.FilePath ?? string.Empty));
+    }
+
+    internal static IDisposable EnterExplicitScope(string validatedRoot) => new Scope(validatedRoot);
 
     internal static Scope EnterCompile(AuthoringEditorSession? session, string? expectedName = null)
     {

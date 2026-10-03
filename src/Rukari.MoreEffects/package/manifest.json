@@ -1,9 +1,9 @@
 {
   "name": "更多的画面效果",
-  "version_number": "1.4.0",
+  "version_number": "1.4.1",
   "website_url": "",
-  "description": "自由调整人物、镜头与文字演出，提供摇晃、原地转身、头槌和弹性拉伸预设及缓动曲线。AA 1.0 测试版。",
+  "description": "自由调整人物、镜头与文字演出，提供摇晃、原地转身、头槌和弹性拉伸预设及缓动曲线。适用于 AA 1.0 fix6。",
   "dependencies": [
-    "RukariLib/0.4.1"
+    "RukariLib/0.4.2"
   ]
 }

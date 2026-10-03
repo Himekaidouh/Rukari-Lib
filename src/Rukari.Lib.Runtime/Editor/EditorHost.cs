@@ -17,11 +17,10 @@ internal static class EditorHost
         var patches = new Harmony(Plugin.Guid + ".editor-selection");
         try
         {
-            var invalidation = new HarmonyMethod(typeof(EditorHost), nameof(Invalidate));
-            patches.Patch(AccessTools.Method(typeof(ScriptNodeInspector), nameof(ScriptNodeInspector.DataList), new[] { typeof(int) })
-                ?? throw new MissingMethodException("ScriptNodeInspector.DataList(int)"), prefix: invalidation);
-            patches.Patch(AccessTools.Method(typeof(ScriptNodeInspector), nameof(ScriptNodeInspector.OnChildSelect), new[] { typeof(Selectable) })
-                ?? throw new MissingMethodException("ScriptNodeInspector.OnChildSelect(Selectable)"), prefix: invalidation);
+            // MoreEffects owns the existing DataList observation hook. Document transactions
+            // validate the current visible row directly rather than adding a second detour.
+            // The Selectable callback is blacklisted. Every document transaction still
+            // reacquires the visible selected row and validates its identity/content.
             var registered = runtime.RegisterService<IEditorDocumentService>(Plugin.Guid, session,
                 new("rukari.editor.documents", Plugin.Guid, "0.2.0", CapabilityLevel.Experimental,
                     "Exact selection/revision, official input transaction, verified readback and guarded rollback; native lifetime remains version dependent."));

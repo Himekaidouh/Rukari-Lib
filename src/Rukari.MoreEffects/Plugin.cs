@@ -13,12 +13,12 @@ using KeyCode = unitycore::UnityEngine.KeyCode;
 namespace AzureArchive.VideoTools;
 
 [BepInPlugin(Guid, Name, Version)]
-[BepInDependency("rukari.lib.runtime", ">=0.4.0 <0.5.0")]
+[BepInDependency("rukari.lib.runtime", ">=0.4.2 <0.5.0")]
 public sealed class Plugin : BasePlugin
 {
     public const string Guid = "rukari.moreeffects";
     public const string Name = "更多的画面效果";
-    public const string Version = "1.4.0";
+    public const string Version = "1.4.1";
 
     internal static ManualLogSource Logger { get; private set; } = null!;
     public static IAzureArchiveApi Api { get; private set; } = null!;
@@ -114,7 +114,7 @@ public sealed class Plugin : BasePlugin
         PlayerCommandObservationRuntime.SetEmbeddedEditorCommandsRuntimeReady(
             embeddedEditorCommandsReady);
         ManagedUnityLogSelectionProbe.Install();
-        EditorSelectionEventProbe.Install();
+        // OnChildSelect(Selectable) is blacklisted; retain the DataList/log observation path.
         EditorDataListEventProbe.Install();
         MoreEffectsToolPage.Install();
         MoreEffectsCommandHelp.Install();

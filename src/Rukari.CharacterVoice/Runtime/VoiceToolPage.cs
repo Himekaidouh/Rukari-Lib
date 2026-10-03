@@ -21,6 +21,9 @@ internal sealed class VoiceToolPage : IDisposable
     private Task<VoiceImportResult>? _importTask;
     private CancellationTokenSource? _importCancellation;
     private string? _importProjectIdentity;
+    private string? _currentProjectIdentity;
+    private string? _catalogProjectIdentity;
+    private string? _projectContextError;
     private string? _selectedResource;
     private string _status = "选择语音文件夹，或从已导入声音中选择。";
     private int _folderRevision;
@@ -53,19 +56,38 @@ internal sealed class VoiceToolPage : IDisposable
         bool completion = _folders.HasPendingCompletion || _importTask?.IsCompleted == true;
         // Inactive pages do not poll native state. Busy background work checks four times a second;
         // opening the page, user actions, and completed results always validate the project now.
-        if (_folderProject is not null
-            && (forceProjectCheck || completion || (Busy && _clock() >= _nextProjectCheck)))
+        if (forceProjectCheck || (_folderProject is not null
+            && (completion || (Busy && _clock() >= _nextProjectCheck))))
         {
             _nextProjectCheck = _clock() + 250;
             var currentProject = _captureProject();
-            if (!currentProject.Success || !SameProject(currentProject.Value.Identity, _folderProject.Identity))
+            string? currentIdentity = currentProject.Success ? currentProject.Value.Identity : null;
+            _projectContextError = currentProject.Success ? null
+                : currentProject.Error?.Message ?? "请先保存并打开项目。";
+            if (currentIdentity is not null && !SameProject(currentIdentity, _catalogProjectIdentity))
+            {
+                // Catalog-only pages also follow project switches. Never attach the previous
+                // project's list or pending choice to the new project's navigation context.
+                _catalog = Array.Empty<VoiceResource>();
+                _catalogLoaded = false;
+                _selectedResource = null;
+                _selection = null;
+            }
+            if (currentIdentity is not null) _catalogProjectIdentity = currentIdentity;
+            else
+            {
+                // A temporarily unavailable project has its own empty view. Retain the last
+                // verified catalog for recovery, but never retain a choice that could be bound.
+                _selectedResource = null;
+                _selection = null;
+            }
+            _currentProjectIdentity = currentIdentity;
+            if (_folderProject is not null && !SameProject(currentIdentity, _folderProject.Identity))
             {
                 _importCancellation?.Cancel();
                 _folders.Clear();
                 _folderProject = null;
                 _showFolder = false;
-                _catalog = Array.Empty<VoiceResource>();
-                _catalogLoaded = false;
                 _selectedResource = null;
                 _selection = null;
                 _status = "项目已切换，请在当前项目重新选择语音文件夹。";
@@ -85,10 +107,10 @@ internal sealed class VoiceToolPage : IDisposable
     internal ToolPageSnapshot Snapshot()
     {
         Tick(forceProjectCheck: true);
-        if (!_catalogLoaded) RefreshCatalog(preserveStatus: true);
+        if (_currentProjectIdentity is not null && !_catalogLoaded) RefreshCatalog(preserveStatus: true);
         var current = _voice.ReadSelection();
         bool changedSelection = _selection is not null && (!current.Success || current.Value.Token != _selection.Token);
-        _selection = current.Success ? current.Value : null;
+        _selection = _currentProjectIdentity is not null && current.Success ? current.Value : null;
         if (changedSelection)
         {
             _selectedResource = null;
@@ -98,7 +120,7 @@ internal sealed class VoiceToolPage : IDisposable
         string boundName = _selection?.ResourceId is string bound
             ? _catalog.FirstOrDefault(item => item.Id == bound)?.DisplayName ?? bound
             : "未绑定本模块语音";
-        string summary = _selection is null ? current.Error?.Message ?? "请先在编辑器选择台词。"
+        string summary = _selection is null ? _projectContextError ?? current.Error?.Message ?? "请先在编辑器选择台词。"
             : $"当前台词：{_selection.DialogueText}\n当前绑定：{boundName}";
         string publication = ReadPublicationStatus?.Invoke() ?? string.Empty;
         if (publication.Length != 0) summary += "\n" + publication;
@@ -106,7 +128,7 @@ internal sealed class VoiceToolPage : IDisposable
         if (scan is not null)
             summary = $"语音文件夹：{scan.RootPath}\n{scan.Files.Count} 个音频 · {(scan.Recursive ? "含子目录" : "仅当前目录")}\n导入后从声音列表选择并绑定台词。";
         bool selectedIsAvailable = _selectedResource is not null && _catalog.Any(item => item.Id == _selectedResource);
-        IReadOnlyList<ToolListItem> items = scan is not null
+        IReadOnlyList<ToolListItem> items = _currentProjectIdentity is null ? Array.Empty<ToolListItem>() : scan is not null
             ? scan.Files.Select((file, index) => new ToolListItem("folder:" + index, file.RelativePath, Enabled: false)).ToArray()
             : _catalog.Select(item => new ToolListItem(item.Id, item.DisplayName, item.Id == _selectedResource, !Busy && _selection is not null)).ToArray();
         return new(summary,
@@ -122,7 +144,21 @@ internal sealed class VoiceToolPage : IDisposable
                 new("remove", "移除本句语音", !Busy && _selection?.ResourceId is not null),
                 new("undo", "撤销最近编辑", !Busy && document.Success && document.Value.CanUndo),
                 new("cancel", "取消当前操作", Busy)
-            }, items, _status, ItemActionId: "select", AllowSearch: true);
+            }, items, _status, ItemActionId: "select", AllowSearch: true)
+        {
+            // Changing dialogue/revision must not reset the user's position in a project-wide
+            // sound list. Folder previews and imported sounds have separate navigation state.
+            ListNavigation = new ToolListNavigationOptions(NavigationContext(scan), ToolListSearchMode.Locate)
+        };
+    }
+
+    private string NavigationContext(VoiceFolderScan? scan)
+    {
+        if (_currentProjectIdentity is null) return "unavailable";
+        string project = _currentProjectIdentity.ToUpperInvariant();
+        return scan is null ? "catalog|" + project
+            : "folder|" + project + "|" + scan.RootPath.ToUpperInvariant()
+                + (scan.Recursive ? "|recursive" : "|direct");
     }
 
     internal void Handle(ToolAction action)
@@ -157,7 +193,7 @@ internal sealed class VoiceToolPage : IDisposable
                 _status = "正在取消；已经存在的语音和台词绑定保持不变。";
                 break;
             case "select":
-                if (!_showFolder && action.Value is not null && _catalog.Any(item => item.Id == action.Value))
+                if (_currentProjectIdentity is not null && !_showFolder && action.Value is not null && _catalog.Any(item => item.Id == action.Value))
                 {
                     var selected = _voice.ReadSelection();
                     _selection = selected.Success ? selected.Value : null;
@@ -235,12 +271,17 @@ internal sealed class VoiceToolPage : IDisposable
 
     private void RefreshCatalog(bool preserveStatus = false)
     {
+        if (_currentProjectIdentity is null)
+        {
+            _status = _projectContextError ?? "请先保存并打开项目。";
+            return;
+        }
         var result = _voice.ReadCatalog();
         _catalog = result.Success ? result.Value : Array.Empty<VoiceResource>();
         _catalogLoaded = true;
         if (_selectedResource is not null && !_catalog.Any(item => item.Id == _selectedResource)) _selectedResource = null;
         if (!preserveStatus || !result.Success)
-            _status = result.Success ? $"找到 {_catalog.Count} 个已导入声音，可在列表中搜索。" : result.Error?.Message ?? "无法刷新声音列表。";
+            _status = result.Success ? $"找到 {_catalog.Count} 个已导入声音，输入名称并按回车可定位所在页。" : result.Error?.Message ?? "无法刷新声音列表。";
     }
 
     private void Apply(string? resourceId)

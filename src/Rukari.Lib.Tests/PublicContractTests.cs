@@ -58,6 +58,21 @@ internal static class PublicContractTests
                 $"RegisterHostedPage parameter '{parameter.Name}' must not be optional.");
         Check.True(hostedParameters[3].ParameterType == typeof(Rukari.Lib.Tools.IToolPanelContent),
             "The hosted entry point takes the shared content contract, not a snapshot.");
+
+        // List navigation is an init-only addition, never a seventh constructor/deconstruction component.
+        // Already compiled snapshot providers must retain both original signatures.
+        var snapshot = typeof(Rukari.Lib.Tools.ToolPageSnapshot);
+        Type[] originalSnapshotTypes =
+        {
+            typeof(string), typeof(IReadOnlyList<Rukari.Lib.Tools.ToolButton>),
+            typeof(IReadOnlyList<Rukari.Lib.Tools.ToolListItem>), typeof(string), typeof(string), typeof(bool)
+        };
+        Check.True(snapshot.GetConstructor(originalSnapshotTypes) is not null,
+            "ToolPageSnapshot must retain its six-parameter constructor for compiled snapshot providers.");
+        var deconstruct = snapshot.GetMethod("Deconstruct", BindingFlags.Public | BindingFlags.Instance,
+            binder: null, types: originalSnapshotTypes.Select(type => type.MakeByRefType()).ToArray(), modifiers: null);
+        Check.True(deconstruct is not null && deconstruct.GetParameters().All(parameter => parameter.IsOut),
+            "ToolPageSnapshot must retain its six-component Deconstruct method.");
     }
 
     internal static void HostedButtonStyleKeepsTheFrozenSurfaceSignature()

@@ -158,6 +158,9 @@ public sealed record EditorCommandDocumentSnapshot(
     // Shared editor selection token captured when this snapshot was displayed. Never reconstruct
     // it from a pointer, address or content hash: returning to the same line must invalidate drafts.
     internal string RuntimeSelectionKey { get; init; } = string.Empty;
+
+    // UI preference identity only. This never substitutes for RuntimeSelectionKey or a revision.
+    internal string RuntimeContextId { get; init; } = string.Empty;
 }
 
 public sealed record EditorCommandEditPreviewSnapshot(

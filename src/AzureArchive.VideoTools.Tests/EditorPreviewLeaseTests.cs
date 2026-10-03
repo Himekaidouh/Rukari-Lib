@@ -54,6 +54,77 @@ internal static class EditorPreviewLeaseTests
             replay.Error);
     }
 
+    public static void ZeroOpaqueRequestAuthorizesWithoutChangingTheSceneOrOtherGuards()
+    {
+        EditorPreviewSelectionBinding selection = Selection(7, 0, 92, "zero opaque request script");
+        EditorPreviewLeaseCandidate candidate = Candidate(
+            selection,
+            "#char;1;set;x=100;duration=0;easing=linear");
+        var live = new EditorPreviewLiveObservation(
+            PlayerRuntimeContextSnapshot.FromPreviewMode(true),
+            selection with { },
+            ExactCompiledScriptMessageCount: 1,
+            WindowSequence: 100);
+
+        Result<EditorPreviewLeaseAuthorization> authorized =
+            new EditorPreviewLeaseGate().TryAuthorize(candidate, live);
+        AssertEx.True(authorized.Success, authorized.Error);
+        AssertEx.Equal(0, candidate.Selection.SelectionRequestId);
+        AssertEx.Equal(0, live.Selection.SelectionRequestId);
+        AssertEx.Equal(5, candidate.Selection.Scene.SceneIndex);
+        AssertEx.Equal(1, AssertEx.NotNull(authorized.Value).Commands.Count);
+
+        AssertRejected(candidate, observation => observation with
+        {
+            RuntimeContext = PlayerRuntimeContextSnapshot.FromPreviewMode(false)
+        });
+        AssertRejected(candidate, observation => observation with
+        {
+            Selection = observation.Selection with { SelectionGeneration = 0 }
+        });
+        AssertRejected(candidate, observation => observation with
+        {
+            Selection = observation.Selection with { SelectionRequestId = 1 }
+        });
+        AssertRejected(candidate, observation => observation with
+        {
+            Selection = observation.Selection with { ObservationSequence = 0 }
+        });
+        AssertRejected(candidate, observation => observation with
+        {
+            Selection = observation.Selection with
+            {
+                CompiledScript = CommandIdentity.CompiledScript("different script")
+            }
+        });
+        AssertRejected(candidate, observation => observation with
+        {
+            Selection = observation.Selection with
+            {
+                Scene = observation.Selection.Scene with { SceneIndex = 0 }
+            }
+        });
+        AssertRejected(candidate, observation => observation with
+        {
+            ExactCompiledScriptMessageCount = 0
+        });
+        AssertEx.False(new EditorPreviewLeaseGate().TryAuthorize(
+            candidate with { MinimumWindowSequenceExclusive = 100 }, live).Success);
+    }
+
+    public static void NegativeOpaqueRequestsFailForCapturedAndLiveSelections()
+    {
+        EditorPreviewSelectionBinding zero = Selection(7, 0, 92, "negative opaque request script");
+        foreach (int invalidRequest in new[] { -1, int.MinValue })
+        {
+            EditorPreviewSelectionBinding invalid = zero with { SelectionRequestId = invalidRequest };
+            AssertEx.False(Authorize(invalid,
+                new[] { "#char;1;set;x=100;duration=0;easing=linear" }, tombstone: false).Success);
+            AssertRejected(Candidate(zero, "#char;1;set;x=100;duration=0;easing=linear"),
+                observation => observation with { Selection = invalid });
+        }
+    }
+
     public static void RejectsEveryLiveIdentityDriftAndNonEditorWindows()
     {
         EditorPreviewSelectionBinding selection = Selection(4, 9, 18, "exact script");

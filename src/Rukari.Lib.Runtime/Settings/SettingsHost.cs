@@ -37,7 +37,7 @@ internal static class SettingsHost
                 (owner, ex) => log($"[mod-settings] Page '{owner}' failed: {ex.GetType().Name}: {ex.Message}"));
             _service = service;
             var registration = runtime.RegisterService<IModSettingsService>(OwnerId, service,
-                new CapabilityInfo(SettingsCapabilities.Settings, OwnerId, "0.4.1", CapabilityLevel.Experimental,
+                new CapabilityInfo(SettingsCapabilities.Settings, OwnerId, Plugin.Version, CapabilityLevel.Experimental,
                     "Global managed settings pages opened from the official settings panel; native validation pending."));
             if (!registration.Success) throw new InvalidOperationException(registration.Error!.Message);
             _registration = registration.Value;

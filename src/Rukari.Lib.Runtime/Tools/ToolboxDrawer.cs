@@ -159,6 +159,12 @@ internal sealed class ToolboxDrawer : IDisposable
     private float _panelY;
     private string _query = "";
     private int _listPage;
+    private readonly ToolListNavigation _listNavigation = new();
+    private string? _navigationPageId;
+    private ToolListNavigationOptions? _navigationOptions;
+    private IReadOnlyList<ToolListItem>? _navigationItems;
+    private string[] _navigationLabels = Array.Empty<string>();
+    private ToolListNavigationView? _navigationView;
     private string? _pressedKey;
     private bool _activeSearch;
 
@@ -264,8 +270,12 @@ internal sealed class ToolboxDrawer : IDisposable
         IReadOnlyList<ToolListItem> original = snapshot.Items ?? Array.Empty<ToolListItem>();
         bool hasList = snapshot.Items is not null;
         _activeSearch = hasList && snapshot.AllowSearch && _input.SupportsKeyboardCapture;
-        var filtered = string.IsNullOrWhiteSpace(_query) ? original.ToArray()
-            : original.Where(i => (i.Label ?? "").Contains(_query, StringComparison.OrdinalIgnoreCase)).ToArray();
+        BindListNavigation(selected?.Id, snapshot.ListNavigation, original);
+        IReadOnlyList<ToolListItem> filtered = _navigationOptions?.SearchMode == ToolListSearchMode.Locate
+            ? original
+            : _navigationView is not null ? _navigationView.ItemIndices.Select(i => original[i]).ToArray()
+            : string.IsNullOrWhiteSpace(_query) ? original.ToArray()
+                : original.Where(i => (i.Label ?? "").Contains(_query, StringComparison.OrdinalIgnoreCase)).ToArray();
         // -1 means "no module is open" and must stay -1: clamping it to the first module would light a button the
         // user never pressed, and the next press on it would read as a close. The panel title needs a real module
         // instead, so it clamps separately, and it is only drawn while a module IS open.
@@ -275,7 +285,7 @@ internal sealed class ToolboxDrawer : IDisposable
         // column, so the panel is always measured as a single-page sheet. A hosted page states the sheet height
         // it wants instead, and the same panel scale still shrinks it to fit the window.
         ToolDrawerLayout layout = hosted is null
-            ? ToolDrawerLayout.Measure(1, filtered.Length, snapshot.Buttons.Count,
+            ? ToolDrawerLayout.Measure(1, filtered.Count, snapshot.Buttons.Count,
                 hasList, _activeSearch, snapshot.Summary, snapshot.Status)
             : ToolDrawerLayout.MeasureHosted(hosted.PreferredHeight, RequestedWidthOf(hosted));
         _contentWidth = layout.InnerWidth;
@@ -396,10 +406,13 @@ internal sealed class ToolboxDrawer : IDisposable
         }
         if (_activeSearch)
         {
-            Layout(_search, "search", string.IsNullOrEmpty(_query) ? (_focused ? "输入名称筛选…" : "点击搜索名称") : _query + (_focused ? " |" : ""),
+            string searchText = _query + (_focused ? SafeComposition() : "");
+            Layout(_search, "search", string.IsNullOrEmpty(searchText)
+                    ? (_focused ? (_navigationOptions?.SearchMode == ToolListSearchMode.Locate ? "输入名称定位…" : "输入名称筛选…") : "点击搜索名称")
+                    : searchText + (_focused ? " |" : ""),
                 ContentX, cursor - 38, ContentWidth - 66, 38, true, _focused, () => _focused = true, skin: "solid");
             Layout(_searchClear, "search-clear", "清空", ContentX + ContentWidth - 60, cursor - 38, 60, 38,
-                _query.Length != 0, false, () => { _query = ""; _listPage = 0; });
+                _query.Length != 0, false, () => SetSearchQuery(""));
             _search.Label.alignment = TextAnchor.MiddleLeft;
             cursor -= 46;
         }
@@ -410,16 +423,18 @@ internal sealed class ToolboxDrawer : IDisposable
         }
 
         int rowsPerPage = MaxRows;
-        int pageCount = Math.Max(1, (filtered.Length + rowsPerPage - 1) / rowsPerPage);
+        int pageCount = Math.Max(1, (filtered.Count + rowsPerPage - 1) / rowsPerPage);
         _listPage = Math.Clamp(_listPage, 0, pageCount - 1);
         for (int i = 0; i < _rows.Length; i++)
         {
             int index = _listPage * rowsPerPage + i;
-            if (!hasList || i >= layout.VisibleRows || index >= filtered.Length) { _rows[i].GameObject.SetActive(false); continue; }
+            if (!hasList || i >= layout.VisibleRows || index >= filtered.Count) { _rows[i].GameObject.SetActive(false); continue; }
             ToolListItem row = filtered[index];
+            bool searchMatch = _navigationOptions?.SearchMode == ToolListSearchMode.Locate
+                && _navigationView?.MatchedIndex == index;
             Layout(_rows[i], "item:" + (selected?.Id ?? "") + ":" + row.Id,
-                (row.Selected ? "✓ " : "") + row.Label, ContentX, cursor - 37 - i * 42, ContentWidth, 37,
-                row.Enabled, row.Selected, () => action(new ToolAction(snapshot.ItemActionId, row.Id)));
+                (row.Selected ? "✓ " : searchMatch ? "› " : "") + row.Label, ContentX, cursor - 37 - i * 42, ContentWidth, 37,
+                row.Enabled, row.Selected || searchMatch, () => action(new ToolAction(snapshot.ItemActionId, row.Id)));
             _rows[i].Label.alignment = TextAnchor.MiddleLeft;
         }
         cursor -= layout.VisibleRows * 42;
@@ -432,9 +447,11 @@ internal sealed class ToolboxDrawer : IDisposable
         }
         if (layout.Pagination)
         {
-            Layout(_previous, "previous", "上一页", ContentX, cursor - 34, 105, 34, _listPage > 0, false, () => _listPage--);
-            Layout(_next, "next", "下一页", ContentX + ContentWidth - 105, cursor - 34, 105, 34, _listPage + 1 < pageCount, false, () => _listPage++);
-            _pageInfo.text = $"{_listPage + 1}/{pageCount} · {filtered.Length} 项";
+            Layout(_previous, "previous", "上一页", ContentX, cursor - 34, 105, 34, _listPage > 0, false, () => SetListPage(_listPage - 1));
+            Layout(_next, "next", "下一页", ContentX + ContentWidth - 105, cursor - 34, 105, 34, _listPage + 1 < pageCount, false, () => SetListPage(_listPage + 1));
+            bool noMatch = _navigationOptions?.SearchMode == ToolListSearchMode.Locate
+                && !string.IsNullOrWhiteSpace(_query) && _navigationView?.MatchedIndex is null;
+            _pageInfo.text = $"{_listPage + 1}/{pageCount} · {(noMatch ? "未找到" : filtered.Count + " 项")}";
             LayoutText(_pageInfo, ContentX + 112, cursor - 34, ContentWidth - 224, 34);
             cursor -= 44;
         }
@@ -520,11 +537,24 @@ internal sealed class ToolboxDrawer : IDisposable
                 if (_query.Length > 0)
                 {
                     int remove = _query.Length >= 2 && char.IsLowSurrogate(_query[^1]) && char.IsHighSurrogate(_query[^2]) ? 2 : 1;
-                    _query = _query[..^remove]; _listPage = 0;
+                    SetSearchQuery(_query[..^remove]);
                 }
             }
-            else if (ch is '\r' or '\n' or '\u001b') { _focused = false; _releaseKeyboardFrames = 2; }
-            else if (!char.IsControl(ch) && _query.Length < 120) { _query += ch; _listPage = 0; }
+            else if (ch is '\r' or '\n')
+            {
+                if (SafeComposition().Length != 0) continue;
+                SubmitListSearch();
+                _focused = false;
+                _releaseKeyboardFrames = 2;
+            }
+            else if (ch == '\u001b') { _focused = false; _releaseKeyboardFrames = 2; }
+            else if (!char.IsControl(ch) && _query.Length < 120) SetSearchQuery(_query + ch);
+        }
+        bool control = UnityEngine.Input.GetKey(KeyCode.LeftControl) || UnityEngine.Input.GetKey(KeyCode.RightControl);
+        if (control && UnityEngine.Input.GetKeyDown(KeyCode.V))
+        {
+            string pasted = new string(Clipboard().Where(ch => !char.IsControl(ch)).Take(120).ToArray());
+            if (pasted.Length > 0) SetSearchQuery(pasted);
         }
         if (UnityEngine.Input.GetKeyDown(KeyCode.Escape)) { _focused = false; _releaseKeyboardFrames = 2; }
     }
@@ -549,8 +579,8 @@ internal sealed class ToolboxDrawer : IDisposable
         _hostedComposition = "";
         if (_hostedField is null)
         {
-            // Nothing of ours is being edited, so the input method belongs to the game again.
-            SetIme(false);
+            // The shared search field also needs composition for Chinese/Japanese resource names.
+            SetIme(_focused && _activeSearch);
             return;
         }
         foreach (char ch in UnityEngine.Input.inputString ?? "")
@@ -614,11 +644,15 @@ internal sealed class ToolboxDrawer : IDisposable
 
     private void AimCompositionCursor()
     {
-        if (!_hostedFieldRect.IsValid) return;
+        ToolInputRect rect = _focused && _activeSearch
+            ? new ToolInputRect(_search.Hit.X * _scale, _search.Hit.Y * _scale,
+                _search.Hit.Width * _scale, _search.Hit.Height * _scale)
+            : _hostedFieldRect;
+        if (!rect.IsValid) return;
         try
         {
             UnityEngine.Input.compositionCursorPos = new Vector2(
-                _hostedFieldRect.X + 12f, _hostedFieldRect.Y + _hostedFieldRect.Height / 2f);
+                rect.X + 12f, rect.Y + rect.Height / 2f);
         }
         catch (Exception)
         {
@@ -1040,9 +1074,72 @@ internal sealed class ToolboxDrawer : IDisposable
         _moduleScrollDrag = false;
         _releaseKeyboardFrames = 0;
         _input.SetKeyboardCapture(false);
+        SetIme(false);
     }
 
-    internal void ResetPage() { _query = ""; _listPage = 0; ResetInteraction(); }
+    internal void ResetPage()
+    {
+        // Release the visible page, not the session's saved navigation. Opted-in pages restore their
+        // own project/list context on the next Tick; legacy pages still open at their original first page.
+        _navigationPageId = null;
+        _navigationOptions = null;
+        _navigationItems = null;
+        _navigationLabels = Array.Empty<string>();
+        _navigationView = null;
+        _query = "";
+        _listPage = 0;
+        ResetInteraction();
+    }
+
+    private void BindListNavigation(string? pageId, ToolListNavigationOptions? options, IReadOnlyList<ToolListItem> items)
+    {
+        if (pageId is null || options is null)
+        {
+            _navigationPageId = null;
+            _navigationOptions = null;
+            _navigationView = null;
+            return;
+        }
+        if (_navigationPageId != pageId || _navigationOptions != options) ResetInteraction();
+        _navigationPageId = pageId;
+        _navigationOptions = options;
+        if (!ReferenceEquals(_navigationItems, items))
+        {
+            _navigationItems = items;
+            _navigationLabels = items.Select(item => item.Label ?? "").ToArray();
+        }
+        UpdateListNavigation(_listNavigation.Read(pageId, options.ContextId, options.SearchMode, _navigationLabels, MaxRows));
+    }
+
+    private void UpdateListNavigation(ToolListNavigationView view)
+    {
+        _navigationView = view;
+        _query = view.Query;
+        _listPage = view.Page;
+    }
+
+    private void SetSearchQuery(string query)
+    {
+        if (_navigationPageId is not null && _navigationOptions is { } options)
+            UpdateListNavigation(_listNavigation.SetQuery(_navigationPageId, options.ContextId, options.SearchMode,
+                _navigationLabels, MaxRows, query));
+        else { _query = query; _listPage = 0; }
+    }
+
+    private void SetListPage(int page)
+    {
+        if (_navigationPageId is not null && _navigationOptions is { } options)
+            UpdateListNavigation(_listNavigation.SetPage(_navigationPageId, options.ContextId, options.SearchMode,
+                _navigationLabels, MaxRows, page));
+        else _listPage = page;
+    }
+
+    private void SubmitListSearch()
+    {
+        if (_navigationPageId is not null && _navigationOptions is { } options)
+            UpdateListNavigation(_listNavigation.Locate(_navigationPageId, options.ContextId, options.SearchMode,
+                _navigationLabels, MaxRows));
+    }
 
     /// <summary>
     /// Hides the panel and republishes a fail-closed snapshot for this frame. Called whenever the tree changes

@@ -5,29 +5,18 @@ using HarmonyLib;
 namespace Rukari.CharacterVoice.Runtime;
 
 /// <summary>
-/// The editor's publish entries, watched end to end, plus the publish call the interface never makes.
-///
+/// Observes the existing compile and safe-save boundaries without requesting another compile.
 /// <para>
-/// The editor's save button runs <c>StudioCommon.Save(false)</c> and then <c>StudioCommon.Compile()</c> — the
-/// no-argument overload, which only writes a build folder under <c>.builds</c>. Nothing in the interface ever reaches
-/// <c>StudioCommon.Compile(string fileName)</c>, and with it never called no playable file is ever published, which is
-/// exactly what a "save as AAS" button that produces nothing looks like from the outside.
-/// </para>
-///
-/// <para>
-/// So after the editor's own build finishes, this calls the named overload with the project name — the same call the
-/// missing entry would make — and records what it returned or threw. The rest of the probe logs the publish entries
-/// (<c>StudioCommon.Save(bool)</c>, its auto save/compile coroutine, the operation manager's compile hook and
-/// <c>Utils.Util.PromoteSafeSave(temp, dest)</c>) with the exception when one fails, because a publish that silently
-/// does nothing and a publish that fails look identical from the outside.
+/// The retired automatic publish workaround used to call <c>StudioCommon.Compile(string)</c> after every editor
+/// build, including automatic builds. That added a complete synchronous publication to ordinary editing.
+/// Manual publication is already requested explicitly by the shared editor save service. This observer only
+/// supplies project scopes and notices actual safe-save promotions for companion voice publication.
 /// </para>
 /// </summary>
 internal static class PublishProbe
 {
     private const int MaximumReports = 40;
     private static readonly HashSet<string> Reported = new(StringComparer.Ordinal);
-    private static bool _publish;
-    private static bool _publishing;
 
     internal static void Install(ConfigFile config)
     {
@@ -36,11 +25,12 @@ internal static class PublishProbe
             "Log the editor's publish entries — StudioCommon.Save(bool), CoAutoSaveAndCompile, the operation "
             + "manager's compile hook and Utils.Util.PromoteSafeSave(temp, dest) — with the exception when one "
             + "fails, so a 'save as AAS' button that produces nothing says where it stopped. Diagnostic only.").Value;
-        _publish = config.Bind("Compile", "PublishPlayableAfterBuild", true,
-            "The editor's save button only builds into .builds; the overload that produces a playable file, "
-            + "StudioCommon.Compile(fileName), is never called by any interface action. After a build finishes, call it "
-            + "with the project name so the playable file the editor is supposed to publish actually appears. "
-            + "Restart required.").Value;
+        // Keep the old key readable for existing profiles, but it no longer authorizes any action.
+        // Even an existing true value must not append a full publish to automatic editor builds.
+        var retiredPublish = config.Bind("Compile", "PublishPlayableAfterBuild", false,
+            "Retired: automatic builds no longer trigger an additional playable-file publication. "
+            + "Use the shared Save and Publish button to publish explicitly. This key is ignored.");
+        retiredPublish.Value = false;
 
         var harmony = new Harmony(Plugin.Guid + ".publish-probe");
         int patched = 0;
@@ -67,16 +57,16 @@ internal static class PublishProbe
             Plugin.Logger.LogWarning("[voice] companion audio publisher unavailable: " + ex.Message);
         }
 
-        if (_publish)
-        {
-            patched += Hook(harmony, "Studio.Scripts.StudioCommon", "Compile", Type.EmptyTypes, "StudioCommon.Compile()", publishAfter: true);
-        }
+        // The already validated Compile() boundary retains only its scope prefix/finalizer.
+        // There is deliberately no postfix and no call to any compile or save API here.
+        patched += Hook(harmony, "Studio.Scripts.StudioCommon", "Compile", Type.EmptyTypes,
+            "StudioCommon.Compile()", compileScope: true);
 
-        Plugin.Logger.LogInfo($"Publish probe installed: {patched} hook(s); publishAfterBuild={_publish}.");
+        Plugin.Logger.LogInfo($"Publish observer installed: {patched} hook(s); automaticAdditionalPublication=false; manual publication remains explicit.");
     }
 
     private static int Hook(Harmony harmony, string typeName, string method, Type[] arguments, string label,
-        bool failures = false, bool publishAfter = false)
+        bool failures = false, bool compileScope = false)
     {
         try
         {
@@ -95,9 +85,8 @@ internal static class PublishProbe
             }
 
             harmony.Patch(target,
-                prefix: new HarmonyMethod(typeof(PublishProbe), publishAfter ? nameof(CompilePrefix) : nameof(Prefix)),
-                postfix: publishAfter ? new HarmonyMethod(typeof(PublishProbe), nameof(PublishPostfix)) : null,
-                finalizer: publishAfter ? new HarmonyMethod(typeof(PublishProbe), nameof(CompileFinalizer))
+                prefix: new HarmonyMethod(typeof(PublishProbe), compileScope ? nameof(CompilePrefix) : nameof(Prefix)),
+                finalizer: compileScope ? new HarmonyMethod(typeof(PublishProbe), nameof(CompileFinalizer))
                     : failures ? new HarmonyMethod(typeof(PublishProbe), nameof(Finalizer)) : null);
             Report("hooked:" + label, $"Publish probe hooked {label}.");
             return 1;
@@ -128,48 +117,6 @@ internal static class PublishProbe
     public static void PromotePostfix(VoicePublicationRuntime.Promotion? __state) =>
         VoicePublicationRuntime.AfterPromotion(__state);
 
-    /// <summary>
-    /// After the editor's own build finished, run the publish overload the interface never reaches.
-    /// </summary>
-    public static void PublishPostfix(object __instance)
-    {
-        if (!_publish || _publishing) return;
-        try
-        {
-            if (__instance is not Studio.Scripts.StudioCommon common) return;
-            string name = common.projectName ?? string.Empty;
-            if (name.Length == 0)
-            {
-                Plugin.Logger.LogWarning("[voice] publish skipped: the editor has no project name.");
-                return;
-            }
-
-            _publishing = true;
-            // 2026-09-19: timed because this runs synchronously on the game's thread right after every
-            // editor build — including the build the editor performs when a project is opened — and a
-            // full named compile of a large project is a prime suspect for the game going unresponsive.
-            long started = System.Diagnostics.Stopwatch.GetTimestamp();
-            Plugin.Logger.LogInfo($"[voice] publish: calling StudioCommon.Compile('{name}') — the playable-file overload "
-                + "no interface action reaches.");
-            common.Compile(name);
-            Plugin.Logger.LogInfo($"[voice] publish: StudioCommon.Compile('{name}') returned in "
-                + $"{Elapsed(started)} ms at {DateTimeOffset.Now:HH:mm:ss.fff}.");
-        }
-        catch (Exception ex)
-        {
-            Plugin.Logger.LogWarning($"[voice] publish failed: {ex.GetType().Name}: {ex.Message}");
-            foreach (string line in (ex.StackTrace ?? string.Empty).Split('\n'))
-            {
-                string trimmed = line.Trim();
-                if (trimmed.Length != 0) Plugin.Logger.LogWarning("[voice]   at " + trimmed);
-            }
-        }
-        finally
-        {
-            _publishing = false;
-        }
-    }
-
     public static Exception? Finalizer(MethodBase __originalMethod, object[] __args, Exception? __exception)
     {
         if (__exception is null) return null;
@@ -183,11 +130,6 @@ internal static class PublishProbe
 
         return __exception;
     }
-
-    /// <summary>Milliseconds since a <see cref="System.Diagnostics.Stopwatch.GetTimestamp"/> reading.</summary>
-    private static long Elapsed(long startedTimestamp) =>
-        (System.Diagnostics.Stopwatch.GetTimestamp() - startedTimestamp) * 1000L
-        / System.Diagnostics.Stopwatch.Frequency;
 
     private static string Describe(object[]? args)
     {

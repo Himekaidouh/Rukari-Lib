@@ -127,7 +127,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
     internal static int PresetSlotForSelection(string selectionKey)
     {
         VisualEditorBehaviour? instance = _instance;
-        return instance?.HasSelectedSlot() == true
+        return instance is not null && instance.HasSynchronizedDocument() && instance.HasSelectedSlot()
             && instance._documentSnapshot?.RuntimeSelectionKey == selectionKey
             ? instance._selectedSlotIndex + 1 : 0;
     }
@@ -217,6 +217,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
     }
 
     private readonly VisualCharacterDraftBuilder _draftBuilder = new();
+    private readonly VisualEditorSlotPreference _slotPreference = new();
     private readonly VisualCameraDraftBuilder _cameraDraftBuilder = new();
     private readonly EditorCommandDocumentComposer _documentComposer = new();
     private readonly CharacterSlotSnapshot?[] _slotSnapshots =
@@ -1040,6 +1041,10 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
     private void ClearSelectionDrafts()
     {
+        // A playback refresh invalidates edit authority, not the user's target button.
+        // Keep only the managed UI preference; every draft still clears below.
+        if (HasSelectedSlot())
+            _slotPreference.Remember(_documentSnapshot?.RuntimeContextId, _selectedSlotIndex + 1);
         Array.Clear(_draftPositions, 0, _draftPositions.Length);
         Array.Clear(_draftRotations, 0, _draftRotations.Length);
         Array.Clear(_draftFlips, 0, _draftFlips.Length);
@@ -1436,13 +1441,13 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
     private bool CanEditScreenText() =>
         _mode == VisualEditorMode.ScreenText
-        && _documentSnapshot?.InputMatchesScript == true
-        && _documentSnapshot.ScreenTextLines.Count <= 1;
+        && HasSynchronizedDocument()
+        && _documentSnapshot!.ScreenTextLines.Count <= 1;
 
     private bool CanAddClearScreenText() =>
         _mode == VisualEditorMode.ScreenText
-        && _documentSnapshot?.InputMatchesScript == true
-        && !_documentSnapshot.HasClearScreenTextDirective;
+        && HasSynchronizedDocument()
+        && !_documentSnapshot!.HasClearScreenTextDirective;
 
     private bool CanAlignScreenTextToPrevious() =>
         CanEditScreenText()
@@ -1772,7 +1777,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
     private void SelectSlot(int slotIndex)
     {
-        if (slotIndex < 0 || slotIndex >= _slotSnapshots.Length)
+        if (!HasSynchronizedDocument() || slotIndex < 0 || slotIndex >= _slotSnapshots.Length)
         {
             return;
         }
@@ -1794,6 +1799,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         }
 
         _selectedSlotIndex = slotIndex;
+        _slotPreference.Remember(_documentSnapshot!.RuntimeContextId, slotIndex + 1);
         _operationMessage = string.Empty;
         LoadExistingCommandForSelection(preserveActiveDraft: false);
         UpdateInspector();
@@ -2136,7 +2142,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
     private bool CanEditCamera() =>
         _mode == VisualEditorMode.Camera
-        && _documentSnapshot != null
+        && HasSynchronizedDocument()
         && _cameraReadAvailable;
 
     private void NudgeCameraPosition(float deltaX, float deltaY)
@@ -2598,7 +2604,11 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         _selectedSlotIndex >= 0 && _selectedSlotIndex < _slotSnapshots.Length;
 
     private bool CanEditSelectedSlot() =>
-        HasSelectedSlot() && !_selectedCommandGraphicallyUnsupported;
+        HasSynchronizedDocument() && HasSelectedSlot() && !_selectedCommandGraphicallyUnsupported;
+
+    private bool HasSynchronizedDocument() =>
+        _documentSnapshot is { InputAvailable: true, InputMatchesScript: true }
+        && !string.IsNullOrEmpty(_documentSnapshot.RuntimeSelectionKey);
 
     private bool IsOfficialTransitionSlot(int publicSlot)
     {
@@ -3074,6 +3084,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             _operationMessage = "台词选择或内容已变化，旧草稿已清除。";
         }
         _documentSnapshot = result.Value;
+        _selectedSlotIndex = _slotPreference.Restore(result.Value.RuntimeContextId) - 1;
         _officialTransitionSlots = result.Value.OfficialPositionTransitionSlots;
         LoadExistingCommandForSelection(preserveActiveDraft: true);
         LoadExistingCameraCommand(preserveActiveDraft: true);
