@@ -7,6 +7,7 @@ using System.Text;
 using AzureArchive.VideoTools.Api;
 using AzureArchive.VideoTools.Core;
 using AzureArchive.VideoTools.Core.Commands;
+using Rukari.Lib.Editor;
 using Studio.Scripts;
 using Studio.Scripts.Nodes;
 using Color = unitycore::UnityEngine.Color;
@@ -69,11 +70,14 @@ internal sealed class EditorSceneService : IEditorSceneService
         }
     }
 
-    public ApiResult<SceneSnapshot> GetSelectedScene()
+    public ApiResult<SceneSnapshot> GetSelectedScene() => ReadSelectedScene(out _);
+
+    private ApiResult<SceneSnapshot> ReadSelectedScene(out EditorDocumentSnapshot? document)
     {
+        document = null;
         try
         {
-            if (!TryGetInternalSelection(out InternalSceneSelection selection, out string error))
+            if (!TryGetInternalSelection(out InternalSceneSelection selection, out string error, out document))
             {
                 return ApiResult<SceneSnapshot>.Fail(error);
             }
@@ -95,7 +99,28 @@ internal sealed class EditorSceneService : IEditorSceneService
     internal ApiResult<SceneSnapshot> CaptureDataListScene(out EditorInputSceneCaptureProof? proof)
     {
         proof = null;
-        ApiResult<SceneSnapshot> selected = GetSelectedScene();
+        ApiResult<SceneSnapshot> selected = ReadSelectedScene(out EditorDocumentSnapshot? beforeDocument);
+        if (selected.Success && selected.Value != null)
+        {
+            var runtime = Rukari.Lib.ModServices.Current;
+            if (runtime is not { State: Rukari.Lib.RuntimeState.Ready, IsMainThread: true }
+                || !Rukari.Lib.Runtime.Editor.EditorWorkspaceContext.IsNodeEditorVisible)
+                return ApiResult<SceneSnapshot>.Fail("selected-scene-capture-runtime-or-workspace-unavailable");
+
+            // Keep the managed shared snapshot already validated against the selected
+            // cache row. A second complete read must confirm its scene and both texts;
+            // otherwise repeated DataList callbacks cannot preserve the first log.
+            ApiResult<SceneSnapshot> confirmed = ReadSelectedScene(out EditorDocumentSnapshot? afterDocument);
+            if (!confirmed.Success || confirmed.Value == null)
+                return ApiResult<SceneSnapshot>.Fail("selected-scene-confirmation: " + confirmed.Error);
+            var captured = EditorSelectedSceneCapturePlanner.Capture(
+                SelectedFrame(selected.Value, beforeDocument),
+                SelectedFrame(confirmed.Value, afterDocument));
+            if (!captured.Success || captured.Value == null)
+                return ApiResult<SceneSnapshot>.Fail(captured.Error);
+            proof = captured.Value;
+            return selected;
+        }
         if (selected.Success || selected.Error != "请先在工作台选择一句台词。") return selected;
         try
         {
@@ -128,6 +153,12 @@ internal sealed class EditorSceneService : IEditorSceneService
             return ApiResult<SceneSnapshot>.Fail("input-scene-capture: " + PatchGuard.Describe(ex));
         }
     }
+
+    private static EditorSelectedSceneCaptureFrame SelectedFrame(
+        SceneSnapshot scene, EditorDocumentSnapshot? document) => new(
+            new EditorPreviewSceneAddress(scene.Address.ProjectKey, scene.Address.NodeGuid,
+                scene.Address.SceneIndex, scene.Address.Fingerprint),
+            scene.DialogueText, document);
 
     private EditorInputSceneFrame ReadInputSceneFrame(out InternalSceneSelection matchingRow)
     {
@@ -241,9 +272,14 @@ internal sealed class EditorSceneService : IEditorSceneService
     }
 
     internal bool TryGetInternalSelection(out InternalSceneSelection selection, out string error)
+        => TryGetInternalSelection(out selection, out error, out _);
+
+    private bool TryGetInternalSelection(out InternalSceneSelection selection, out string error,
+        out EditorDocumentSnapshot? document)
     {
         selection = default;
         error = string.Empty;
+        document = null;
 
         ScriptNodeInspector? maybeInspector = ResolveInspector();
         if (!InteropObjectGuard.IsAlive(maybeInspector))
@@ -334,6 +370,7 @@ internal sealed class EditorSceneService : IEditorSceneService
 
         Script? previous = index > 0 ? scripts[index - 1] : null;
         selection = new InternalSceneSelection(inspector, liveItem, liveNode, current, previous, index);
+        document = shared.Value;
         return true;
     }
 

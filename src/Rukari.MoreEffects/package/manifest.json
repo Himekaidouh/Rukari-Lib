@@ -1,8 +1,8 @@
 {
   "name": "更多的画面效果",
-  "version_number": "1.4.3",
+  "version_number": "1.4.4",
   "website_url": "",
-  "description": "人物、镜头、文字与预设演出。AA 1.0 编辑器预览兼容测试版，包含与 FL 共存时的选句身份确认修订。",
+  "description": "人物、镜头、文字与预设演出。AA 1.0 编辑器预览兼容测试版，包含与 FL 共存时的选句身份确认及混合指令绿色重播证明修订。",
   "dependencies": [
     "RukariLib/0.4.2"
   ]

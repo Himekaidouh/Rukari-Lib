@@ -93,7 +93,7 @@ internal static class EditorDataListEventProbe
             + $"selectionGeneration={selectionGeneration}; cascade={(reused ? "reuse" : "new")}; "
             + $"activeWindow={window.ActiveWindowSequence}; cutoff={window.ClosedWindowWatermark}; reason={cascadeReason}; "
             + $"markerReason={markerReason}; sceneIndex={scene?.SceneIndex}; "
-            + $"captureSource={(inputProof == null ? "selected-row" : "input-unique-visible-row")}; "
+            + $"captureSource={(inputProof == null ? "selected-row" : "confirmed-scene-input-proof")}; "
             + $"capture={(capturedScene.Success ? "ok" : capturedScene.Error)}; no instance or result was received.");
     }
 }

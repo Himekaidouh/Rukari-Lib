@@ -84,6 +84,255 @@ internal static class ProjectVoiceImportTests
         True(ProjectVoiceImportPolicy.ReadCatalog(legacy.Project).Single().RelativePath.EndsWith(".ogg", StringComparison.Ordinal));
     }
 
+    internal static void RepairPreservesAnImportCommittedAfterTheInitialLookup()
+    {
+        using var fixture = new Fixture();
+        VoiceImportSource legacySource = fixture.Audio("legacy.wav", 51, "ogg");
+        ProjectVoiceImportEntry legacy = fixture.SeedLegacyImports(legacySource).Single();
+        VoiceImportSource added = fixture.Audio("added.wav", 52, "wav");
+        bool checkpointReached = false;
+
+        True(ProjectVoiceImportPolicy.TryResolvePath(fixture.Project, legacy.ResourceKey, () =>
+        {
+            // The resolver already read the old table. A real background import now commits a new
+            // entry before the resolver attempts its zero-wait repair lock.
+            checkpointReached = true;
+            Equal(1, fixture.Import(added).ImportedCount);
+            Equal(2, ProjectVoiceImportPolicy.ReadCatalog(fixture.Project).Count);
+        }, out string repaired));
+
+        True(checkpointReached);
+        Equal(".ogg", Path.GetExtension(repaired));
+        Equal(2, ProjectVoiceImportPolicy.ReadCatalog(fixture.Project).Count);
+        string addedKey = "rukari-import/" + Hash(File.ReadAllBytes(added.FullPath));
+        True(ProjectVoiceImportPolicy.TryResolvePath(fixture.Project, addedKey, out string addedPath));
+        True(File.ReadAllBytes(addedPath).SequenceEqual(File.ReadAllBytes(added.FullPath)));
+    }
+
+    internal static void RepairUsesTheCurrentEntryAndRejectsChangedStoredBytes()
+    {
+        using var alreadyRepaired = new Fixture();
+        VoiceImportSource source = alreadyRepaired.Audio("legacy.wav", 53, "ogg");
+        ProjectVoiceImportEntry legacy = alreadyRepaired.SeedLegacyImports(source).Single();
+        byte[]? committedIndex = null;
+        True(ProjectVoiceImportPolicy.TryResolvePath(alreadyRepaired.Project, legacy.ResourceKey, () =>
+        {
+            alreadyRepaired.Import(source);
+            committedIndex = File.ReadAllBytes(alreadyRepaired.IndexPath);
+        }, out string currentPath));
+        Equal(".ogg", Path.GetExtension(currentPath));
+        True(committedIndex is not null && committedIndex.SequenceEqual(File.ReadAllBytes(alreadyRepaired.IndexPath)));
+
+        using var changed = new Fixture();
+        VoiceImportSource changedSource = changed.Audio("legacy.wav", 54, "ogg");
+        ProjectVoiceImportEntry changedEntry = changed.SeedLegacyImports(changedSource).Single();
+        string stored = Path.Combine(changed.Project, changedEntry.RelativePath);
+        byte[] oldIndex = File.ReadAllBytes(changed.IndexPath);
+        byte[] foreignBytes = File.ReadAllBytes(stored);
+        foreignBytes[^1] ^= 1;
+        True(!ProjectVoiceImportPolicy.TryResolvePath(changed.Project, changedEntry.ResourceKey, () =>
+        {
+            File.WriteAllBytes(stored, foreignBytes);
+            // Identical metadata must not let the repair rename bytes belonging to another hash.
+            File.SetLastWriteTimeUtc(stored, new DateTime(changedEntry.LastWriteTimeUtcTicks, DateTimeKind.Utc));
+        }, out string rejectedPath));
+        Equal(string.Empty, rejectedPath);
+        True(oldIndex.SequenceEqual(File.ReadAllBytes(changed.IndexPath)));
+        True(foreignBytes.SequenceEqual(File.ReadAllBytes(stored)));
+        True(!File.Exists(Path.ChangeExtension(stored, ".ogg")));
+    }
+
+    internal static void RepairDefersWhileTheImportLockIsHeld()
+    {
+        using var fixture = new Fixture();
+        ProjectVoiceImportEntry legacy = fixture.SeedLegacyImports(fixture.Audio("legacy.wav", 55, "ogg")).Single();
+        byte[] oldIndex = File.ReadAllBytes(fixture.IndexPath);
+        Task<(bool Resolved, string Path)> lookup;
+        bool completed;
+        using (var heldLock = new FileStream(Path.Combine(fixture.Project, "rukari-voices", ".import.lock"),
+                   FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+        {
+            lookup = Task.Run(() =>
+            {
+                bool resolved = ProjectVoiceImportPolicy.TryResolvePath(fixture.Project, legacy.ResourceKey, out string path);
+                return (resolved, path);
+            });
+            completed = lookup.Wait(TimeSpan.FromSeconds(2));
+        }
+        // Always join after releasing the fixture lock, even if a regression waited for it.
+        var result = lookup.GetAwaiter().GetResult();
+        True(completed);
+        True(result.Resolved);
+        Equal(Path.GetFullPath(Path.Combine(fixture.Project, legacy.RelativePath)), result.Path);
+        True(oldIndex.SequenceEqual(File.ReadAllBytes(fixture.IndexPath)));
+    }
+
+    internal static void CancellationRestoresMovedLegacyFilesAndRemovesOnlyNewFiles()
+    {
+        using var fixture = new Fixture();
+        VoiceImportSource a = fixture.Audio("legacy-a.wav", 56, "ogg");
+        VoiceImportSource b = fixture.Audio("legacy-b.wav", 57, "ogg");
+        ProjectVoiceImportEntry[] legacy = fixture.SeedLegacyImports(a, b);
+        VoiceImportSource added = fixture.Audio("added.wav", 58, "wav");
+        byte[] oldIndex = File.ReadAllBytes(fixture.IndexPath);
+        using var cancel = new CancellationTokenSource();
+        bool checkpointReached = false;
+
+        Throws<OperationCanceledException>(() => ProjectVoiceImportPolicy.ImportAsync(new(fixture.Project), fixture.Source,
+            new[] { a, b, added }, 0, cancel.Token, () =>
+            {
+                checkpointReached = true;
+                foreach (ProjectVoiceImportEntry entry in legacy)
+                {
+                    string original = Path.Combine(fixture.Project, entry.RelativePath);
+                    True(!File.Exists(original));
+                    True(File.Exists(Path.ChangeExtension(original, ".ogg")));
+                }
+                cancel.Cancel();
+            }).GetAwaiter().GetResult());
+
+        True(checkpointReached);
+        True(oldIndex.SequenceEqual(File.ReadAllBytes(fixture.IndexPath)));
+        foreach (ProjectVoiceImportEntry entry in legacy)
+        {
+            string original = Path.Combine(fixture.Project, entry.RelativePath);
+            True(File.Exists(original));
+            True(!File.Exists(Path.ChangeExtension(original, ".ogg")));
+            Equal(entry.Hash, Hash(File.ReadAllBytes(original)));
+        }
+        True(!File.Exists(Path.Combine(fixture.Project, "rukari-voices", Hash(File.ReadAllBytes(added.FullPath)) + ".wav")));
+        Equal(2, ProjectVoiceImportPolicy.ReadCatalog(fixture.Project).Count);
+        Equal(legacy[0].Hash, Hash(File.ReadAllBytes(a.FullPath)));
+        Equal(legacy[1].Hash, Hash(File.ReadAllBytes(b.FullPath)));
+        Equal(0, Directory.GetDirectories(Path.Combine(fixture.Project, "rukari-voices"), ".pending-*").Length);
+    }
+
+    internal static void CommitFailureRestoresMovesAndPreservesPreexistingCorrectedTargets()
+    {
+        using var fixture = new Fixture();
+        VoiceImportSource a = fixture.Audio("legacy-a.wav", 59, "ogg");
+        VoiceImportSource b = fixture.Audio("legacy-b.wav", 60, "ogg");
+        ProjectVoiceImportEntry[] legacy = fixture.SeedLegacyImports(a, b);
+        string originalA = Path.Combine(fixture.Project, legacy[0].RelativePath);
+        string originalB = Path.Combine(fixture.Project, legacy[1].RelativePath);
+        string preexisting = Path.ChangeExtension(originalB, ".ogg");
+        File.Copy(originalB, preexisting);
+        File.SetLastWriteTimeUtc(preexisting, File.GetLastWriteTimeUtc(originalB).AddMinutes(-1));
+        long preexistingTicks = File.GetLastWriteTimeUtc(preexisting).Ticks;
+        byte[] preexistingBytes = File.ReadAllBytes(preexisting);
+        byte[] oldIndex = File.ReadAllBytes(fixture.IndexPath);
+        string savedIndex = Path.Combine(fixture.Root, "index-before-obstruction.json");
+        bool obstructed = false;
+
+        try
+        {
+            Throws<IOException>(() => ProjectVoiceImportPolicy.ImportAsync(new(fixture.Project), fixture.Source,
+                new[] { a, b }, 0, CancellationToken.None, () =>
+                {
+                    True(!File.Exists(originalA));
+                    True(File.Exists(Path.ChangeExtension(originalA, ".ogg")));
+                    True(File.Exists(originalB));
+                    // A directory at the index destination forces the actual CommitIndex operation
+                    // to fail on every platform. Preserve the previous fixture index separately.
+                    File.Move(fixture.IndexPath, savedIndex);
+                    obstructed = true;
+                    Directory.CreateDirectory(fixture.IndexPath);
+                }).GetAwaiter().GetResult());
+        }
+        finally
+        {
+            if (obstructed)
+            {
+                if (Directory.Exists(fixture.IndexPath)) Directory.Delete(fixture.IndexPath, recursive: false);
+                File.Move(savedIndex, fixture.IndexPath, overwrite: false);
+            }
+        }
+
+        True(obstructed);
+        True(oldIndex.SequenceEqual(File.ReadAllBytes(fixture.IndexPath)));
+        True(File.Exists(originalA));
+        True(!File.Exists(Path.ChangeExtension(originalA, ".ogg")));
+        True(File.Exists(originalB));
+        True(preexistingBytes.SequenceEqual(File.ReadAllBytes(preexisting)));
+        Equal(preexistingTicks, File.GetLastWriteTimeUtc(preexisting).Ticks);
+        Equal(2, ProjectVoiceImportPolicy.ReadCatalog(fixture.Project).Count);
+        Equal(legacy[0].Hash, Hash(File.ReadAllBytes(a.FullPath)));
+        Equal(legacy[1].Hash, Hash(File.ReadAllBytes(b.FullPath)));
+
+        // A later destination failure must also undo earlier repairs before the commit checkpoint
+        // is ever reached. This destination existed before the batch and belongs to another writer.
+        using var laterFailure = new Fixture();
+        VoiceImportSource repairFirst = laterFailure.Audio("repair-first.wav", 63, "ogg");
+        VoiceImportSource failSecond = laterFailure.Audio("fail-second.wav", 64, "wav");
+        ProjectVoiceImportEntry earlier = laterFailure.SeedLegacyImports(repairFirst).Single();
+        string oldPath = Path.Combine(laterFailure.Project, earlier.RelativePath);
+        string correctedPath = Path.ChangeExtension(oldPath, ".ogg");
+        byte[] repairSourceBytes = File.ReadAllBytes(repairFirst.FullPath);
+        byte[] secondSourceBytes = File.ReadAllBytes(failSecond.FullPath);
+        byte[] previousIndex = File.ReadAllBytes(laterFailure.IndexPath);
+        byte[] corruptTarget = secondSourceBytes.ToArray();
+        corruptTarget[^1] ^= 1; // Same length and valid container; the content hash itself must reject it.
+        string foreignTarget = Path.Combine(laterFailure.Project, "rukari-voices", Hash(secondSourceBytes) + ".wav");
+        File.WriteAllBytes(foreignTarget, corruptTarget);
+        Equal(earlier.Hash, Hash(File.ReadAllBytes(oldPath)));
+        bool reachedCommit = false;
+        IOException? destinationFailure = null;
+        try
+        {
+            ProjectVoiceImportPolicy.ImportAsync(new(laterFailure.Project), laterFailure.Source,
+                new[] { repairFirst, failSecond }, 0, CancellationToken.None, () => reachedCommit = true)
+                .GetAwaiter().GetResult();
+        }
+        catch (IOException ex) { destinationFailure = ex; }
+        if (destinationFailure is null) throw new InvalidOperationException("Expected the later corrupt destination to fail.");
+        Equal("目标语音文件与内容键不一致；未覆盖该文件。", destinationFailure.Message);
+        True(!reachedCommit);
+        True(previousIndex.SequenceEqual(File.ReadAllBytes(laterFailure.IndexPath)));
+        True(File.Exists(oldPath));
+        True(!File.Exists(correctedPath));
+        True(repairSourceBytes.SequenceEqual(File.ReadAllBytes(oldPath)));
+        True(corruptTarget.SequenceEqual(File.ReadAllBytes(foreignTarget)));
+        True(repairSourceBytes.SequenceEqual(File.ReadAllBytes(repairFirst.FullPath)));
+        True(secondSourceBytes.SequenceEqual(File.ReadAllBytes(failSecond.FullPath)));
+        Equal(earlier.RelativePath, ProjectVoiceImportPolicy.ReadCatalog(laterFailure.Project).Single().RelativePath);
+        Equal(0, Directory.GetDirectories(Path.Combine(laterFailure.Project, "rukari-voices"), ".pending-*").Length);
+    }
+
+    internal static void RollbackLeavesForeignReplacementsAndReappearingOldPathsUntouched()
+    {
+        using var fixture = new Fixture();
+        VoiceImportSource a = fixture.Audio("legacy-a.wav", 61, "ogg");
+        VoiceImportSource b = fixture.Audio("legacy-b.wav", 62, "ogg");
+        ProjectVoiceImportEntry[] legacy = fixture.SeedLegacyImports(a, b);
+        string originalA = Path.Combine(fixture.Project, legacy[0].RelativePath);
+        string originalB = Path.Combine(fixture.Project, legacy[1].RelativePath);
+        string movedA = Path.ChangeExtension(originalA, ".ogg");
+        string movedB = Path.ChangeExtension(originalB, ".ogg");
+        byte[] foreignA = { 81, 82, 83 };
+        byte[] foreignB = { 91, 92, 93 };
+        byte[] oldIndex = File.ReadAllBytes(fixture.IndexPath);
+        bool checkpointReached = false;
+
+        Throws<IOException>(() => ProjectVoiceImportPolicy.ImportAsync(new(fixture.Project), fixture.Source,
+            new[] { a, b }, 0, CancellationToken.None, () =>
+            {
+                checkpointReached = true;
+                True(!File.Exists(originalA) && !File.Exists(originalB));
+                File.WriteAllBytes(movedA, foreignA);
+                File.WriteAllBytes(originalB, foreignB);
+                throw new IOException("Injected failure after another writer replaced private paths.");
+            }).GetAwaiter().GetResult());
+
+        True(checkpointReached);
+        True(oldIndex.SequenceEqual(File.ReadAllBytes(fixture.IndexPath)));
+        True(!File.Exists(originalA));
+        True(foreignA.SequenceEqual(File.ReadAllBytes(movedA)));
+        True(foreignB.SequenceEqual(File.ReadAllBytes(originalB)));
+        Equal(legacy[1].Hash, Hash(File.ReadAllBytes(movedB)));
+        Equal(legacy[0].Hash, Hash(File.ReadAllBytes(a.FullPath)));
+        Equal(legacy[1].Hash, Hash(File.ReadAllBytes(b.FullPath)));
+    }
+
     private static void ImportUsesContentKeysAndNeverChangesManifest()
     {
         using var fixture = new Fixture();
@@ -336,6 +585,23 @@ internal static class ProjectVoiceImportTests
         }
         internal VoiceImportResult Import(params VoiceImportSource[] sources) => ProjectVoiceImportPolicy.ImportAsync(
             new(Project), Source, sources, 0, CancellationToken.None).GetAwaiter().GetResult();
+
+        internal ProjectVoiceImportEntry[] SeedLegacyImports(params VoiceImportSource[] sources)
+        {
+            string directory = Path.Combine(Project, "rukari-voices");
+            Directory.CreateDirectory(directory);
+            ProjectVoiceImportEntry[] entries = sources.Select(source =>
+            {
+                string hash = Hash(File.ReadAllBytes(source.FullPath));
+                string relative = "rukari-voices/" + hash + source.Extension;
+                string stored = Path.Combine(Project, relative);
+                File.Copy(source.FullPath, stored);
+                return new ProjectVoiceImportEntry(hash, relative, source.RelativePath, source.Length,
+                    File.GetLastWriteTimeUtc(stored).Ticks);
+            }).ToArray();
+            File.WriteAllText(IndexPath, JsonSerializer.Serialize(new { Version = 1, Entries = entries }));
+            return entries;
+        }
         public void Dispose()
         {
             string full = Path.GetFullPath(Root);

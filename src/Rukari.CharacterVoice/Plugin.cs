@@ -22,7 +22,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string Guid = "rukari.charactervoice";
     public const string Name = "人物配音支持";
-    public const string Version = "1.6.4";
+    public const string Version = "1.6.5";
     internal static ManualLogSource Logger { get; private set; } = null!;
     private static VoiceAuthoringSession? _voice;
     private static VoiceToolPage? _page;

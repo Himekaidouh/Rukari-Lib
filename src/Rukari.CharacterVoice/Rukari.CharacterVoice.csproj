@@ -3,7 +3,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>Rukari.CharacterVoice</AssemblyName>
     <RootNamespace>Rukari.CharacterVoice</RootNamespace>
-    <Version>1.6.4</Version>
+    <Version>1.6.5</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>

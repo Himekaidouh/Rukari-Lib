@@ -36,6 +36,7 @@ internal static partial class ProjectVoiceImportPolicy
     private sealed record IndexDocument(int Version, List<ProjectVoiceImportEntry> Entries);
     private sealed record Staged(VoiceImportSource Source, string Path, string Hash);
     private sealed record Published(string Path, string Hash, long Length);
+    private sealed record MovedPrivateVoice(string OriginalPath, string MovedPath, string Hash, long Length);
 
     internal static bool IsImportKey(string? key) => key?.StartsWith(ResourceKeyPrefix, StringComparison.Ordinal) == true;
 
@@ -71,16 +72,24 @@ internal static partial class ProjectVoiceImportPolicy
 
     internal static Task<VoiceImportResult> ImportAsync(VoiceImportProject project, string sourceRoot,
         IReadOnlyList<VoiceImportSource> sources, int skippedFiles, CancellationToken cancellationToken)
+        => ImportAsync(project, sourceRoot, sources, skippedFiles, cancellationToken, beforeIndexCommit: null);
+
+    // Per-operation checkpoint keeps cancellation and commit failures deterministic in managed tests.
+    // The runtime uses the original overload and never supplies a callback.
+    internal static Task<VoiceImportResult> ImportAsync(VoiceImportProject project, string sourceRoot,
+        IReadOnlyList<VoiceImportSource> sources, int skippedFiles, CancellationToken cancellationToken,
+        Action? beforeIndexCommit)
     {
         // Snapshot all managed values before dispatch. Never allow caller mutation of a pending batch.
         var capturedProject = new VoiceImportProject(NormalizeIdentity(project.RootPath));
         string capturedSource = NormalizeIdentity(sourceRoot);
         VoiceImportSource[] files = sources.ToArray();
-        return Task.Run(() => Import(capturedProject, capturedSource, files, skippedFiles, cancellationToken), cancellationToken);
+        return Task.Run(() => Import(capturedProject, capturedSource, files, skippedFiles, cancellationToken,
+            beforeIndexCommit), cancellationToken);
     }
 
     private static VoiceImportResult Import(VoiceImportProject project, string sourceRoot,
-        VoiceImportSource[] sources, int skippedFiles, CancellationToken cancellationToken)
+        VoiceImportSource[] sources, int skippedFiles, CancellationToken cancellationToken, Action? beforeIndexCommit)
     {
         cancellationToken.ThrowIfCancellationRequested();
         string root = NormalizeProjectRoot(project.RootPath);
@@ -100,6 +109,7 @@ internal static partial class ProjectVoiceImportPolicy
         var sourceNames = sources.GroupBy(item => Path.GetFileName(item.RelativePath), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
         var created = new List<Published>();
+        var moved = new List<MovedPrivateVoice>();
         var staged = new List<Staged>();
         var temporaryFiles = new List<string>();
         string temporaryDirectory = ContainedPath(directory, ".pending-" + Guid.NewGuid().ToString("N"));
@@ -138,7 +148,8 @@ internal static partial class ProjectVoiceImportPolicy
                 {
                     if (MismatchedContainer(root, prior) is string priorContainer)
                     {
-                        ProjectVoiceImportEntry healedPrior = HealStoredExtension(root, entries, prior, priorContainer, cancellationToken);
+                        ProjectVoiceImportEntry healedPrior = HealStoredExtension(root, entries, prior, priorContainer,
+                            moved, cancellationToken);
                         if (!ReferenceEquals(healedPrior, prior))
                         {
                             prior = healedPrior;
@@ -205,6 +216,7 @@ internal static partial class ProjectVoiceImportPolicy
             {
                 string pendingIndex = ContainedPath(temporaryDirectory, "index.json");
                 WriteIndexFile(pendingIndex, entries);
+                beforeIndexCommit?.Invoke();
                 RejectReparsePoints(indexPath);
                 RejectReparsePoints(directory);
                 cancellationToken.ThrowIfCancellationRequested();
@@ -217,7 +229,10 @@ internal static partial class ProjectVoiceImportPolicy
         finally
         {
             if (!committed)
+            {
                 foreach (Published file in created.AsEnumerable().Reverse()) RollBackPublishedFile(root, file);
+                foreach (MovedPrivateVoice file in moved.AsEnumerable().Reverse()) RollBackPrivateVoiceMove(root, file);
+            }
             // Delete individual verified children; never recursively delete a computed directory.
             foreach (string path in temporaryFiles) SafeDeleteOwnedFile(temporaryDirectory, path);
             SafeDeleteOwnedFile(temporaryDirectory, Path.Combine(temporaryDirectory, "index.json"));
@@ -250,6 +265,10 @@ internal static partial class ProjectVoiceImportPolicy
     }
 
     internal static bool TryResolvePath(string projectRoot, string resourceKey, out string path)
+        => TryResolvePath(projectRoot, resourceKey, beforeRepairLock: null, out path);
+
+    // The checkpoint models a background import committing between the unlocked read and repair.
+    internal static bool TryResolvePath(string projectRoot, string resourceKey, Action? beforeRepairLock, out string path)
     {
         path = string.Empty;
         if (!IsImportKey(resourceKey)) return false;
@@ -263,7 +282,12 @@ internal static partial class ProjectVoiceImportPolicy
             if (entry is null) return false;
             // A voice stored before the container was understood is repaired on first use: the binding is a
             // content hash, so renaming the file keeps every voices.txt entry pointing at the same key.
-            if (MismatchedContainer(root, entry) is string container) entry = HealWithLock(root, entries, entry, container);
+            if (MismatchedContainer(root, entry) is not null)
+            {
+                beforeRepairLock?.Invoke();
+                entry = HealWithLock(root, entry);
+                if (entry is null) return false;
+            }
             if (!IsAvailable(root, entry)) return false;
             path = ContainedPath(root, entry.RelativePath);
             return true;
@@ -321,37 +345,49 @@ internal static partial class ProjectVoiceImportPolicy
     }
 
     /// <summary>Repairs a stored extension while an import is not in flight, so the index write cannot race one.</summary>
-    private static ProjectVoiceImportEntry HealWithLock(string root, List<ProjectVoiceImportEntry> entries,
-        ProjectVoiceImportEntry entry, string container)
+    private static ProjectVoiceImportEntry? HealWithLock(string root, ProjectVoiceImportEntry entry)
     {
         FileStream? importLock = null;
+        var moved = new List<MovedPrivateVoice>();
+        bool committed = false;
         try
         {
             // An import holds this lock for its whole batch; the next lookup repairs instead of blocking
             // the Unity thread behind it.
             try { importLock = AcquireLock(ContainedPath(root, DirectoryName + "/.import.lock"), CancellationToken.None, TimeSpan.Zero); }
             catch (IOException) { return entry; }
-            ProjectVoiceImportEntry healed = HealStoredExtension(root, entries, entry, container, CancellationToken.None);
-            if (ReferenceEquals(healed, entry)) return entry;
-            try { WriteIndexInPlace(root, entries); }
-            catch
+            // A background import may have committed since the unlocked lookup. Neither that snapshot
+            // nor its probed container may authorize a rename or replacement of the current index.
+            List<ProjectVoiceImportEntry> entries = ReadIndex(root);
+            ProjectVoiceImportEntry? current = entries.FirstOrDefault(item => item.Hash == entry.Hash);
+            if (current is null) return null;
+            if (MismatchedContainer(root, current) is not string container)
             {
-                // The index still names the old path, so put the file back rather than leave the two apart.
-                try { File.Move(ContainedPath(root, healed.RelativePath), ContainedPath(root, entry.RelativePath), overwrite: false); }
-                catch (Exception rollback) when (rollback is IOException or UnauthorizedAccessException) { }
-                throw;
+                VerifyExisting(ContainedPath(root, current.RelativePath), current.Hash, current.Length, CancellationToken.None);
+                return current;
             }
+            ProjectVoiceImportEntry healed = HealStoredExtension(root, entries, current, container, moved,
+                CancellationToken.None);
+            if (ReferenceEquals(healed, current)) return current;
+            WriteIndexInPlace(root, entries);
+            committed = true;
             return healed;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { return entry; }
-        finally { importLock?.Dispose(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { return null; }
+        finally
+        {
+            if (!committed)
+                foreach (MovedPrivateVoice file in moved.AsEnumerable().Reverse()) RollBackPrivateVoiceMove(root, file);
+            importLock?.Dispose();
+        }
     }
 
     /// <summary>Renames the stored file to the container's extension and records the new relative path.</summary>
     private static ProjectVoiceImportEntry HealStoredExtension(string root, List<ProjectVoiceImportEntry> entries,
-        ProjectVoiceImportEntry entry, string container, CancellationToken token)
+        ProjectVoiceImportEntry entry, string container, List<MovedPrivateVoice> moved, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
+        if (entry.RestoredNative) return entry;
         string relative = DirectoryName + "/" + entry.Hash + container;
         string destination = ContainedPath(root, relative);
         if (File.Exists(destination))
@@ -363,9 +399,12 @@ internal static partial class ProjectVoiceImportPolicy
             string current = ContainedPath(root, entry.RelativePath);
             RejectReparsePoints(current);
             RejectReparsePoints(destination);
+            VerifyExisting(current, entry.Hash, entry.Length, token);
+            token.ThrowIfCancellationRequested();
             File.Move(current, destination, overwrite: false);
+            moved.Add(new(current, destination, entry.Hash, entry.Length));
         }
-        var healed = entry with { RelativePath = relative };
+        var healed = entry with { RelativePath = relative, LastWriteTimeUtcTicks = File.GetLastWriteTimeUtc(destination).Ticks };
         int index = entries.IndexOf(entry);
         if (index >= 0) entries[index] = healed;
         return healed;
@@ -665,6 +704,22 @@ internal static partial class ProjectVoiceImportPolicy
             // pending. Rollback must not remove those foreign bytes, even though our index failed.
             if (HasHash(file.Path, file.Hash, file.Length, CancellationToken.None))
                 SafeDeleteOwnedFile(root, file.Path);
+        }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
+
+    private static void RollBackPrivateVoiceMove(string root, MovedPrivateVoice file)
+    {
+        try
+        {
+            string original = ContainedPath(root, Path.GetRelativePath(root, file.OriginalPath).Replace('\\', '/'));
+            string moved = ContainedPath(root, Path.GetRelativePath(root, file.MovedPath).Replace('\\', '/'));
+            RejectReparsePoints(original);
+            RejectReparsePoints(moved);
+            // Only undo the move this transaction made. Existing targets and foreign replacements
+            // are never deleted, and a reappearing old path is never overwritten.
+            if (!File.Exists(original) && HasHash(moved, file.Hash, file.Length, CancellationToken.None))
+                File.Move(moved, original, overwrite: false);
         }
         catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
