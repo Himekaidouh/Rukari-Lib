@@ -77,6 +77,21 @@ public sealed class CharacterPresetDirectiveParser : ICharacterPresetDirectivePa
 
                 command = command with { Bezier = new CharacterPresetBezier(x1, y1, x2, y2) };
             }
+            else if (key == "axis")
+            {
+                CharacterPresetSpinAxis? axis = value.ToLowerInvariant() switch
+                {
+                    "x" => CharacterPresetSpinAxis.X,
+                    "y" => CharacterPresetSpinAxis.Y,
+                    _ => null
+                };
+                if (!axis.HasValue)
+                {
+                    return Result<CharacterPresetCommand>.Fail("Property 'axis' must be x or y.");
+                }
+
+                command = command with { SpinAxis = axis.Value };
+            }
             else if (key == "direction")
             {
                 int direction = value.ToLowerInvariant() switch { "left" => -1, "right" => 1, _ => 0 };
@@ -128,6 +143,7 @@ public sealed class CharacterPresetDirectiveParser : ICharacterPresetDirectivePa
             && float.IsFinite(value) && value is >= 0f and <= 1f;
 
     private static bool IsAllowed(CharacterPresetKind kind, string key) => key == "bezier"
+        || (key == "axis" && kind == CharacterPresetKind.Spin)
         || (kind == CharacterPresetKind.Headbutt
             ? key is "back" or "forward" or "duration" or "direction"
             : key is "frequency" or "cycles" or "direction"

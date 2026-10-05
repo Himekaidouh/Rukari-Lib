@@ -34,13 +34,17 @@ public static class CharacterTransformCommandValidator
                 command.DeltaX,
                 command.DeltaY,
                 command.RotationDegrees,
-                command.DeltaRotationDegrees))
+                command.DeltaRotationDegrees,
+                command.RotationXDegrees,
+                command.DeltaRotationXDegrees))
         {
             return Result.Fail("Character transform values must be finite numbers.");
         }
 
         if (Math.Abs(command.RotationDegrees ?? 0f) > MaximumRotationDegrees
-            || Math.Abs(command.DeltaRotationDegrees ?? 0f) > MaximumRotationDegrees)
+            || Math.Abs(command.DeltaRotationDegrees ?? 0f) > MaximumRotationDegrees
+            || Math.Abs(command.RotationXDegrees ?? 0f) > MaximumRotationDegrees
+            || Math.Abs(command.DeltaRotationXDegrees ?? 0f) > MaximumRotationDegrees)
         {
             return Result.Fail(
                 $"Rotation must stay within ±{MaximumRotationDegrees} degrees "
@@ -60,7 +64,8 @@ public static class CharacterTransformCommandValidator
     {
         if (command.DeltaX.HasValue
             || command.DeltaY.HasValue
-            || command.DeltaRotationDegrees.HasValue)
+            || command.DeltaRotationDegrees.HasValue
+            || command.DeltaRotationXDegrees.HasValue)
         {
             return Result.Fail("Set commands cannot contain relative delta properties.");
         }
@@ -68,6 +73,7 @@ public static class CharacterTransformCommandValidator
         if (!command.X.HasValue
             && !command.Y.HasValue
             && !command.RotationDegrees.HasValue
+            && !command.RotationXDegrees.HasValue
             && !command.FlipX.HasValue)
         {
             return Result.Fail("Set commands must change at least one property.");
@@ -81,6 +87,7 @@ public static class CharacterTransformCommandValidator
         if (command.X.HasValue
             || command.Y.HasValue
             || command.RotationDegrees.HasValue
+            || command.RotationXDegrees.HasValue
             || command.FlipX.HasValue)
         {
             return Result.Fail("Move commands cannot contain absolute or flip properties.");
@@ -88,7 +95,8 @@ public static class CharacterTransformCommandValidator
 
         if (!command.DeltaX.HasValue
             && !command.DeltaY.HasValue
-            && !command.DeltaRotationDegrees.HasValue)
+            && !command.DeltaRotationDegrees.HasValue
+            && !command.DeltaRotationXDegrees.HasValue)
         {
             return Result.Fail("Move commands must change at least one property.");
         }
@@ -104,6 +112,8 @@ public static class CharacterTransformCommandValidator
             || command.DeltaY.HasValue
             || command.RotationDegrees.HasValue
             || command.DeltaRotationDegrees.HasValue
+            || command.RotationXDegrees.HasValue
+            || command.DeltaRotationXDegrees.HasValue
             || command.FlipX.HasValue)
         {
             return Result.Fail("Reset commands cannot contain transform properties.");

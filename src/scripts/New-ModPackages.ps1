@@ -15,6 +15,7 @@ $repositoryRoot = Split-Path -Parent $srcRoot
 $outputRoot = [IO.Path]::GetFullPath($OutputDirectory)
 $utf8 = [Text.UTF8Encoding]::new($false)
 $comparison = [StringComparison]::OrdinalIgnoreCase
+. (Join-Path $PSScriptRoot 'PackagingReadRetry.ps1')
 
 function Is-Within([string]$Path, [string]$Root) {
     $base = [IO.Path]::GetFullPath($Root).TrimEnd('\','/')
@@ -41,7 +42,7 @@ function Assert-File([string]$Path) {
 
 function Get-Hash([string]$Path) {
     Assert-File $Path
-    (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+    Invoke-PackagingReadWithRetry { (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash }
 }
 
 function Assert-Hash([string]$Path, [string]$Expected) {
@@ -260,13 +261,14 @@ if ($Zip) {
     try {
         $archive = [IO.Compression.ZipArchive]::new($zipStream,[IO.Compression.ZipArchiveMode]::Create,$true)
         try {
-            $zipInputs = @($plans | ForEach-Object { [pscustomobject]@{Path=$_.Destination;Entry=$_.Relative} })
+            $zipInputs = @($plans | ForEach-Object { [pscustomobject]@{Path=$_.Destination;Entry=$_.Relative;SHA256=$_.SHA256} })
             # Keep developer receipts and local machine paths outside the user-facing ZIP.
             foreach ($rootFile in @('README.txt')) {
-                $zipInputs += [pscustomobject]@{Path=(Join-Path $outputRoot $rootFile);Entry=$rootFile}
+                $rootPath = Join-Path $outputRoot $rootFile
+                $zipInputs += [pscustomobject]@{Path=$rootPath;Entry=$rootFile;SHA256=(Get-Hash $rootPath)}
             }
             foreach ($inputFile in $zipInputs) {
-                [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive,$inputFile.Path,$inputFile.Entry,[IO.Compression.CompressionLevel]::Optimal)
+                Add-PackagingZipEntry $archive $inputFile.Path $inputFile.Entry $inputFile.SHA256
             }
         } finally { $archive.Dispose() }
     } finally { $zipStream.Dispose() }

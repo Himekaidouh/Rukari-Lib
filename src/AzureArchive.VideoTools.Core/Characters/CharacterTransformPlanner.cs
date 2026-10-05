@@ -40,12 +40,13 @@ public sealed class CharacterTransformPlanner : ICharacterTransformPlanner
             case CharacterTransformOperation.Set:
                 targetState = PlanSet(command, current, baseline);
                 positionChanged = command.X.HasValue || command.Y.HasValue;
-                rotationChanged = command.RotationDegrees.HasValue || command.FlipX.HasValue;
+                rotationChanged = command.RotationDegrees.HasValue
+                    || command.RotationXDegrees.HasValue || command.FlipX.HasValue;
                 break;
             case CharacterTransformOperation.Move:
                 targetState = PlanMove(command, current);
                 positionChanged = command.DeltaX.HasValue || command.DeltaY.HasValue;
-                rotationChanged = command.DeltaRotationDegrees.HasValue;
+                rotationChanged = command.DeltaRotationDegrees.HasValue || command.DeltaRotationXDegrees.HasValue;
                 break;
             case CharacterTransformOperation.Reset:
                 targetState = AdjustToNearestEquivalent(baseline.State, current);
@@ -94,6 +95,7 @@ public sealed class CharacterTransformPlanner : ICharacterTransformPlanner
         bool resetAll = command.Operation == CharacterTransformOperation.Reset;
         bool restoreX = resetAll || command.X.HasValue || command.DeltaX.HasValue;
         bool restoreY = resetAll || command.Y.HasValue || command.DeltaY.HasValue;
+        bool restoreRotationX = resetAll || command.RotationXDegrees.HasValue || command.DeltaRotationXDegrees.HasValue;
         bool restoreRotationY = resetAll || command.FlipX.HasValue;
         bool restoreRotationZ = resetAll
             || command.RotationDegrees.HasValue
@@ -105,8 +107,10 @@ public sealed class CharacterTransformPlanner : ICharacterTransformPlanner
                 restoreY ? baseline.State.Position.Y : current.Position.Y,
                 resetAll ? baseline.State.Position.Z : current.Position.Z),
             new CharacterVector3(
-                resetAll
-                    ? baseline.State.LocalEulerAngles.X
+                restoreRotationX
+                    ? CharacterAngleMath.NearestPathFromCurrent(
+                        baseline.State.LocalEulerAngles.X,
+                        current.LocalEulerAngles.X)
                     : current.LocalEulerAngles.X,
                 restoreRotationY
                     ? CharacterAngleMath.NearestPathFromCurrent(
@@ -122,7 +126,7 @@ public sealed class CharacterTransformPlanner : ICharacterTransformPlanner
         return Result<CharacterTransformTarget>.Ok(new CharacterTransformTarget(
             restored,
             restoreX || restoreY || resetAll,
-            restoreRotationY || restoreRotationZ || resetAll,
+            restoreRotationX || restoreRotationY || restoreRotationZ || resetAll,
             0,
             CharacterTransformEasing.Linear,
             false));
@@ -138,17 +142,11 @@ public sealed class CharacterTransformPlanner : ICharacterTransformPlanner
             command.Y ?? current.Position.Y,
             current.Position.Z);
         var rotation = new CharacterVector3(
-            current.LocalEulerAngles.X,
+            PlanSetRotation(current.LocalEulerAngles.X, command.RotationXDegrees),
             command.FlipX.HasValue
                 ? FlipY(baseline.State.LocalEulerAngles.Y, current.LocalEulerAngles.Y, command.FlipX.Value)
                 : current.LocalEulerAngles.Y,
-            command.RotationDegrees.HasValue
-                ? (CharacterAngleMath.IsDeliberateMultiTurn(command.RotationDegrees.Value)
-                    ? command.RotationDegrees.Value
-                    : CharacterAngleMath.NearestPathFromCurrent(
-                        command.RotationDegrees.Value,
-                        current.LocalEulerAngles.Z))
-                : current.LocalEulerAngles.Z);
+            PlanSetRotation(current.LocalEulerAngles.Z, command.RotationDegrees));
         return new CharacterTransformState(position, rotation);
     }
 
@@ -161,27 +159,33 @@ public sealed class CharacterTransformPlanner : ICharacterTransformPlanner
             current.Position.Y + (command.DeltaY ?? 0f),
             current.Position.Z);
         var rotation = new CharacterVector3(
-            current.LocalEulerAngles.X,
+            PlanMoveRotation(current.LocalEulerAngles.X, command.DeltaRotationXDegrees),
             current.LocalEulerAngles.Y,
-            PlanMoveRotationZ(current, command.DeltaRotationDegrees));
+            PlanMoveRotation(current.LocalEulerAngles.Z, command.DeltaRotationDegrees));
         return new CharacterTransformState(position, rotation);
     }
 
-    private static float PlanMoveRotationZ(
-        CharacterTransformState current,
+    private static float PlanSetRotation(float current, float? absoluteRotation) => !absoluteRotation.HasValue
+        ? current
+        : CharacterAngleMath.IsDeliberateMultiTurn(absoluteRotation.Value)
+            ? absoluteRotation.Value
+            : CharacterAngleMath.NearestPathFromCurrent(absoluteRotation.Value, current);
+
+    private static float PlanMoveRotation(
+        float current,
         float? deltaRotation)
     {
         if (!deltaRotation.HasValue)
         {
-            return current.LocalEulerAngles.Z;
+            return current;
         }
 
-        float unclamped = current.LocalEulerAngles.Z + deltaRotation.Value;
+        float unclamped = current + deltaRotation.Value;
         return CharacterAngleMath.IsDeliberateMultiTurn(deltaRotation.Value)
             ? unclamped
             : CharacterAngleMath.NearestPathFromCurrent(
                 unclamped,
-                current.LocalEulerAngles.Z);
+                current);
     }
 
     private static float FlipY(float baselineY, float currentY, bool flipped) =>
@@ -196,7 +200,9 @@ public sealed class CharacterTransformPlanner : ICharacterTransformPlanner
         new(
             target.Position,
             new CharacterVector3(
-                target.LocalEulerAngles.X,
+                CharacterAngleMath.NearestPathFromCurrent(
+                    target.LocalEulerAngles.X,
+                    current.LocalEulerAngles.X),
                 CharacterAngleMath.NearestPathFromCurrent(
                     target.LocalEulerAngles.Y,
                     current.LocalEulerAngles.Y),

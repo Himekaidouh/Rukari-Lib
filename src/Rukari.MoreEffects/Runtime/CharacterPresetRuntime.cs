@@ -45,9 +45,36 @@ internal sealed class CharacterPresetRuntime
             if (live == null) return ApiResult<bool>.Fail($"Character preset slot {slot} is unavailable.");
             CharacterPresetPose pose = Read(live.Transform);
             if (!CharacterPresetPoseOverlay.IsFinite(pose)) return ApiResult<bool>.Fail("Character pose is non-finite.");
+            if (parsed.Value.Kind == CharacterPresetKind.Spin && parsed.Value.SpinAxis == CharacterPresetSpinAxis.X)
+            {
+                // StopSlot already removed this slot's previous overlay, so the
+                // existing read service returns its authored Euler representation
+                // without projecting this new effect or entering recursive reads.
+                var snapshots = Plugin.Api.CharacterTransforms.ReadSlotsOnMainThread();
+                CharacterSlotSnapshot? snapshot = snapshots.Success ? snapshots.Value?.FirstOrDefault(item =>
+                    item.PublicSlot == slot && item.Occupied
+                    && string.Equals(item.OccupantIdentifier, live.Occupant, StringComparison.Ordinal)) : null;
+                if (snapshot?.State is not { } authored || !authored.LocalEulerAngles.IsFinite)
+                    return ApiResult<bool>.Fail("Authored rotation is unavailable for the X-axis preset.");
+                CharacterVector3 euler = authored.LocalEulerAngles;
+                float physicalZ = CharacterScreenRotation.IsHorizontallyFlipped(euler.Y) ? -euler.Z : euler.Z;
+                CharacterPresetPose reference = pose with { EulerX = euler.X, EulerY = euler.Y, EulerZ = physicalZ };
+                LiveTarget? confirmed = Resolve(slot);
+                if (confirmed == null || confirmed.PlayerId != live.PlayerId || confirmed.CharacterId != live.CharacterId
+                    || confirmed.TransformId != live.TransformId || confirmed.PreviewMode != live.PreviewMode
+                    || !string.Equals(confirmed.Occupant, live.Occupant, StringComparison.Ordinal))
+                    return ApiResult<bool>.Fail("Character identity changed while starting the X-axis preset.");
+                CharacterPresetPose measured = Read(confirmed.Transform);
+                if (!CharacterPresetPoseOverlay.IsFinite(measured)
+                    || !CharacterPresetPoseOverlay.SameRotation(pose, reference)
+                    || !CharacterPresetPoseOverlay.SameRotation(measured, reference))
+                    return ApiResult<bool>.Fail("Character rotation changed while starting the X-axis preset.");
+                live = confirmed;
+                pose = CharacterPresetPoseOverlay.ReexpressRotation(measured, reference);
+            }
             _active[slot] = new ActivePreset(sceneIdentity, parsed.Value, windowSequence,
                 live.PlayerId, live.CharacterId, live.TransformId, live.Occupant, live.PreviewMode,
-                Stopwatch.GetTimestamp());
+                Stopwatch.GetTimestamp()) { Before = pose };
             return ApiResult<bool>.Ok(true);
         }
         catch (Exception ex)
@@ -80,7 +107,7 @@ internal sealed class CharacterPresetRuntime
             || active.CharacterId != characterId || active.TransformId != transformId
             || !string.Equals(active.Occupant, occupant, StringComparison.Ordinal)) return current;
         return CharacterPresetPoseOverlay.ProjectAuthoredState(current,
-            active.Before, active.Applied, active.OwnsRotation, active.OwnsYaw);
+            active.Before, active.Applied, active.OwnsRotation, active.OwnsYaw, active.OwnsPitch);
     }
 
     internal void Update()
@@ -151,14 +178,22 @@ internal sealed class CharacterPresetRuntime
             }
 
             CharacterPresetPose before = Read(live.Transform);
+            if (active.Command.Kind == CharacterPresetKind.Spin && active.Command.SpinAxis == CharacterPresetSpinAxis.X)
+            {
+                // Native cleanup and external writers can both choose a different
+                // equivalent triple. Keep the actually observed orientation; the
+                // previous authored triple only selects its nearby representation.
+                before = CharacterPresetPoseOverlay.ReexpressRotation(before, active.Before);
+            }
             CharacterPresetPose target = CharacterPresetPoseOverlay.Apply(before, frame);
             if (!CharacterPresetPoseOverlay.IsFinite(target)) throw new InvalidOperationException("Non-finite preset pose.");
             active.Before = before;
             active.Applied = target;
-            if (frame.RotationDegrees != 0f || frame.YawDegrees != 0f)
+            if (frame.RotationDegrees != 0f || frame.YawDegrees != 0f || frame.PitchDegrees != 0f)
             {
                 active.OwnsRotation = true;
                 active.OwnsYaw = frame.YawDegrees != 0f;
+                active.OwnsPitch = frame.PitchDegrees != 0f;
                 live.Transform.localEulerAngles = new Vector3(target.EulerX, target.EulerY, target.EulerZ);
             }
             if (frame.ScaleX != 1f || frame.ScaleY != 1f)
@@ -200,12 +235,13 @@ internal sealed class CharacterPresetRuntime
         if (!active.OwnsRotation && !active.OwnsScale) return;
         CharacterPresetPose current = Read(transform);
         CharacterPresetPose restored = CharacterPresetPoseOverlay.RemoveOwned(current,
-            active.Before, active.Applied, active.OwnsRotation, active.OwnsScale, active.OwnsYaw);
+            active.Before, active.Applied, active.OwnsRotation, active.OwnsScale, active.OwnsYaw, active.OwnsPitch);
         if (restored.EulerX != current.EulerX || restored.EulerY != current.EulerY
             || restored.EulerZ != current.EulerZ)
             transform.localEulerAngles = new Vector3(restored.EulerX, restored.EulerY, restored.EulerZ);
         active.OwnsRotation = false;
         active.OwnsYaw = false;
+        active.OwnsPitch = false;
         if (restored.ScaleX != current.ScaleX || restored.ScaleY != current.ScaleY)
             transform.localScale = new Vector3(restored.ScaleX, restored.ScaleY, current.ScaleZ);
         active.OwnsScale = false;
@@ -277,6 +313,7 @@ internal sealed class CharacterPresetRuntime
         internal CharacterPresetPose Applied { get; set; }
         internal bool OwnsRotation { get; set; }
         internal bool OwnsYaw { get; set; }
+        internal bool OwnsPitch { get; set; }
         internal bool OwnsScale { get; set; }
         internal bool Stopping { get; set; }
     }

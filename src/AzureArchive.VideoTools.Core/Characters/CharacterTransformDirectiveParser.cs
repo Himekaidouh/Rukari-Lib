@@ -83,6 +83,8 @@ public sealed class CharacterTransformDirectiveParser : ICharacterTransformDirec
         Result<float?> deltaY = ParseOptionalFloat(properties, "dy");
         Result<float?> rotation = ParseOptionalFloat(properties, "rotation");
         Result<float?> deltaRotation = ParseOptionalFloat(properties, "drotation");
+        Result<float?> rotationX = ParseOptionalFloat(properties, "rotationX");
+        Result<float?> deltaRotationX = ParseOptionalFloat(properties, "drotationX");
         Result<bool?> flipX = ParseOptionalBool(properties, "flipX");
         Result<int> duration = ParseDuration(properties);
         Result<CharacterTransformEasing> easing = ParseEasing(properties);
@@ -94,6 +96,8 @@ public sealed class CharacterTransformDirectiveParser : ICharacterTransformDirec
             deltaY,
             rotation,
             deltaRotation,
+            rotationX,
+            deltaRotationX,
             flipX,
             duration,
             easing);
@@ -113,7 +117,11 @@ public sealed class CharacterTransformDirectiveParser : ICharacterTransformDirec
             deltaRotation.Value,
             flipX.Value,
             duration.Value,
-            easing.Value);
+            easing.Value)
+        {
+            RotationXDegrees = rotationX.Value,
+            DeltaRotationXDegrees = deltaRotationX.Value
+        };
         Result validation = CharacterTransformCommandValidator.Validate(command);
         return validation.Success
             ? Result<CharacterTransformCommand>.Ok(command)
@@ -132,8 +140,8 @@ public sealed class CharacterTransformDirectiveParser : ICharacterTransformDirec
 
         IEnumerable<string> operationProperties = operation switch
         {
-            CharacterTransformOperation.Set => new[] { "x", "y", "rotation", "flipX" },
-            CharacterTransformOperation.Move => new[] { "dx", "dy", "drotation" },
+            CharacterTransformOperation.Set => new[] { "x", "y", "rotation", "rotationX", "flipX" },
+            CharacterTransformOperation.Move => new[] { "dx", "dy", "drotation", "drotationX" },
             CharacterTransformOperation.Reset => Array.Empty<string>(),
             _ => Array.Empty<string>()
         };

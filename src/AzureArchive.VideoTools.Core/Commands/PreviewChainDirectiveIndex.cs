@@ -1,4 +1,5 @@
 using System.Globalization;
+using AzureArchive.VideoTools.Core.Cameras;
 using AzureArchive.VideoTools.Core.Projects;
 
 namespace AzureArchive.VideoTools.Core.Commands;
@@ -6,9 +7,9 @@ namespace AzureArchive.VideoTools.Core.Commands;
 /// <summary>
 /// Read-only lookup of canonical directives per scene, built from the AAP
 /// embedded Additional Prompt text only. Characters are keyed by
-/// (node, scene, slot 1..5); the singleton scene camera is keyed by
-/// (node, scene) because it is one resource per scene
-/// (<see cref="SceneCameraCommandFamilyCompiler.SingletonResourceSlot"/>).
+/// (node, scene, slot 1..5); scene cameras are keyed by (node, scene, scope),
+/// with one overall and one background resource per scene. The original
+/// TryGetCamera overload continues to read the overall resource only.
 /// Scenes whose extraction produced errors are excluded entirely (fail-closed)
 /// so a malformed directive can never feed preview chain inheritance.
 /// </summary>
@@ -18,7 +19,7 @@ public sealed class PreviewChainDirectiveIndex
 
     private readonly Dictionary<string, IReadOnlyList<IReadOnlyDictionary<int, string>>>
         _scenesByNode = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, IReadOnlyList<string?>> _camerasByNode =
+    private readonly Dictionary<string, IReadOnlyList<IReadOnlyDictionary<SceneCameraScope, string>>> _camerasByNode =
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, IReadOnlyList<IReadOnlyDictionary<string, string>>>
         _spineByNode = new(StringComparer.Ordinal);
@@ -31,6 +32,7 @@ public sealed class PreviewChainDirectiveIndex
 
     /// <summary>Scenes carrying a canonical scene camera directive.</summary>
     public int CameraSceneCount { get; private set; }
+    public int CameraDirectiveCount { get; private set; }
 
     /// <summary>Scenes carrying at least one spine overlay directive.</summary>
     public int SpineSceneCount { get; private set; }
@@ -52,6 +54,7 @@ public sealed class PreviewChainDirectiveIndex
         ArgumentNullException.ThrowIfNull(promptProjection);
 
         var extractor = new EmbeddedAavtDirectiveExtractor();
+        var cameraParser = new SceneCameraDirectiveParser();
         var index = new PreviewChainDirectiveIndex();
         foreach (StoryNodeSnapshot node in project.Nodes)
         {
@@ -62,7 +65,7 @@ public sealed class PreviewChainDirectiveIndex
             }
 
             var scenes = new IReadOnlyDictionary<int, string>[node.Scenes.Count];
-            var cameras = new string?[node.Scenes.Count];
+            var cameras = new IReadOnlyDictionary<SceneCameraScope, string>[node.Scenes.Count];
             var overlays = new IReadOnlyDictionary<string, string>[node.Scenes.Count];
             for (int sceneIndex = 0; sceneIndex < node.Scenes.Count; sceneIndex++)
             {
@@ -102,16 +105,20 @@ public sealed class PreviewChainDirectiveIndex
                     index.DirectiveCount += slots.Count;
                 }
 
-                // At most one camera directive per scene is enforced by the
-                // extractor's occupied-slot set, so the first match is the one.
-                EmbeddedAavtCommand? cameraCommand = extraction.Commands.FirstOrDefault(
-                    command => command.CanonicalDirective.StartsWith(
-                        SceneCameraCommandFamilyCompiler.CanonicalRootToken + ";",
-                        StringComparison.Ordinal));
-                if (cameraCommand != null)
+                var sceneCameras = new Dictionary<SceneCameraScope, string>();
+                foreach (EmbeddedAavtCommand cameraCommand in extraction.Commands)
                 {
-                    cameras[sceneIndex] = cameraCommand.CanonicalDirective;
+                    if (!cameraCommand.CanonicalDirective.StartsWith(
+                        SceneCameraCommandFamilyCompiler.CanonicalRootToken + ";", StringComparison.Ordinal)) continue;
+                    var parsedCamera = cameraParser.Parse(cameraCommand.CanonicalDirective);
+                    if (!parsedCamera.Success || parsedCamera.Value == null) continue;
+                    sceneCameras[parsedCamera.Value.Scope] = cameraCommand.CanonicalDirective;
+                }
+                if (sceneCameras.Count != 0)
+                {
+                    cameras[sceneIndex] = sceneCameras;
                     index.CameraSceneCount++;
+                    index.CameraDirectiveCount += sceneCameras.Count;
                 }
 
                 // Spine overlays are keyed by (slot, track): a card may drive several tracks of one
@@ -182,13 +189,22 @@ public sealed class PreviewChainDirectiveIndex
         string nodeGuid,
         int sceneIndex,
         out string directive)
+        => TryGetCamera(nodeGuid, sceneIndex, SceneCameraScope.Overall, out directive);
+
+    public bool TryGetCamera(
+        string nodeGuid,
+        int sceneIndex,
+        SceneCameraScope scope,
+        out string directive)
     {
         directive = string.Empty;
         if (string.IsNullOrWhiteSpace(nodeGuid)
-            || !_camerasByNode.TryGetValue(nodeGuid, out IReadOnlyList<string?>? cameras)
+            || !Enum.IsDefined(typeof(SceneCameraScope), scope)
+            || !_camerasByNode.TryGetValue(nodeGuid, out IReadOnlyList<IReadOnlyDictionary<SceneCameraScope, string>>? cameras)
             || sceneIndex < 0
             || sceneIndex >= cameras.Count
-            || cameras[sceneIndex] is not { Length: > 0 } canonical)
+            || cameras[sceneIndex] == null
+            || !cameras[sceneIndex].TryGetValue(scope, out string? canonical))
         {
             return false;
         }

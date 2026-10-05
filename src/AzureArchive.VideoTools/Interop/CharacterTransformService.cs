@@ -21,6 +21,7 @@ internal sealed class CharacterTransformService : ICharacterTransformService
     private readonly CharacterTransformBaselineStore _baselines = new();
     private readonly SlotPendingCommandFamilyCompiler _pendingCompiler = new();
     private readonly SlotPendingStore _slotPendings = new();
+    private readonly CharacterRotationRepresentationStore _rotationRepresentations = new();
     private readonly bool?[] _previousSlotPresence = new bool?[CharacterTransformCommandValidator.MaximumPublicSlot];
 
     public CharacterTransformService(RuntimeCapabilityService capabilities)
@@ -71,6 +72,7 @@ internal sealed class CharacterTransformService : ICharacterTransformService
                 Character? character = slots[index];
                 if (ReferenceEquals(character, null))
                 {
+                    _rotationRepresentations.Remove(publicSlot);
                     snapshots.Add(new CharacterSlotSnapshot(
                         publicSlot,
                         false,
@@ -87,7 +89,7 @@ internal sealed class CharacterTransformService : ICharacterTransformService
                 }
 
                 string occupant = character.identifier ?? string.Empty;
-                CharacterTransformState logicalState = ReadState(character, transform);
+                CharacterTransformState logicalState = ReadState(character, transform, publicSlot);
                 var presets = Plugin.Host.CharacterPresetsInternal;
                 if (presets.NeedsSnapshotProjection(publicSlot))
                 {
@@ -182,7 +184,7 @@ internal sealed class CharacterTransformService : ICharacterTransformService
             }
 
             LiveCharacter live = resolved.Value;
-            CharacterTransformState before = ReadState(live.Character, live.Transform);
+            CharacterTransformState before = ReadState(live.Character, live.Transform, live.PublicSlot);
             Result<CharacterTransformOriginBaseline> existingOrigin = _officialOrigins.Get(
                 originIdentity ?? string.Empty,
                 command.PublicSlot,
@@ -329,7 +331,7 @@ internal sealed class CharacterTransformService : ICharacterTransformService
                     + $"occupant '{expectedOccupantIdentifier}' in slot {publicSlot}.");
             }
 
-            CharacterTransformState before = ReadState(live.Character, live.Transform);
+            CharacterTransformState before = ReadState(live.Character, live.Transform, live.PublicSlot);
             Result<CharacterTransformOriginBaseline> official = _officialOrigins.Capture(
                 originIdentity ?? string.Empty,
                 publicSlot,
@@ -370,16 +372,17 @@ internal sealed class CharacterTransformService : ICharacterTransformService
                 return ApiResult<CharacterTransformInheritedStartSnapshot>.Fail(applied.Error);
             }
 
-            CharacterTransformState actual = ReadState(live.Character, live.Transform);
+            CharacterTransformState actual = ReadState(live.Character, live.Transform, live.PublicSlot);
             var existingBaseline = _baselines.Get(
                 sceneIdentity,
                 publicSlot,
                 live.OccupantIdentifier);
-            var captured = _baselines.Capture(
+            var captured = _baselines.SeedInheritedEntry(
                 sceneIdentity,
                 publicSlot,
                 live.OccupantIdentifier,
-                actual);
+                actual,
+                inheritedStart);
             if (!captured.Success || captured.Value == null)
             {
                 return ApiResult<CharacterTransformInheritedStartSnapshot>.Fail(captured.Error);
@@ -457,6 +460,7 @@ internal sealed class CharacterTransformService : ICharacterTransformService
 
         _officialOrigins.Clear();
         _baselines.Clear();
+        _rotationRepresentations.Clear();
         return ApiResult<bool>.Ok(true);
     }
 
@@ -652,7 +656,7 @@ internal sealed class CharacterTransformService : ICharacterTransformService
         }
 
         LiveCharacter live = resolved.Value;
-        CharacterTransformState before = ReadState(live.Character, live.Transform);
+        CharacterTransformState before = ReadState(live.Character, live.Transform, live.PublicSlot);
         Result<CharacterTransformOriginBaseline> official = _officialOrigins.Capture(
             string.Empty,
             publicSlot,
@@ -696,7 +700,7 @@ internal sealed class CharacterTransformService : ICharacterTransformService
                 ReasonOrUnknown(applied.Error));
         }
 
-        CharacterTransformState actual = ReadState(live.Character, live.Transform);
+        CharacterTransformState actual = ReadState(live.Character, live.Transform, live.PublicSlot);
         var captured = _baselines.Capture(
             currentSceneIdentity,
             publicSlot,
@@ -754,7 +758,7 @@ internal sealed class CharacterTransformService : ICharacterTransformService
         }
 
         LiveCharacter live = resolved.Value;
-        CharacterTransformState current = ReadState(live.Character, live.Transform);
+        CharacterTransformState current = ReadState(live.Character, live.Transform, live.PublicSlot);
         var baselineResult = _baselines.Get(
             sceneIdentity,
             command.PublicSlot,
@@ -842,24 +846,30 @@ internal sealed class CharacterTransformService : ICharacterTransformService
                 character,
                 transform,
                 occupantIdentifier,
-                managedInstanceId));
+                managedInstanceId,
+                publicSlot));
     }
 
-    private static CharacterTransformState ReadState(Character character, Transform transform)
+    private CharacterTransformState ReadState(Character character, Transform transform, int publicSlot)
     {
         Vector3 position = character.GetPos();
         Vector3 euler = transform.localEulerAngles;
+        var observed = new CharacterVector3(euler.x, euler.y, euler.z);
+        long characterId = character.GetInstanceID();
+        long transformId = transform.GetInstanceID();
+        string occupant = character.identifier ?? string.Empty;
+        observed = _rotationRepresentations.Observe(publicSlot, characterId, transformId, occupant, observed);
         return new CharacterTransformState(
             new CharacterVector3(position.x, position.y, position.z),
             new CharacterVector3(
-                euler.x,
-                euler.y,
-                CharacterScreenRotation.ToScreenDegrees(euler.z, euler.y)));
+                observed.X,
+                observed.Y,
+                CharacterScreenRotation.ToScreenDegrees(observed.Z, observed.Y)));
     }
 
-    private static ApiResult<bool> Apply(LiveCharacter live, CharacterTransformTarget target)
+    private ApiResult<bool> Apply(LiveCharacter live, CharacterTransformTarget target)
     {
-        CharacterTransformState before = ReadState(live.Character, live.Transform);
+        CharacterTransformState before = ReadState(live.Character, live.Transform, live.PublicSlot);
         float durationSeconds = target.DurationMilliseconds / 1000f;
         try
         {
@@ -907,7 +917,10 @@ internal sealed class CharacterTransformService : ICharacterTransformService
             if (target.RotationChanged)
             {
                 CharacterVector3 euler = target.State.LocalEulerAngles;
-                Vector3 nativeFromEuler = live.Transform.localEulerAngles;
+                // Reconstruct the same observed orientation in the logical Euler
+                // representation. Raw Unity Euler values may exchange Y/Z half
+                // turns after X crosses 90 degrees and cannot seed this tween.
+                Vector3 nativeFromEuler = PhysicalEuler(before.LocalEulerAngles);
                 float physicalEulerZ = CharacterScreenRotation.ToPhysicalDegreesFromLive(
                     euler.Z,
                     euler.Y,
@@ -943,6 +956,8 @@ internal sealed class CharacterTransformService : ICharacterTransformService
                     tween.quaternionLerp = false;
                     tween.method = MapEasing(target.Easing);
                 }
+
+                RememberRotation(live, nativeEuler);
             }
 
             return ApiResult<bool>.Ok(true);
@@ -957,7 +972,7 @@ internal sealed class CharacterTransformService : ICharacterTransformService
         }
     }
 
-    private static ApiResult<bool> FailAfterRollback(
+    private ApiResult<bool> FailAfterRollback(
         LiveCharacter live,
         CharacterTransformTarget attempted,
         CharacterTransformState before,
@@ -981,17 +996,17 @@ internal sealed class CharacterTransformService : ICharacterTransformService
             try
             {
                 CharacterVector3 euler = before.LocalEulerAngles;
-                Vector3 currentNative = live.Transform.localEulerAngles;
-                float physicalEulerZ = CharacterScreenRotation.ToPhysicalDegreesFromLive(
-                    euler.Z,
-                    euler.Y,
-                    currentNative.z);
+                Vector3 physicalBefore = PhysicalEuler(euler);
                 ApiResult<bool> restored = SetRotationImmediately(
                     live,
-                    new Vector3(euler.X, euler.Y, physicalEulerZ));
+                    physicalBefore);
                 if (!restored.Success)
                 {
                     failures.Add("rotation:" + restored.Error);
+                }
+                else
+                {
+                    RememberRotation(live, physicalBefore);
                 }
             }
             catch (Exception ex)
@@ -1005,8 +1020,17 @@ internal sealed class CharacterTransformService : ICharacterTransformService
             ? "succeeded"
             : "failed(" + string.Join("|", failures) + "); "
                 + RuntimeMutationFailure.ResidualMutationMarker;
+        if (failures.Count != 0) _rotationRepresentations.Remove(live.PublicSlot);
         return ApiResult<bool>.Fail($"{reason}; rollback={rollback}");
     }
+
+    private static Vector3 PhysicalEuler(CharacterVector3 logical) => new(logical.X, logical.Y,
+        CharacterScreenRotation.IsHorizontallyFlipped(logical.Y) ? -logical.Z : logical.Z);
+
+    private void RememberRotation(LiveCharacter live, Vector3 physical) =>
+        _rotationRepresentations.Remember(live.PublicSlot,
+            live.ManagedInstanceId, live.Transform.GetInstanceID(), live.OccupantIdentifier,
+            new CharacterVector3(physical.x, physical.y, physical.z));
 
     private static ApiResult<bool> SetPositionImmediately(
         LiveCharacter live,
@@ -1083,7 +1107,8 @@ internal sealed class CharacterTransformService : ICharacterTransformService
         Character Character,
         Transform Transform,
         string OccupantIdentifier,
-        long ManagedInstanceId);
+        long ManagedInstanceId,
+        int PublicSlot);
 
     private sealed record ReplayPreparation(bool BaselineCaptured);
 }

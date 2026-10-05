@@ -5,8 +5,8 @@ namespace AzureArchive.VideoTools.Core.Characters;
 
 /// <summary>
 /// Pure managed target for an inherited editor-preview character state.
-/// Position Z and rotation X are not controlled by character directives and
-/// therefore remain at their current live values.
+/// Position Z and every uncontrolled rotation axis remain at their current
+/// live values. X pitch is inherited only when the chain explicitly controls it.
 /// </summary>
 public sealed record CharacterInheritedStartTarget(
     CharacterTransformState State,
@@ -68,6 +68,7 @@ public sealed class CharacterInheritedStartPlanner
         if (!IsValid(inheritedStart.X)
             || !IsValid(inheritedStart.Y)
             || !IsValid(inheritedStart.RotationZ)
+            || !IsValid(inheritedStart.RotationX)
             || inheritedStart.FoldedCommandCount < 0)
         {
             return Result<CharacterInheritedStartTarget>.Fail(
@@ -76,6 +77,9 @@ public sealed class CharacterInheritedStartPlanner
 
         float positionX = ResolveAxis(inheritedStart.X, official.Position.X, current.Position.X);
         float positionY = ResolveAxis(inheritedStart.Y, official.Position.Y, current.Position.Y);
+        float eulerX = NearestEquivalentPreservingCurrent(
+            ResolveAxis(inheritedStart.RotationX, official.LocalEulerAngles.X, current.LocalEulerAngles.X),
+            current.LocalEulerAngles.X);
         // Flip is a TOGGLE against the live orientation, not an absolute
         // baseline heading: the captured origin eulerY can itself be flipped
         // when a character instance survives across previews, and
@@ -111,7 +115,7 @@ public sealed class CharacterInheritedStartPlanner
         var state = new CharacterTransformState(
             new CharacterVector3(positionX, positionY, current.Position.Z),
             new CharacterVector3(
-                current.LocalEulerAngles.X,
+                eulerX,
                 eulerY,
                 screenEulerZ));
         if (!state.Position.IsFinite || !state.LocalEulerAngles.IsFinite)
@@ -124,7 +128,8 @@ public sealed class CharacterInheritedStartPlanner
             new CharacterInheritedStartTarget(
                 state,
                 positionX != current.Position.X || positionY != current.Position.Y,
-                eulerY != current.LocalEulerAngles.Y
+                eulerX != current.LocalEulerAngles.X
+                    || eulerY != current.LocalEulerAngles.Y
                     || screenEulerZ != current.LocalEulerAngles.Z));
     }
 

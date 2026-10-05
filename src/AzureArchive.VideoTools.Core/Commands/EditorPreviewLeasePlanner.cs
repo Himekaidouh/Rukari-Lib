@@ -73,7 +73,8 @@ public enum EditorPreviewResourceFields
     /// track is a release — so this footprint is a reservation rather than an axis.
     /// </summary>
     SpineOverlayTrack = 1 << 7,
-    CharacterPresetOverlay = 1 << 8
+    CharacterPresetOverlay = 1 << 8,
+    CharacterRotationX = 1 << 9
 }
 
 /// <summary>
@@ -540,13 +541,13 @@ public sealed class EditorPreviewLeaseGate
 
         if (presetResourceCount > 5
             || characterResourceCount > 5
-            || cameraResourceCount > 1
+            || cameraResourceCount > 2
             || spineResourceCount > SpineOverlayTracks.Last - SpineOverlayTracks.First + 1)
         {
             return Result<IReadOnlyList<EditorPreviewCommandPlan>>.Fail(
                 "Editor preview lease allows at most five character slots, five transient presets, "
                 + $"{SpineOverlayTracks.Last - SpineOverlayTracks.First + 1} spine overlay tracks "
-                + "and one camera resource.");
+                + "and two independent camera scope resources.");
         }
 
         return Result<IReadOnlyList<EditorPreviewCommandPlan>>.Ok(
@@ -646,6 +647,8 @@ public sealed class EditorPreviewLeaseGate
                 | (parsedCharacter.RotationDegrees.HasValue
                     ? EditorPreviewResourceFields.CharacterScreenRotation
                     : 0)
+                | (parsedCharacter.RotationXDegrees.HasValue
+                    ? EditorPreviewResourceFields.CharacterRotationX : 0)
                 | (parsedCharacter.FlipX.HasValue
                     ? EditorPreviewResourceFields.CharacterHorizontalFlip
                     : 0),
@@ -658,7 +661,9 @@ public sealed class EditorPreviewLeaseGate
                     : 0)
                 | (parsedCharacter.DeltaRotationDegrees.HasValue
                     ? EditorPreviewResourceFields.CharacterScreenRotation
-                    : 0),
+                    : 0)
+                | (parsedCharacter.DeltaRotationXDegrees.HasValue
+                    ? EditorPreviewResourceFields.CharacterRotationX : 0),
             CharacterTransformOperation.Reset => CharacterFields,
             _ => EditorPreviewResourceFields.None
         };
@@ -672,6 +677,7 @@ public sealed class EditorPreviewLeaseGate
         EditorPreviewResourceFields.CharacterPositionX
         | EditorPreviewResourceFields.CharacterPositionY
         | EditorPreviewResourceFields.CharacterScreenRotation
+        | EditorPreviewResourceFields.CharacterRotationX
         | EditorPreviewResourceFields.CharacterHorizontalFlip;
 
     private const EditorPreviewResourceFields CameraFields =
@@ -823,7 +829,7 @@ public sealed class EditorPreviewResourceCleanupPlanner
                 && entry.Resource.PublicSlot is >= 1 and <= 5
                 && (entry.Fields & ~CharacterFields) == 0;
             bool validCamera = entry.Resource.Kind == EditorPreviewResourceKind.SceneCamera
-                && entry.Resource.PublicSlot == SceneCameraCommandFamilyCompiler.SingletonResourceSlot
+                && SceneCameraCommandFamilyCompiler.IsCameraResourceSlot(entry.Resource.PublicSlot)
                 && entry.DispatchMode == EditorPreviewDispatchMode.Immediate
                 && (entry.Fields & ~CameraFields) == 0;
             bool validSpine = entry.Resource.Kind == EditorPreviewResourceKind.SpineOverlay
@@ -853,6 +859,7 @@ public sealed class EditorPreviewResourceCleanupPlanner
         EditorPreviewResourceFields.CharacterPositionX
         | EditorPreviewResourceFields.CharacterPositionY
         | EditorPreviewResourceFields.CharacterScreenRotation
+        | EditorPreviewResourceFields.CharacterRotationX
         | EditorPreviewResourceFields.CharacterHorizontalFlip;
 
     private const EditorPreviewResourceFields CameraFields =

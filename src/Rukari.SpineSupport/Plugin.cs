@@ -14,7 +14,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string Guid = "rukari.spinesupport";
     public const string Name = "更多Spine动画支持";
-    public const string Version = "1.6.2";
+    public const string Version = "1.6.3";
     internal static ManualLogSource Logger { get; private set; } = null!;
     private static SpineOverlayCommandService? _overlayCommands;
     private static IDisposable? _overlayCommandLease;

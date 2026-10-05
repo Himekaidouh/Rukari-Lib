@@ -662,6 +662,100 @@ internal static class PreviewChainTests
         AssertEx.False(slot.HasExpectedOccupant);
     }
 
+    public static void PitchChainFoldsSetMoveAndResetInChronologicalOrder()
+    {
+        var project = Graph().Add(ScriptNode(NodeA, null,
+            Scene(NodeA, 0, slot3Occupant: "mika", directive: "#char;3;set;rotationX=30;rotation=15"),
+            Scene(NodeA, 1, slot3Occupant: "mika", directive: "#char;3;move;drotationX=10"),
+            Scene(NodeA, 2, slot3Occupant: "mika", directive: "#char;3;reset"),
+            Scene(NodeA, 3, slot3Occupant: "mika", directive: "#char;3;move;drotationX=20"),
+            Scene(NodeA, 4, slot3Occupant: "mika")))
+            .Build(out var lookup);
+        lookup.Add(Key(NodeA, 0), 3, "#char;3;set;rotationX=30;rotation=15");
+        lookup.Add(Key(NodeA, 1), 3, "#char;3;move;drotationX=10");
+        lookup.Add(Key(NodeA, 2), 3, "#char;3;reset");
+        lookup.Add(Key(NodeA, 3), 3, "#char;3;move;drotationX=20");
+        var resolver = new PreviewChainResolver(project);
+        PreviewChainSlotResolution beforeReset = ResolveSlot(resolver, lookup, NodeA, 2);
+        AssertEx.Equal(40f, beforeReset.State.RotationX.AbsoluteValue);
+        AssertEx.True(beforeReset.State.RotationX.IsControlled);
+        AssertEx.Equal(15f, beforeReset.State.RotationZ.AbsoluteValue);
+        PreviewChainSlotResolution afterReset = ResolveSlot(resolver, lookup, NodeA, 4);
+        AssertEx.Equal(4, afterReset.State.FoldedCommandCount);
+        AssertEx.False(afterReset.State.RotationX.HasAbsoluteValue);
+        AssertEx.Equal(20f, afterReset.State.RotationX.RelativeFromOfficial);
+        AssertEx.True(afterReset.State.RotationX.IsControlled);
+        AssertEx.Equal(0f, afterReset.State.RotationZ.RelativeFromOfficial);
+        AssertEx.True(afterReset.State.RotationZ.IsControlled);
+        CharacterTransformState official = State(0, 0, -1, 4, 10, 15);
+        CharacterInheritedStartTarget inherited = AssertEx.NotNull(new CharacterInheritedStartPlanner().Plan(
+            afterReset.State, State(20, 30, -1, 200, 55, -25),
+            new CharacterTransformBaseline("scene", 3, "mika", official)).Value);
+        AssertEx.Equal(24f, inherited.State.LocalEulerAngles.X);
+    }
+
+    public static void PitchSurvivesOfficialPositionMovesButStopsAtOccupantChanges()
+    {
+        var project = Graph().Add(ScriptNode(NodeA, null,
+            Scene(NodeA, 0, slot3Occupant: "mika", directive: "#char;3;set;x=500;rotationX=120"),
+            Scene(NodeA, 1, slot3Occupant: "mika", slot3StartingPos: 3, slot3EndingPos: 4),
+            Scene(NodeA, 2, slot3Occupant: "mika"),
+            Scene(NodeA, 3, slot3Occupant: "nagi"),
+            Scene(NodeA, 4, slot3Occupant: "nagi")))
+            .Build(out var lookup);
+        lookup.Add(Key(NodeA, 0), 3, "#char;3;set;x=500;rotationX=120");
+        var resolver = new PreviewChainResolver(project);
+        foreach (int index in new[] { 1, 2 })
+        {
+            PreviewChainSlotResolution slot = ResolveSlot(resolver, lookup, NodeA, index);
+            AssertEx.True(slot.State.RotationX.IsControlled);
+            AssertEx.Equal(120f, slot.State.RotationX.AbsoluteValue);
+            AssertEx.False(slot.State.X.IsControlled);
+        }
+        PreviewChainSlotResolution replacement = ResolveSlot(resolver, lookup, NodeA, 4);
+        AssertEx.False(replacement.State.RotationX.IsControlled);
+        AssertEx.Equal(0, replacement.State.FoldedCommandCount);
+        AssertEx.Equal(PreviewChainStopReason.OccupantChange, replacement.StopReason);
+    }
+
+    public static void PitchDirectiveIndexPreservesEmptySlotEntryAndCommandlessCards()
+    {
+        var project = Graph().Add(ScriptNode(NodeA, null,
+            Scene(NodeA, 0, directive: "#aavt;charPending;3;set;rotationX=120;rotation=15"),
+            Scene(NodeA, 1),
+            Scene(NodeA, 2, slot3Occupant: "mika"),
+            Scene(NodeA, 3, slot3Occupant: "mika")))
+            .Build(out _);
+        var index = PreviewChainDirectiveIndex.Build(project, acceptLegacyCharacterAlias: true);
+        AssertEx.True(index.TryGet(NodeA, 0, 3, out string directive));
+        AssertEx.True(directive.Contains("rotationX=120", StringComparison.Ordinal));
+        var resolver = new PreviewChainResolver(project);
+        var result = resolver.Resolve(Key(NodeA, 3), new[] { 3 },
+            (key, slot) => index.TryGet(key.NodeGuid, key.SceneIndex, slot, out string canonical) ? canonical : null);
+        AssertEx.True(result.Success, result.Error);
+        PreviewChainSlotResolution inherited = AssertEx.NotNull(result.Value).Slots.Single();
+        AssertEx.Equal(1, inherited.State.FoldedCommandCount);
+        AssertEx.Equal(120f, inherited.State.RotationX.AbsoluteValue);
+        AssertEx.True(inherited.State.RotationX.IsControlled);
+        AssertEx.Equal(15f, inherited.State.RotationZ.AbsoluteValue);
+        AssertEx.True(inherited.Diagnostics.Contains("slot-pending-entry=true"));
+    }
+
+    public static void AmbiguousPredecessorsCannotDonatePitchEvidence()
+    {
+        var project = Graph()
+            .Add(ScriptNode(NodeA, new[] { NodeD }, Scene(NodeA, 0, slot3Occupant: "mika", directive: "#char;3;set;rotationX=120")))
+            .Add(ScriptNode(NodeB, new[] { NodeD }, Scene(NodeB, 0, slot3Occupant: "mika", directive: "#char;3;set;rotationX=-30")))
+            .Add(ScriptNode(NodeD, null, Scene(NodeD, 0, slot3Occupant: "mika")))
+            .Build(out var lookup);
+        lookup.Add(Key(NodeA, 0), 3, "#char;3;set;rotationX=120");
+        lookup.Add(Key(NodeB, 0), 3, "#char;3;set;rotationX=-30");
+        PreviewChainSlotResolution slot = ResolveSlot(new PreviewChainResolver(project), lookup, NodeD, 0);
+        AssertEx.Equal(PreviewChainStopReason.AmbiguousGraph, slot.StopReason);
+        AssertEx.False(slot.State.RotationX.IsControlled);
+        AssertEx.Equal(0, slot.State.FoldedCommandCount);
+    }
+
     private static PreviewChainSlotResolution ResolveSlot(
         PreviewChainResolver resolver,
         DirectiveMap lookup,

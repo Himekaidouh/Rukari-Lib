@@ -87,7 +87,7 @@ internal sealed class CharacterPresetToolContent : IToolPanelContent, IToolPanel
         }
         Gap(9f);
         surface.Status("preset.existing", _session.CurrentEffect, Next(surface, 22f));
-        surface.Text("preset.description", CharacterPresetEditorSession.Description(_kind),
+        surface.Text("preset.description", CharacterPresetEditorSession.Description(_kind, _session.SpinAxis),
             Next(surface, 34f), 17);
         Gap(5f);
 
@@ -98,6 +98,26 @@ internal sealed class CharacterPresetToolContent : IToolPanelContent, IToolPanel
             Gap(6f);
         }
 
+        if (_kind == CharacterPresetKind.Spin)
+        {
+            ToolInputRect axis = Next(surface, 38f);
+            surface.Text("preset.axis.label", "旋转轴", Part(axis, 0, 116), 17);
+            ToolInputRect buttons = Part(axis, 122, Math.Max(1, axis.Width - 122));
+            if (surface.Button("preset.axis.y", "Y 轴", surface.Cell(buttons, 0, 2),
+                _session.Editable, _session.SpinAxis == CharacterPresetSpinAxis.Y))
+            {
+                _focused = null;
+                _session.SetSpinAxis(CharacterPresetSpinAxis.Y);
+            }
+            if (surface.Button("preset.axis.x", "X 轴", surface.Cell(buttons, 1, 2),
+                _session.Editable, _session.SpinAxis == CharacterPresetSpinAxis.X))
+            {
+                _focused = null;
+                _session.SetSpinAxis(CharacterPresetSpinAxis.X);
+            }
+            Gap(6f);
+        }
+
         if (_kind is CharacterPresetKind.Sway or CharacterPresetKind.Spin or CharacterPresetKind.Headbutt)
         {
             ToolInputRect direction = Next(surface, 38f);
@@ -105,13 +125,14 @@ internal sealed class CharacterPresetToolContent : IToolPanelContent, IToolPanel
                 : _kind == CharacterPresetKind.Spin ? "转身方向" : "动作方向";
             surface.Text("preset.direction.label", label, Part(direction, 0, 116), 17);
             ToolInputRect buttons = Part(direction, 122, Math.Max(1, direction.Width - 122));
-            if (surface.Button("preset.direction.left", "向左", surface.Cell(buttons, 0, 2),
+            bool pitch = _kind == CharacterPresetKind.Spin && _session.SpinAxis == CharacterPresetSpinAxis.X;
+            if (surface.Button("preset.direction.left", pitch ? "反向" : "向左", surface.Cell(buttons, 0, 2),
                 _session.Editable, _session.Direction < 0))
             {
                 _focused = null;
                 _session.SetDirection(-1);
             }
-            if (surface.Button("preset.direction.right", "向右", surface.Cell(buttons, 1, 2),
+            if (surface.Button("preset.direction.right", pitch ? "正向" : "向右", surface.Cell(buttons, 1, 2),
                 _session.Editable, _session.Direction > 0))
             {
                 _focused = null;

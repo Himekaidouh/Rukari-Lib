@@ -14,6 +14,7 @@ $srcRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $outputRoot = [IO.Path]::GetFullPath($OutputDirectory)
 $comparison = [StringComparison]::OrdinalIgnoreCase
 $utf8 = [Text.UTF8Encoding]::new($false)
+. (Join-Path $PSScriptRoot 'UserPackageAcceptance.ps1')
 
 function Is-Within([string]$Path,[string]$Root) {
     $base = [IO.Path]::GetFullPath($Root).TrimEnd('\','/')
@@ -38,7 +39,7 @@ function Assert-EmptyOutput {
         }
     }
 }
-function Hash([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash }
+function Hash([string]$Path) { Invoke-PackagingReadWithRetry { (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash } }
 function New-Json([string]$Path,$Value) {
     $bytes = $utf8.GetBytes(($Value | ConvertTo-Json -Depth 20))
     $stream = [IO.File]::Open($Path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
@@ -51,6 +52,7 @@ if ((Is-Within $outputRoot $srcRoot) -and -not (Is-Within $outputRoot (Join-Path
 }
 $acceptancePath = $null
 $acceptanceReference = $null
+$structuredAcceptance = $null
 if ($ReleaseChannel -eq 'Stable' -and [string]::IsNullOrWhiteSpace($UserAcceptancePath)) {
     throw 'Stable packages require -UserAcceptancePath pointing to recorded user acceptance evidence.'
 }
@@ -61,7 +63,12 @@ if (-not [string]::IsNullOrWhiteSpace($UserAcceptancePath)) {
         throw "User acceptance evidence is missing: $acceptancePath"
     }
     # Evidence is an external reference, never a ZIP payload or a blanket native test result.
-    $acceptanceReference = [ordered]@{Kind='user-confirmation';Path=$acceptancePath;SHA256=(Hash $acceptancePath)}
+    if ($ReleaseChannel -eq 'Stable') {
+        $structuredAcceptance = Read-UserPackageAcceptance $acceptancePath
+        $acceptanceReference = [ordered]@{Kind='user-confirmation';Path=$acceptancePath;SHA256=$structuredAcceptance.SHA256}
+    } else {
+        $acceptanceReference = [ordered]@{Kind='user-confirmation';Path=$acceptancePath;SHA256=(Hash $acceptancePath)}
+    }
 }
 $build = Get-Content -LiteralPath (Join-Path $srcRoot 'artifacts/source-handover-build-Release.json') -Raw | ConvertFrom-Json
 if ([string]::IsNullOrWhiteSpace($build.GameRoot) -or (Is-Within $outputRoot $build.GameRoot)) {
@@ -73,12 +80,17 @@ $stage = Join-Path $auditRoot 'validated-stage'
 $receiptPath = Join-Path $stage 'package-receipt.json'
 $receiptHash = Hash $receiptPath
 $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+if (Is-Within $outputRoot $receipt.GameRoot) { throw 'The delivery directory cannot be inside the validated game installation.' }
 
 $definitions = @(
     @{Name='RukariLib'; Guide='rukari-lib.txt'; Dlls=@('Rukari.Lib.dll','Rukari.Lib.Runtime.dll')},
     @{Name='更多的画面效果'; Guide='more-effects.txt'; Dlls=@('Rukari.MoreEffects.dll','AzureArchive.VideoTools.Core.dll','AzureArchive.VideoTools.Formats.dll')},
     @{Name='人物配音支持'; Guide='character-voice.txt'; Dlls=@('Rukari.CharacterVoice.dll')}
 )
+if ($ReleaseChannel -eq 'Stable') {
+    $acceptanceReference['Binding'] = Assert-UserPackageAcceptanceBinding $structuredAcceptance $receipt `
+        (Join-Path $stage 'build-receipt.json') $definitions
+}
 $archives = [Collections.Generic.List[object]]::new()
 foreach ($definition in $definitions) {
     $matches = @($receipt.Packages | Where-Object Name -CEQ $definition.Name)
@@ -100,8 +112,8 @@ foreach ($definition in $definitions) {
         [pscustomobject]@{Path=(Join-Path $stage $_.Path);Entry=$_.Path;SHA256=$_.SHA256}
     })
     $inputs += [pscustomobject]@{Path=$guide;Entry='安装说明.txt';SHA256=(Hash $guide)}
-    $zipSuffix = if ($ReleaseChannel -eq 'Stable') { '-AA1.0-fix6.zip' }
-        else { '-AA1.0-fix6-candidate-' + (Get-Date -Format 'yyyyMMdd') + '.zip' }
+    $zipSuffix = if ($ReleaseChannel -eq 'Stable') { '-AA1.0.zip' }
+        else { '-AA1.0-candidate-' + (Get-Date -Format 'yyyyMMdd') + '.zip' }
     $zipName = $definition.Name + '-' + $package.Version + $zipSuffix
     $zipPath = Join-Path $auditRoot $zipName
     $stream = [IO.File]::Open($zipPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
@@ -110,13 +122,13 @@ foreach ($definition in $definitions) {
         try {
             foreach ($inputFile in $inputs) {
                 if ((Hash $inputFile.Path) -cne $inputFile.SHA256) { throw "Staging input changed: $($inputFile.Entry)" }
-                [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive,$inputFile.Path,$inputFile.Entry,[IO.Compression.CompressionLevel]::Optimal)
+                Add-PackagingZipEntry $archive $inputFile.Path $inputFile.Entry $inputFile.SHA256
             }
         } finally { $archive.Dispose() }
     } finally { $stream.Dispose() }
 
     # Read every compressed entry back, reject duplicates/extras, and compare decompressed bytes.
-    $zip = [IO.Compression.ZipFile]::OpenRead($zipPath)
+    $zip = Invoke-PackagingReadWithRetry { [IO.Compression.ZipFile]::OpenRead($zipPath) }
     try {
         if ($zip.Entries.Count -ne $inputs.Count) { throw "Unexpected ZIP inventory: $zipName" }
         $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
@@ -139,6 +151,9 @@ Assert-EmptyOutput
 if ((Hash $receiptPath) -cne $receiptHash) { throw 'Validated package receipt changed during packaging.' }
 if ($acceptanceReference -and (Hash $acceptancePath) -cne $acceptanceReference.SHA256) {
     throw 'User acceptance evidence changed during packaging.'
+}
+if ($ReleaseChannel -eq 'Stable' -and (Hash (Join-Path $stage 'build-receipt.json')) -cne $acceptanceReference.Binding.BuildReceiptSHA256) {
+    throw 'The acceptance-bound build receipt changed during packaging.'
 }
 [void][IO.Directory]::CreateDirectory($outputRoot)
 foreach ($archive in $archives) {

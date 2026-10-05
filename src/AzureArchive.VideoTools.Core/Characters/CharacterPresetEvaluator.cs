@@ -58,10 +58,10 @@ public static class CharacterPresetEvaluator
                 turns = wholeTurns + spinCurve.Evaluate(phase);
             }
 
-            return new CharacterPresetFrame(0f, 1f, 1f, false)
-            {
-                YawDegrees = (float)(command.Direction * turns * 360d)
-            };
+            float degrees = (float)(command.Direction * turns * 360d);
+            return command.SpinAxis == CharacterPresetSpinAxis.X
+                ? new CharacterPresetFrame(0f, 1f, 1f, false) { PitchDegrees = degrees }
+                : new CharacterPresetFrame(0f, 1f, 1f, false) { YawDegrees = degrees };
         }
 
         // Keep the selected period and peak amplitude, but ease the first and

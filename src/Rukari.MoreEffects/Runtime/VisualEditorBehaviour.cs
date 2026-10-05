@@ -80,7 +80,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         "x-100", "x-10", "x+10", "x+100",
         "y-100", "y-10", "y+10", "y+100",
         "r-15", "r-1", "r+1", "r+15",
-        "flip", "duration", "easing", "r0", "flipreset", "reset", "clear"
+        "rotation-z", "rotation-x", "flip", "duration", "easing", "r0", "flipreset", "reset", "clear"
     };
 
     private static readonly string[] CameraControlKeys =
@@ -88,7 +88,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         "camera-x-100", "camera-x-10", "camera-x+10", "camera-x+100",
         "camera-y-100", "camera-y-10", "camera-y+10", "camera-y+100",
         "camera-z-0.1", "camera-z-0.01", "camera-z+0.01", "camera-z+0.1",
-        "camera-duration", "camera-easing", "camera-reset", "camera-clear"
+        "camera-overall", "camera-background", "camera-duration", "camera-easing", "camera-reset", "camera-clear"
     };
 
     private static readonly string[] ScreenTextControlKeys =
@@ -226,6 +226,9 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         new VisualEditorPoint?[CharacterTransformCommandValidator.MaximumPublicSlot];
     private readonly float?[] _draftRotations =
         new float?[CharacterTransformCommandValidator.MaximumPublicSlot];
+    private readonly float?[] _draftPitches =
+        new float?[CharacterTransformCommandValidator.MaximumPublicSlot];
+    private bool _editPitch;
     private readonly bool?[] _draftFlips =
         new bool?[CharacterTransformCommandValidator.MaximumPublicSlot];
     private readonly SlotVisual?[] _slotVisuals =
@@ -339,6 +342,9 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
     private int _cameraDraftDurationMilliseconds;
     private CharacterTransformEasing _cameraDraftEasing;
     private SceneCameraState _cameraState = SceneCameraState.Default;
+    private SceneCameraComposition _cameraComposition = SceneCameraComposition.Default;
+    private SceneCameraScope _cameraScope = SceneCameraScope.Overall;
+    private readonly CameraScopeDraft?[] _cameraScopeDrafts = new CameraScopeDraft?[2];
     private SceneCameraState? _cameraDraftState;
     private SceneCameraCommand? _selectedExistingCameraCommand;
     private bool _cameraResetDraft;
@@ -586,6 +592,10 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         CreateControlButton("r-1", "旋转 -1", () => NudgeRotation(-1f));
         CreateControlButton("r+1", "旋转 +1", () => NudgeRotation(1f));
         CreateControlButton("r+15", "旋转 +15", () => NudgeRotation(15f));
+        CreateControlButton("rotation-z", "Z 轴·平面倾斜", () => SelectRotationAxis(false),
+            () => true, () => !_editPitch);
+        CreateControlButton("rotation-x", "X 轴·前后翻转", () => SelectRotationAxis(true),
+            () => true, () => _editPitch);
         CreateControlButton(
             "flip",
             "左右翻转",
@@ -634,6 +644,12 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             () => _documentSnapshot != null,
             () => _documentSnapshot?.HasContinueDirective == true);
 
+        CreateControlButton("camera-overall", "整体·背景与人物",
+            () => SelectCameraScope(SceneCameraScope.Overall), () => true,
+            () => _cameraScope == SceneCameraScope.Overall);
+        CreateControlButton("camera-background", "仅背景",
+            () => SelectCameraScope(SceneCameraScope.Background), () => true,
+            () => _cameraScope == SceneCameraScope.Background);
         CreateControlButton(
             "camera-x-100",
             "镜头 X -100",
@@ -1041,12 +1057,14 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
     private void ClearSelectionDrafts()
     {
+        Array.Clear(_cameraScopeDrafts, 0, _cameraScopeDrafts.Length);
         // A playback refresh invalidates edit authority, not the user's target button.
         // Keep only the managed UI preference; every draft still clears below.
         if (HasSelectedSlot())
             _slotPreference.Remember(_documentSnapshot?.RuntimeContextId, _selectedSlotIndex + 1);
         Array.Clear(_draftPositions, 0, _draftPositions.Length);
         Array.Clear(_draftRotations, 0, _draftRotations.Length);
+        Array.Clear(_draftPitches, 0, _draftPitches.Length);
         Array.Clear(_draftFlips, 0, _draftFlips.Length);
         _pressedSlotIndex = -1;
         _draggingSlotIndex = -1;
@@ -1316,7 +1334,8 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
                 pointer.Y - _cameraDragOffset.Y);
             Result<SceneCameraState> moved = VisualCameraFrameMath.MoveFrameCenter(
                 center,
-                CurrentCameraState(),
+                CurrentCameraComposition(),
+                _cameraScope,
                 _storyHeight,
                 _viewportRect);
             if (moved.Success)
@@ -1336,6 +1355,8 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             float frameWidth = MathF.Max(8f, (widthFromX + widthFromY) / 2f);
             Result<float> zoom = VisualCameraFrameMath.ZoomFromFrameWidth(
                 frameWidth,
+                CurrentCameraComposition(),
+                _cameraScope,
                 _viewportRect);
             if (zoom.Success)
             {
@@ -1789,6 +1810,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             {
                 _draftPositions[oldIndex] = null;
                 _draftRotations[oldIndex] = null;
+                _draftPitches[oldIndex] = null;
                 _draftFlips[oldIndex] = null;
             }
 
@@ -1886,6 +1908,13 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
                 || _screenTextClearAllDraft))
         {
             ClearScreenTextDraft("切换模式，未应用的屏幕文字草稿已清除");
+        }
+
+        if (_mode == VisualEditorMode.Camera)
+        {
+            if (_cameraScopeDrafts.Any(saved => saved?.State.HasValue == true || saved?.Reset == true))
+                _operationMessage = "切换模式，未应用的镜头草稿已清除";
+            Array.Clear(_cameraScopeDrafts, 0, _cameraScopeDrafts.Length);
         }
 
         _mode = mode;
@@ -2003,7 +2032,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
     private void RefreshCameraState()
     {
-        ApiResult<SceneCameraReadSnapshot> read = Plugin.Api.SceneCamera.ReadOnMainThread();
+        ApiResult<SceneCameraScopedReadSnapshot> read = Plugin.Host.SceneCameraInternal.ReadScopedOnMainThread();
         if (!read.Success || read.Value == null)
         {
             string error = string.IsNullOrWhiteSpace(read.Error)
@@ -2026,10 +2055,8 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
         _cameraReadAvailable = true;
         _cameraReadError = string.Empty;
-        if (!_cameraDraftState.HasValue && !_cameraResetDraft)
-        {
-            _cameraState = read.Value.State;
-        }
+        _cameraComposition = read.Value.Composition;
+        _cameraState = read.Value.Composition.ForScope(_cameraScope);
     }
 
     private void LoadExistingCameraCommand(bool preserveActiveDraft)
@@ -2055,7 +2082,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             }
 
             Result<SceneCameraCommand> read = _cameraDraftBuilder.ReadCanonical(canonical);
-            if (!read.Success || read.Value == null)
+            if (!read.Success || read.Value == null || read.Value.Scope != _cameraScope)
             {
                 continue;
             }
@@ -2140,6 +2167,54 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             ? SceneCameraState.Default
             : _cameraDraftState ?? _cameraState;
 
+    private SceneCameraComposition CurrentCameraComposition()
+    {
+        SceneCameraComposition composition = _cameraComposition;
+        foreach (SceneCameraScope scope in new[] { SceneCameraScope.Overall, SceneCameraScope.Background })
+        {
+            CameraScopeDraft? saved = _cameraScopeDrafts[(int)scope];
+            if (scope == _cameraScope) composition = composition.WithScope(scope, CurrentCameraState());
+            else if (saved?.Reset == true) composition = composition.WithScope(scope, SceneCameraState.Default);
+            else if (saved?.State is SceneCameraState state) composition = composition.WithScope(scope, state);
+        }
+        return composition;
+    }
+
+    private void SelectCameraScope(SceneCameraScope scope)
+    {
+        if (_cameraScope == scope) return;
+        _cameraScopeDrafts[(int)_cameraScope] = new CameraScopeDraft(
+            _cameraDraftState, _cameraResetDraft, _cameraDraftDurationMilliseconds,
+            _cameraDraftEasing, _draftSourceDocument);
+        _cameraScope = scope;
+        CameraScopeDraft? saved = _cameraScopeDrafts[(int)scope];
+        _cameraDraftState = saved?.State;
+        _cameraResetDraft = saved?.Reset ?? false;
+        _cameraDraftDurationMilliseconds = saved?.Duration ?? 600;
+        _cameraDraftEasing = saved?.Easing ?? CharacterTransformEasing.EaseInOut;
+        _draftSourceDocument = saved?.Source;
+        _verifiedPreview = null;
+        _currentDraftDirective = string.Empty;
+        CancelPointerInteraction();
+        RefreshCameraState();
+        LoadExistingCameraCommand(preserveActiveDraft: true);
+        if (_cameraDraftState.HasValue || _cameraResetDraft)
+        {
+            PublishCameraDraft();
+            VerifyDraftAgainstSelected();
+        }
+        else if (_draftText is not null)
+        {
+            _draftText.text = _documentSnapshot == null ? "等待当前台词" : SourceSummary(_documentSnapshot) + "\n草稿 --";
+        }
+        LayoutCameraFrame();
+        UpdateInspector();
+        UpdateButtons();
+    }
+
+    private sealed record CameraScopeDraft(SceneCameraState? State, bool Reset,
+        int Duration, CharacterTransformEasing Easing, EditorCommandDocumentSnapshot? Source);
+
     private bool CanEditCamera() =>
         _mode == VisualEditorMode.Camera
         && HasSynchronizedDocument()
@@ -2209,10 +2284,12 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
     {
         Result<string> result = _cameraResetDraft
             ? _cameraDraftBuilder.BuildReset(
+                _cameraScope,
                 _cameraDraftDurationMilliseconds,
                 _cameraDraftEasing)
             : _cameraDraftState.HasValue
                 ? _cameraDraftBuilder.BuildSet(
+                    _cameraScope,
                     _cameraDraftState.Value,
                     _cameraDraftDurationMilliseconds,
                     _cameraDraftEasing)
@@ -2323,6 +2400,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
     private void ClearCameraDraft(string message)
     {
+        _cameraScopeDrafts[(int)_cameraScope] = null;
         _cameraDraftState = null;
         _cameraResetDraft = false;
         _currentDraftDirective = string.Empty;
@@ -2420,6 +2498,13 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         SetRotationDraft(SelectedRotation() + deltaDegrees, verifyImmediately: true);
     }
 
+    private void SelectRotationAxis(bool pitch)
+    {
+        _editPitch = pitch;
+        _rotationDragging = false;
+        UpdateInspector();
+    }
+
     private void UpdateRotationFromPointer(VisualEditorPoint pointer)
     {
         float centerX = _rotationDialHitRect.X + (_rotationDialHitRect.Width / 2f);
@@ -2443,11 +2528,11 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         // the shortest-path wrap inside the planner); only the dial pointer
         // keeps its wrap-around ±180 semantics.
         float rounded = MathF.Round(degrees, 1);
-        _activeDraft = EnsureSetDraft(index) with
-        {
-            RotationDegrees = rounded
-        };
-        _draftRotations[index] = rounded;
+        VisualCharacterDraftRequest basis = EnsureSetDraft(index);
+        _activeDraft = _editPitch ? basis with { RotationXDegrees = rounded }
+            : basis with { RotationDegrees = rounded };
+        if (_editPitch) _draftPitches[index] = rounded;
+        else _draftRotations[index] = rounded;
         PublishActiveDraft();
         UpdateInspector();
         if (verifyImmediately)
@@ -2567,6 +2652,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             _draftEasing);
         _draftPositions[index] = null;
         _draftRotations[index] = null;
+        _draftPitches[index] = null;
         _draftFlips[index] = null;
         PublishActiveDraft();
         VerifyDraftAgainstSelected();
@@ -2581,6 +2667,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         {
             _draftPositions[index] = null;
             _draftRotations[index] = null;
+        _draftPitches[index] = null;
             _draftFlips[index] = null;
         }
 
@@ -2684,7 +2771,9 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             active?.Y ?? existing?.Y ?? baseline.Y);
     }
 
-    private float SelectedRotation()
+    private float SelectedRotation() => SelectedRotation(_editPitch);
+
+    private float SelectedRotation(bool pitch)
     {
         if (!HasSelectedSlot())
         {
@@ -2692,24 +2781,26 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         }
 
         if (_activeDraft?.PublicSlot == _selectedSlotIndex + 1
-            && _activeDraft.RotationDegrees.HasValue)
+            && (pitch ? _activeDraft.RotationXDegrees : _activeDraft.RotationDegrees).HasValue)
         {
-            return _activeDraft.RotationDegrees.Value;
+            return (pitch ? _activeDraft.RotationXDegrees : _activeDraft.RotationDegrees)!.Value;
         }
 
-        if (_draftRotations[_selectedSlotIndex].HasValue)
+        float? stored = pitch ? _draftPitches[_selectedSlotIndex] : _draftRotations[_selectedSlotIndex];
+        if (stored.HasValue)
         {
-            return _draftRotations[_selectedSlotIndex]!.Value;
+            return stored.Value;
         }
 
         if (_selectedExistingDraft?.Operation == VisualCharacterDraftOperation.Set
-            && _selectedExistingDraft.RotationDegrees.HasValue)
+            && (pitch ? _selectedExistingDraft.RotationXDegrees : _selectedExistingDraft.RotationDegrees).HasValue)
         {
-            return _selectedExistingDraft.RotationDegrees.Value;
+            return (pitch ? _selectedExistingDraft.RotationXDegrees : _selectedExistingDraft.RotationDegrees)!.Value;
         }
 
         return NormalizeSigned(
-            _slotSnapshots[_selectedSlotIndex]?.State?.LocalEulerAngles.Z ?? 0f);
+            (pitch ? _slotSnapshots[_selectedSlotIndex]?.State?.LocalEulerAngles.X
+                : _slotSnapshots[_selectedSlotIndex]?.State?.LocalEulerAngles.Z) ?? 0f);
     }
 
     private bool SelectedFlip()
@@ -2823,7 +2914,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             $"槽位 #{index + 1}  {occupancy}{mode}{officialTransition}\n"
             + $"剧情坐标 X {storyPosition.X:0.0}  Y {storyPosition.Y:0.0}   "
             + $"偏移 X {position.X:0.0}  Y {position.Y:0.0}\n"
-            + $"旋转 {rotation:0.0}   翻转 {(flip ? "开" : "关")}";
+            + $"旋转 Z {SelectedRotation(false):0.0}  X {SelectedRotation(true):0.0}   翻转 {(flip ? "开" : "关")}";
         if (_selectedCommandGraphicallyUnsupported && _selectedExistingDraft != null)
         {
             inspector.text =
@@ -2836,7 +2927,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         }
         if (_rotationValueText is not null)
         {
-            _rotationValueText.text = $"旋转\n{rotation:0.0}";
+            _rotationValueText.text = $"{(_editPitch ? "X" : "Z")} 轴旋转\n{rotation:0.0}";
         }
 
         if (_rotationHandleRect is not null)
@@ -2869,7 +2960,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
                     _ => "当前实时镜头"
                 };
         inspector.text =
-            $"镜头操控  |  {source}\n"
+            $"镜头操控·{(_cameraScope == SceneCameraScope.Overall ? "整体" : "仅背景")}  |  {source}\n"
             + $"中心 X {camera.X:0.0}  Y {camera.Y:0.0}   缩放 {camera.Zoom:0.###}\n"
             + "拖动橙色镜头框平移；拖动角点缩放；灰框为固定画布";
         UpdateControlButtons();
@@ -3289,6 +3380,14 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         }
 
         EditorCommandApplySnapshot applied = result.Value;
+        for (int scopeIndex = 0; scopeIndex < _cameraScopeDrafts.Length; scopeIndex++)
+        {
+            CameraScopeDraft? saved = _cameraScopeDrafts[scopeIndex];
+            if (saved?.Source?.RevisionSha256 == applied.Before.RevisionSha256
+                && saved.Source.RuntimeSelectionKey == applied.Before.RuntimeSelectionKey)
+                _cameraScopeDrafts[scopeIndex] = saved with { Source = applied.After };
+        }
+        if (_mode == VisualEditorMode.Camera) _cameraScopeDrafts[(int)_cameraScope] = null;
         _documentSnapshot = applied.After;
         _draftSourceDocument = null;
         _verifiedPreview = null;
@@ -3302,8 +3401,8 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         _currentDraftDirective = string.Empty;
         LoadExistingCommandForSelection(preserveActiveDraft: false);
         LoadExistingCameraCommand(preserveActiveDraft: false);
-        string targetLabel = applied.PublicSlot == 0
-            ? "镜头"
+        string targetLabel = SceneCameraCommandFamilyCompiler.IsCameraResourceSlot(applied.PublicSlot)
+            ? (applied.PublicSlot == SceneCameraCommandFamilyCompiler.BackgroundResourceSlot ? "仅背景镜头" : "整体镜头")
             : $"槽位 #{applied.PublicSlot}";
         _operationMessage =
             $"已应用并校验  {targetLabel}\n"
@@ -3441,6 +3540,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         }
 
         EditorCommandUndoSnapshot undone = result.Value;
+        Array.Clear(_cameraScopeDrafts, 0, _cameraScopeDrafts.Length);
         _documentSnapshot = undone.Restored;
         _draftSourceDocument = null;
         _verifiedPreview = null;
@@ -3454,6 +3554,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         Array.Clear(_draftPositions, 0, _draftPositions.Length);
 
         Array.Clear(_draftRotations, 0, _draftRotations.Length);
+        Array.Clear(_draftPitches, 0, _draftPitches.Length);
         Array.Clear(_draftFlips, 0, _draftFlips.Length);
         LoadExistingCommandForSelection(preserveActiveDraft: false);
         LoadExistingCameraCommand(preserveActiveDraft: false);
@@ -3662,7 +3763,10 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
         float frameWidth = PanelWidth - 60f;
         float frameHeight = frameWidth * _storyHeight / VisualEditorCanvasMath.StoryWidth;
-        float frameTopOffset = _mode == VisualEditorMode.Character ? 204f : 154f;
+        float frameTopOffset = _mode is VisualEditorMode.Character or VisualEditorMode.Camera ? 204f : 154f;
+        float cameraScopeWidth = (PanelWidth - 68f) / 2f;
+        LayoutControl("camera-overall", 30f, slotSelectorY, cameraScopeWidth, slotSelectorHeight);
+        LayoutControl("camera-background", 38f + cameraScopeWidth, slotSelectorY, cameraScopeWidth, slotSelectorHeight);
         float frameY = panelHeight - frameTopOffset - frameHeight;
         _viewportRect = new VisualEditorRect(
             _panelRect.X + 30f,
@@ -3777,6 +3881,9 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         string[] rotationControls = { "r-15", "r-1", "r+1", "r+15" };
         float rotationStartX = 150f;
         float rotationWidth = (PanelWidth - rotationStartX - 30f - (rowGap * 3f)) / 4f;
+        float axisWidth = (PanelWidth - rotationStartX - 30f - rowGap) / 2f;
+        LayoutControl("rotation-z", rotationStartX, dialY + 80f, axisWidth, 28f);
+        LayoutControl("rotation-x", rotationStartX + axisWidth + rowGap, dialY + 80f, axisWidth, 28f);
         for (int i = 0; i < rotationControls.Length; i++)
         {
             LayoutControl(
@@ -3949,7 +4056,8 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             _storyHeight,
             _viewportRect);
         Result<VisualEditorRect> frameResult = VisualCameraFrameMath.CameraToViewportFrame(
-            CurrentCameraState(),
+            CurrentCameraComposition(),
+            _cameraScope,
             _storyHeight,
             _viewportRect);
         if (!canvasResult.Success || !frameResult.Success)
@@ -4398,7 +4506,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             float localY = center.Y - _viewportRect.Y - (height / 2f);
             SetRect(visual.Root, localX, localY, width, height);
             float rotation = index == _selectedSlotIndex
-                ? SelectedRotation()
+                ? SelectedRotation(false)
                 : _draftRotations[index]
                     ?? NormalizeSigned(snapshot?.State?.LocalEulerAngles.Z ?? 0f);
             visual.Root.localEulerAngles = new Vector3(0f, 0f, rotation);

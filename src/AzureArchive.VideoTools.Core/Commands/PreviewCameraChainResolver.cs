@@ -15,6 +15,13 @@ public sealed record PreviewCameraChainResolution(
     /// scene without any ancestor camera command must keep the official camera
     /// state untouched.</summary>
     public bool HasInheritedStart => FoldedCommandCount != 0;
+
+    public SceneCameraState BackgroundInheritedState { get; init; } = SceneCameraState.Default;
+    public int OverallFoldedCommandCount { get; init; } = FoldedCommandCount;
+    public int BackgroundFoldedCommandCount { get; init; }
+    public SceneCameraComposition InheritedComposition => new(InheritedState, BackgroundInheritedState);
+    public bool HasOverallInheritedStart => OverallFoldedCommandCount != 0;
+    public bool HasBackgroundInheritedStart => BackgroundFoldedCommandCount != 0;
 }
 
 /// <summary>
@@ -25,7 +32,7 @@ public sealed record PreviewCameraChainResolution(
 /// records and nothing resets them, so a scene without a camera directive keeps
 /// the previous composition. The editor preview rebuilds the scene on every
 /// click and <c>SceneCameraService.EnsurePhysicalBaselines</c> resets
-/// <c>_currentState</c> whenever the two layer instances change, so the same
+/// managed composition whenever either layer instance changes, so the same
 /// scene previewed from a default composition. This resolver reproduces the
 /// playback state statically from the project graph.
 /// </para>
@@ -60,13 +67,22 @@ public sealed class PreviewCameraChainResolver
         SceneKey sceneKey,
         Func<SceneKey, string?> sceneCameraLookup)
     {
+        ArgumentNullException.ThrowIfNull(sceneCameraLookup);
+        return Resolve(sceneKey, (key, scope) => scope == SceneCameraScope.Overall
+            ? sceneCameraLookup(key) : null);
+    }
+
+    public Result<PreviewCameraChainResolution> Resolve(
+        SceneKey sceneKey,
+        Func<SceneKey, SceneCameraScope, string?> sceneCameraLookup)
+    {
         ArgumentNullException.ThrowIfNull(sceneKey);
         ArgumentNullException.ThrowIfNull(sceneCameraLookup);
 
         // Ancestors are visited newest-first, so directives are collected here
         // and folded in reverse to preserve chronological order: set/move/reset
         // must compose in the order the player would have executed them.
-        var collectedDirectives = new List<string>();
+        var collectedDirectives = new List<(SceneCameraScope Scope, string Directive)>();
         var diagnostics = new List<string>();
         var visitedScenes = new HashSet<SceneKey> { sceneKey };
         SceneKey cursor = sceneKey;
@@ -105,10 +121,12 @@ public sealed class PreviewCameraChainResolver
                 goto FoldAndReturn;
             }
 
-            string? directive = sceneCameraLookup(ancestorKey);
-            if (!string.IsNullOrEmpty(directive))
+            // The list is reversed below. Collect background before overall so
+            // scopes of the same ancestor fold in a stable overall-first order.
+            foreach (SceneCameraScope scope in new[] { SceneCameraScope.Background, SceneCameraScope.Overall })
             {
-                collectedDirectives.Add(directive);
+                string? directive = sceneCameraLookup(ancestorKey, scope);
+                if (!string.IsNullOrEmpty(directive)) collectedDirectives.Add((scope, directive));
             }
 
             cursor = ancestorKey;
@@ -120,11 +138,14 @@ public sealed class PreviewCameraChainResolver
         }
 
         FoldAndReturn:
-        SceneCameraState state = SceneCameraState.Default;
+        SceneCameraComposition composition = SceneCameraComposition.Default;
         int foldedCommands = 0;
+        int overallCommands = 0;
+        int backgroundCommands = 0;
         for (int index = collectedDirectives.Count - 1; index >= 0; index--)
         {
-            Result<SceneCameraCommand> parsed = _parser.Parse(collectedDirectives[index]);
+            var collected = collectedDirectives[index];
+            Result<SceneCameraCommand> parsed = _parser.Parse(collected.Directive);
             if (!parsed.Success || parsed.Value == null)
             {
                 // Fail closed: a composition built from a partially folded chain
@@ -133,21 +154,36 @@ public sealed class PreviewCameraChainResolver
                     $"An ancestor scene camera directive could not be parsed: {parsed.Error}");
             }
 
-            Result<SceneCameraTarget> planned = _planner.Plan(parsed.Value, state, _foldBaseline);
+            if (parsed.Value.Scope != collected.Scope)
+                return Result<PreviewCameraChainResolution>.Fail("An ancestor camera lookup returned another scope.");
+
+            Result<SceneCameraTarget> planned = _planner.Plan(
+                parsed.Value, composition.ForScope(collected.Scope), _foldBaseline);
             if (!planned.Success || planned.Value == null)
             {
                 return Result<PreviewCameraChainResolution>.Fail(
                     $"An ancestor scene camera directive could not be folded: {planned.Error}");
             }
 
-            state = planned.Value.State;
+            composition = composition.WithScope(collected.Scope, planned.Value.State);
+            Result validation = SceneCameraCommandValidator.ValidateComposition(composition);
+            if (!validation.Success)
+                return Result<PreviewCameraChainResolution>.Fail(
+                    "An ancestor camera composition is invalid: " + validation.Error);
             foldedCommands++;
+            if (collected.Scope == SceneCameraScope.Overall) overallCommands++;
+            else backgroundCommands++;
         }
 
         return Result<PreviewCameraChainResolution>.Ok(new(
-            state,
+            composition.Overall,
             foldedCommands,
             stopReason,
-            Array.AsReadOnly(diagnostics.ToArray())));
+            Array.AsReadOnly(diagnostics.ToArray()))
+        {
+            BackgroundInheritedState = composition.Background,
+            OverallFoldedCommandCount = overallCommands,
+            BackgroundFoldedCommandCount = backgroundCommands
+        });
     }
 }

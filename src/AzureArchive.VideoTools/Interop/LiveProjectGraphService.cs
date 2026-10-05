@@ -127,86 +127,43 @@ internal static class LiveProjectGraphService
         }
 
         var diagnostics = new WalkDiagnostics();
-        var nodesByGuid = new Dictionary<string, LiveGraphNodeData>(StringComparer.Ordinal);
-        object rootNode = entryNode!;
-        var pending = new Queue<object>();
-        pending.Enqueue(rootNode);
-        var enqueued = new HashSet<object>();
+        IReadOnlyList<LiveGraphNodeData> ordered = LiveProjectGraphTraversal.Walk(
+            entryNode!,
+            MaximumNodes,
+            IsAlive,
+            node => ReadGuid(node, diagnostics),
+            DetectKind,
+            node => ReadConnectionTargets(node, preferFromSide: fromIsOutgoing),
+            (node, sourceIndex, kind, guid, connectionGuids) =>
+            {
+                bool deletionMarked = false;
+                try
+                {
+                    deletionMarked = InteropMemberAccess.Get<bool>(node, "deletionMarked");
+                }
+                catch
+                {
+                    // Property missing on exotic wrappers: keep the node.
+                }
 
-        while (pending.Count > 0)
+                List<LiveGraphSceneData> scenes = kind == StoryNodeKind.Script && !deletionMarked
+                    ? ReadScenes(node, guid, projectKey)
+                    : new List<LiveGraphSceneData>();
+
+                return new LiveGraphNodeData(
+                    sourceIndex,
+                    kind,
+                    guid,
+                    ReadName(node, kind),
+                    connectionGuids,
+                    scenes.AsReadOnly());
+            },
+            out bool nodeLimitReached);
+        if (nodeLimitReached)
         {
-            object node = pending.Dequeue();
-            if (!IsAlive(node) || !enqueued.Add(node))
-            {
-                continue;
-            }
-
-            if (nodesByGuid.Count >= MaximumNodes)
-            {
-                Plugin.Logger.LogWarning(
-                    $"live-graph node cap reached ({MaximumNodes}); remaining subgraph ignored.");
-                break;
-            }
-
-            string guid = ReadGuid(node, diagnostics);
-            if (string.IsNullOrEmpty(guid))
-            {
-                continue;
-            }
-
-            if (nodesByGuid.ContainsKey(guid))
-            {
-                continue;
-            }
-
-            StoryNodeKind kind = DetectKind(node);
-            List<string> connectionGuids = new();
-            List<object> targets = fromIsOutgoing
-                ? ReadConnectionTargets(node, preferFromSide: true)
-                : ReadConnectionTargets(node, preferFromSide: false);
-            foreach (object target in targets)
-            {
-                string targetGuid = ReadGuid(target, diagnostics);
-                if (!string.IsNullOrEmpty(targetGuid))
-                {
-                    connectionGuids.Add(targetGuid);
-                }
-
-                // Enqueue even when the guid is unreadable: the per-node
-                // diagnostics then record the wrapper type instead of the
-                // subgraph silently disappearing.
-                if (enqueued.Add(target))
-                {
-                    pending.Enqueue(target);
-                }
-            }
-
-            bool deletionMarked = false;
-            try
-            {
-                deletionMarked = InteropMemberAccess.Get<bool>(node, "deletionMarked");
-            }
-            catch
-            {
-                // Property missing on exotic wrappers: keep the node.
-            }
-
-            List<LiveGraphSceneData> scenes = kind == StoryNodeKind.Script && !deletionMarked
-                ? ReadScenes(node, guid, projectKey)
-                : new List<LiveGraphSceneData>();
-
-            nodesByGuid[guid] = new LiveGraphNodeData(
-                nodesByGuid.Count,
-                kind,
-                guid,
-                ReadName(node, kind),
-                connectionGuids.AsReadOnly(),
-                scenes.AsReadOnly());
+            Plugin.Logger.LogWarning(
+                $"live-graph node cap reached ({MaximumNodes}); remaining subgraph ignored.");
         }
-
-        List<LiveGraphNodeData> ordered = nodesByGuid.Values
-            .OrderBy(node => node.SourceIndex)
-            .ToList();
 
         // Guard against the silent-empty-graph failure mode: a walk that
         // discovers no script scenes must FAIL (disk fallback) instead of

@@ -288,6 +288,35 @@ internal static class CharacterPresetPipelineTests
         AssertEx.True(result.Error.Contains("aas-record-contaminated", StringComparison.Ordinal));
     }
 
+    public static void XSpinSurvivesUpsertPreviewLeaseAndSavedProjection()
+    {
+        const string source = "#aavt;char;3;set;rotation=25\n#aavt;fx;3;spin";
+        var composer = new EditorCommandDocumentComposer();
+        var edit = AssertEx.NotNull(composer.PreviewUpsert(source, EditorCommandDocumentComposer.Revision(source),
+            "#aavt;fx;3;spin;axis=X;cycles=4;bezier=0.42,0,0.58,1").Value);
+        AssertEx.True(edit.ReplacedExisting);
+        string[] directives = Extract(edit.UpdatedText);
+        AssertEx.Equal(2, directives.Length);
+        AssertEx.True(directives[1].Contains(";axis=x;", StringComparison.Ordinal));
+        AssertEx.Equal("preset:3", CommandResourceIdentity.KeyFor(
+            new EmbeddedAavtDirectiveExtractor().Extract(edit.CanonicalPublicDirective).Commands.Single()));
+        var selection = Selection(1);
+        var lease = AssertEx.NotNull(new EditorPreviewLeaseGate().TryAuthorize(
+            new EditorPreviewLeaseCandidate(selection, directives, false), Live(selection)).Value);
+        AssertEx.Equal(directives[1], lease.Commands[1].CanonicalDirective);
+        AssertEx.Equal(EditorPreviewResourceFields.CharacterPresetOverlay, lease.Commands[1].Fields);
+        var (project, playback) = Pair(edit.UpdatedText);
+        EmbeddedProjectCommandCompilation compilation = Compile(project, playback);
+        var index = new PlaybackCommandBinder().Bind(playback, compilation.Projection);
+        AssertEx.True(index.Success, index.Error);
+        PlaybackCommandBatch batch = compilation.Projection.Batches.Single();
+        AssertEx.Equal(directives[1], batch.Commands[1].CanonicalDirective);
+        AssertEx.True(new PlaybackSceneDispatchGate().TryAuthorize(1, batch).Success);
+        EditorCommandEditPreview removed = AssertEx.NotNull(composer.PreviewRemove(
+            edit.UpdatedText, edit.ResultRevisionSha256, "#aavt;fx;3;spin;axis=x").Value);
+        AssertEx.Equal("#aavt;char;3;set;rotation=25\n", removed.UpdatedText);
+    }
+
     private static string[] Extract(string publicDirectives)
     {
         var extraction = new EmbeddedAavtDirectiveExtractor().Extract(publicDirectives);

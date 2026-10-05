@@ -193,10 +193,14 @@ internal static class SpineOverlayTests
         AssertEx.Equal("#spine;4;clear;fade=500", clearOnly.Commands[0].CanonicalDirective);
     }
 
-    public static void SceneBudgetFitsFiveCharactersOneCameraAndEveryReservedTrack()
+    public static void SceneBudgetFitsFiveCharactersBothCameraScopesAndEveryReservedTrack()
     {
-        AssertEx.Equal(21, EmbeddedAavtDirectiveExtractor.MaxCommandsPerScene);
-        var lines = new List<string> { "正文台词", "#aavt;camera;set;zoom=1.35" };
+        AssertEx.Equal(22, EmbeddedAavtDirectiveExtractor.MaxCommandsPerScene);
+        var lines = new List<string>
+        {
+            "正文台词", "#aavt;camera;set;zoom=1.35",
+            "#aavt;camera;set;scope=background;zoom=1.2"
+        };
         for (int slot = 1; slot <= SpineOverlayTrackPolicy.LastPublicSlot; slot++)
         {
             lines.Add($"#aavt;char;{slot};set;x={slot * 10}");

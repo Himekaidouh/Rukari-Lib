@@ -7,7 +7,7 @@ namespace AzureArchive.VideoTools.Core.Cameras;
 public sealed class SceneCameraDirectiveParser : ISceneCameraDirectiveParser
 {
     private static readonly HashSet<string> CommonProperties = new(
-        new[] { "duration", "easing" },
+        new[] { "duration", "easing", "scope" },
         StringComparer.OrdinalIgnoreCase);
 
     public Result<SceneCameraCommand> Parse(string directive)
@@ -66,8 +66,9 @@ public sealed class SceneCameraDirectiveParser : ISceneCameraDirectiveParser
         Result<float?> deltaZoom = ParseOptionalFloat(properties, "dzoom");
         Result<int> duration = ParseDuration(properties);
         Result<CharacterTransformEasing> easing = ParseEasing(properties);
+        Result<SceneCameraScope> scope = ParseScope(properties);
 
-        string? error = FirstError(x, y, deltaX, deltaY, zoom, deltaZoom, duration, easing);
+        string? error = FirstError(x, y, deltaX, deltaY, zoom, deltaZoom, duration, easing, scope);
         if (error != null)
         {
             return Result<SceneCameraCommand>.Fail(error);
@@ -82,7 +83,7 @@ public sealed class SceneCameraDirectiveParser : ISceneCameraDirectiveParser
             zoom.Value,
             deltaZoom.Value,
             duration.Value,
-            easing.Value);
+            easing.Value) { Scope = scope.Value };
         Result validation = SceneCameraCommandValidator.Validate(command);
         return validation.Success
             ? Result<SceneCameraCommand>.Ok(command)
@@ -133,6 +134,19 @@ public sealed class SceneCameraDirectiveParser : ISceneCameraDirectiveParser
             : Result<int>.Fail("Property 'duration' must be a non-negative integer.");
     }
 
+    private static Result<SceneCameraScope> ParseScope(IReadOnlyDictionary<string, string> properties)
+    {
+        if (!properties.TryGetValue("scope", out string? text))
+            return Result<SceneCameraScope>.Ok(SceneCameraScope.Overall);
+
+        return text.ToLowerInvariant() switch
+        {
+            "overall" => Result<SceneCameraScope>.Ok(SceneCameraScope.Overall),
+            "background" => Result<SceneCameraScope>.Ok(SceneCameraScope.Background),
+            _ => Result<SceneCameraScope>.Fail("Scope must be overall or background.")
+        };
+    }
+
     private static Result<CharacterTransformEasing> ParseEasing(
         IReadOnlyDictionary<string, string> properties)
     {
@@ -176,6 +190,7 @@ public sealed class SceneCameraDirectiveParser : ISceneCameraDirectiveParser
                 Result<float?> floatResult when !floatResult.Success => floatResult.Error,
                 Result<int> intResult when !intResult.Success => intResult.Error,
                 Result<CharacterTransformEasing> easingResult when !easingResult.Success => easingResult.Error,
+                Result<SceneCameraScope> scopeResult when !scopeResult.Success => scopeResult.Error,
                 _ => null
             };
             if (error != null)

@@ -963,12 +963,11 @@ internal static class EmbeddedEditorPreviewLeaseCache
                          SceneCameraCommandFamilyCompiler.CanonicalRootToken + ";",
                          StringComparison.Ordinal))
             {
-                // The scene camera is the singleton resource of its scene, so it
-                // is stored under the reserved slot 0. The camera inheritance
-                // chain reads it back from here, which makes an authorized scene
-                // authoritative for its own camera exactly like it already is for
-                // its character slots.
-                directives[SceneCameraCommandFamilyCompiler.SingletonResourceSlot] = directive;
+                var parsed = new SceneCameraCommandFamilyCompiler().Canonicalize(directive);
+                if (parsed.Success && parsed.Value != null)
+                {
+                    directives[parsed.Value.PublicSlot] = directive;
+                }
             }
         }
 

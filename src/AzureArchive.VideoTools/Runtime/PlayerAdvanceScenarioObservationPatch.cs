@@ -75,7 +75,8 @@ internal static class PlayerAdvanceScenarioObservationPatch
             return;
         }
 
-        PlayerAdvanceObservationWindow.Open(ReadPlaybackRow());
+        Interop.OfficialStoragePathBridge.CaptureOnMainThread(force: true);
+        PlayerAdvanceObservationWindow.Open(ReadPlaybackRow(), Interop.ActiveProjectPairSource.StorageRevision);
     }
 
     public static void Postfix(bool __runOriginal)

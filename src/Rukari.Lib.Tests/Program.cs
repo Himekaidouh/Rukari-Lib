@@ -156,6 +156,21 @@ internal static class Program
             (nameof(CommandHelpTests.OnlyOneRowPerSyntaxReachesThePanel), CommandHelpTests.OnlyOneRowPerSyntaxReachesThePanel),
             (nameof(CommandHelpTests.WhitespaceAndControlCharactersAreFoldedAway), CommandHelpTests.WhitespaceAndControlCharactersAreFoldedAway),
             (nameof(CommandHelpTests.EmptyOrOversizedRowsAreRejected), CommandHelpTests.EmptyOrOversizedRowsAreRejected),
+            (nameof(ToolHostedPageGuardTests.HeightGetterFailureIsIsolatedAndNeverRetriedEveryFrame), ToolHostedPageGuardTests.HeightGetterFailureIsIsolatedAndNeverRetriedEveryFrame),
+            (nameof(ToolHostedPageGuardTests.WidthGetterFailureUsesFiniteFallbackAndSkipsTheProvider), ToolHostedPageGuardTests.WidthGetterFailureUsesFiniteFallbackAndSkipsTheProvider),
+            (nameof(ToolHostedPageGuardTests.AVisiblePagesSizeFailureHidesItExactlyOnce), ToolHostedPageGuardTests.AVisiblePagesSizeFailureHidesItExactlyOnce),
+            (nameof(ToolHostedPageGuardTests.PartialShownFailureGetsOneHiddenCallbackAndNoDraw), ToolHostedPageGuardTests.PartialShownFailureGetsOneHiddenCallbackAndNoDraw),
+            (nameof(ToolHostedPageGuardTests.DrawFailureDiscardsPartialControlsDragFocusAndTyping), ToolHostedPageGuardTests.DrawFailureDiscardsPartialControlsDragFocusAndTyping),
+            (nameof(ToolHostedPageGuardTests.HiddenCallbackFailureCannotPreventAnotherPageFromShowing), ToolHostedPageGuardTests.HiddenCallbackFailureCannotPreventAnotherPageFromShowing),
+            (nameof(ToolHostedPageGuardTests.ExplicitCloseAndReturnPermitOneRetryOfTheSameRegistration), ToolHostedPageGuardTests.ExplicitCloseAndReturnPermitOneRetryOfTheSameRegistration),
+            (nameof(ToolHostedPageGuardTests.SharedContentAndReusedPageIdsStillUseRegistrationIdentity), ToolHostedPageGuardTests.SharedContentAndReusedPageIdsStillUseRegistrationIdentity),
+            (nameof(ToolHostedPageGuardTests.ValidDynamicSizesAndLegacyTwoMemberPagesRemainSupported), ToolHostedPageGuardTests.ValidDynamicSizesAndLegacyTwoMemberPagesRemainSupported),
+            (nameof(ToolHostedPageGuardTests.FailureDiagnosticsAreBoundedAndCannotBreakTheGuard), ToolHostedPageGuardTests.FailureDiagnosticsAreBoundedAndCannotBreakTheGuard),
+            (nameof(ToolHostedPageGuardTests.CallbackNavigationDiscardsTheOldFrameWithoutQuarantiningTheNewPage), ToolHostedPageGuardTests.CallbackNavigationDiscardsTheOldFrameWithoutQuarantiningTheNewPage),
+            (nameof(ToolHostedPageGuardTests.FailedShownNavigationStillPairsTheDepartingLifecycle), ToolHostedPageGuardTests.FailedShownNavigationStillPairsTheDepartingLifecycle),
+            (nameof(ToolHostedPageGuardTests.SizeGetterNavigationStopsFurtherCallbacksAndKeepsNewPageUsable), ToolHostedPageGuardTests.SizeGetterNavigationStopsFurtherCallbacksAndKeepsNewPageUsable),
+            (nameof(ToolHostedPageGuardTests.CloseAndReopenInsideDrawCannotReuseTheOldFrameOrFailure), ToolHostedPageGuardTests.CloseAndReopenInsideDrawCannotReuseTheOldFrameOrFailure),
+            (nameof(ToolHostedPageGuardTests.HiddenNavigationKeepsTheLatestSelectionAndItsOwnDiagnostics), ToolHostedPageGuardTests.HiddenNavigationKeepsTheLatestSelectionAndItsOwnDiagnostics),
         };
 
         var failed = 0;

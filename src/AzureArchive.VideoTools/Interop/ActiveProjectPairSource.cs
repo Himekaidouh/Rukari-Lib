@@ -10,7 +10,10 @@ internal sealed record ActivePairBinding(
     DiscoveredProjectPair Pair,
     ProjectSnapshot Project,
     PlaybackArchiveSnapshot Playback,
-    ObservedSceneIdentityResolution Resolution);
+    ObservedSceneIdentityResolution Resolution)
+{
+    internal long StorageRevision { get; init; }
+}
 
 /// <summary>The projection and its cache key captured from one immutable registry revision.</summary>
 internal sealed record EditorIdentityProjectionSnapshot(Func<string, string> Project, string CacheKey);
@@ -35,6 +38,7 @@ internal static class ActiveProjectPairSource
     private static bool _enabled;
     private static string _dataRootOverride = string.Empty;
     private static string _persistentDataPath = string.Empty;
+    private static readonly OfficialProjectPathTracker OfficialPaths = new();
     private static DiscoveredProjectPair? _activePair;
     private static bool _pairChangedSinceLastConsume;
 
@@ -46,6 +50,28 @@ internal static class ActiveProjectPairSource
     public static bool HasActivePair
     {
         get { lock (Gate) { return _activePair != null; } }
+    }
+
+    internal static long StorageRevision => OfficialPaths.Current.Revision;
+    internal static bool IsStorageRevisionCurrent(long revision) => OfficialPaths.IsCurrent(revision);
+    internal static bool CommitIfStorageRevisionCurrent(long revision, Action publish)
+    {
+        lock (Gate)
+        {
+            return OfficialPaths.CommitIfCurrent(revision, publish);
+        }
+    }
+
+    /// <summary>No wrappers or disk I/O: only strings copied on the Unity thread enter this registry.</summary>
+    internal static bool ObserveOfficialPaths(string projectPath, string resourceDirectory, bool unavailable)
+    {
+        lock (Gate)
+        {
+            if (!OfficialPaths.Observe(projectPath, resourceDirectory, unavailable)) return false;
+            _activePair = null;
+            _pairChangedSinceLastConsume = false;
+            return true;
+        }
     }
 
     public static void Configure(
@@ -169,12 +195,17 @@ internal static class ActiveProjectPairSource
                 "reason=auto-disabled; auto discovery is not enabled.");
         }
 
-        if (!TryResolveDataRoot(dataRootOverride, out string dataRoot))
+        OfficialProjectPathSnapshot paths = OfficialPaths.Current;
+        string persistent;
+        lock (Gate) persistent = _persistentDataPath;
+        Result<OfficialProjectStorageBinding> storageResult = OfficialProjectStoragePaths.Resolve(
+            paths, dataRootOverride, persistent);
+        if (!storageResult.Success || storageResult.Value == null)
         {
-            return Result<ActivePairBinding>.Fail(
-                "reason=auto-data-root-unavailable; no data root override is configured "
-                + "and the game persistent data path has not been captured yet.");
+            return Result<ActivePairBinding>.Fail(storageResult.Error);
         }
+        OfficialProjectStorageBinding storage = storageResult.Value;
+        string dataRoot = storage.DataRoot;
 
         // One directory enumeration stamps every archive under this root for
         // the whole resolution. Validating each of the ~230 files by itself
@@ -191,6 +222,9 @@ internal static class ActiveProjectPairSource
             return Result<ActivePairBinding>.Fail(
                 $"reason=auto-scan-failed; {scanned.Error}");
         }
+        IReadOnlyList<DiscoveredProjectPair> candidates = storage.Restrict(scanned.Value);
+        if (!OfficialPaths.IsCurrent(paths.Revision))
+            return Result<ActivePairBinding>.Fail("reason=official-storage-path-changed-during-read");
 
         // Sticky fast path: once a pair is bound, its own scenes resolve
         // inside that pair alone. Generic scripts (a bare "#3;h" scene exists
@@ -198,7 +232,7 @@ internal static class ActiveProjectPairSource
         // full scan must not be the first resort for an already-bound editor.
         DiscoveredProjectPair? preferred = ActivePairSnapshot();
         if (preferred != null
-            && scanned.Value.Any(candidate =>
+            && candidates.Any(candidate =>
                 string.Equals(
                     candidate.AapPath,
                     preferred.AapPath,
@@ -211,13 +245,13 @@ internal static class ActiveProjectPairSource
                 && fast.Value.Status == ObservedSceneIdentityStatus.Mapped
                 && fast.Value.SelectedSceneTrusted)
             {
-                return MakeBinding(preferred, fast.Value, stamps);
+                return MakeBinding(preferred, fast.Value, stamps, paths.Revision);
             }
         }
 
         ActivePairArbitration arbitration = arbiter.Arbitrate(
             identity,
-            scanned.Value);
+            candidates);
         if (arbitration.Status != ActivePairArbitrationStatus.Unique)
         {
             // NotFound or AmbiguousCrossProject. If a pair is already bound,
@@ -227,6 +261,9 @@ internal static class ActiveProjectPairSource
             // would break every later scene, so the binding is kept and the
             // per-scene trust decision is left to the existing guards.
             DiscoveredProjectPair? kept = ActivePairSnapshot();
+            if (kept != null && !candidates.Any(candidate =>
+                string.Equals(candidate.AapPath, kept.AapPath, StringComparison.OrdinalIgnoreCase)))
+                kept = null;
             if (kept == null)
             {
                 if (arbitration.Status == ActivePairArbitrationStatus.AmbiguousCrossProject)
@@ -257,13 +294,15 @@ internal static class ActiveProjectPairSource
                 "Auto project discovery kept the active binding '" + kept.Name
                 + "' because this scene's script could not be uniquely arbitrated ("
                 + arbitration.Status + "). Scenes with unique dialogue re-confirm it.");
-            return ResolveWithinKeptPair(arbiter, kept, identity, stamps);
+            return ResolveWithinKeptPair(arbiter, kept, identity, stamps, paths.Revision);
         }
 
         DiscoveredProjectPair pair = arbitration.Pair!;
         bool changed;
         lock (Gate)
         {
+            if (!OfficialPaths.IsCurrent(paths.Revision))
+                return Result<ActivePairBinding>.Fail("reason=official-storage-path-changed-during-read");
             changed = _activePair == null
                 || !string.Equals(
                     _activePair.AapPath,
@@ -281,13 +320,13 @@ internal static class ActiveProjectPairSource
             PlayerCommandObservationLog.Append(
                 $"{DateTimeOffset.Now:O} auto-discover status=READY; project={pair.Name}; "
                 + $"scannedPairs={arbitration.ScannedPairCount}; "
-                + $"aap={pair.AapPath}; aas={pair.AasPath}");
+                + $"aap={pair.AapPath}; aas={pair.AasPath}; rootSource={storage.Source}; storageRevision={paths.Revision}");
             Plugin.Logger.LogInfo(
                 $"Auto project discovery bound the active pair: project={pair.Name}; "
                 + $"scannedPairs={arbitration.ScannedPairCount}.");
         }
 
-        return MakeBinding(pair, arbitration.Resolution!, stamps);
+        return MakeBinding(pair, arbitration.Resolution!, stamps, paths.Revision);
     }
 
     /// <summary>
@@ -333,7 +372,8 @@ internal static class ActiveProjectPairSource
         ActiveProjectPairArbiter arbiter,
         DiscoveredProjectPair kept,
         ObservedCompiledSceneIdentity identity,
-        DataRootStampSet stamps)
+        DataRootStampSet stamps,
+        long storageRevision)
     {
         Result<ObservedSceneIdentityResolution> resolution =
             arbiter.TryResolvePair(kept, identity);
@@ -343,13 +383,14 @@ internal static class ActiveProjectPairSource
                 $"reason=auto-active-pair-unresolved; kept={kept.Name}; {resolution.Error}");
         }
 
-        return MakeBinding(kept, resolution.Value, stamps);
+        return MakeBinding(kept, resolution.Value, stamps, storageRevision);
     }
 
     private static Result<ActivePairBinding> MakeBinding(
         DiscoveredProjectPair pair,
         ObservedSceneIdentityResolution resolution,
-        DataRootStampSet stamps)
+        DataRootStampSet stamps,
+        long storageRevision)
     {
         Result<ProjectSnapshot> project = Cache.GetOrReadProject(
             pair.AapPath,
@@ -367,11 +408,13 @@ internal static class ActiveProjectPairSource
                 + $"AAP={project.Error}; AAS={playback.Error}");
         }
 
+        if (!OfficialPaths.IsCurrent(storageRevision))
+            return Result<ActivePairBinding>.Fail("reason=official-storage-path-changed-during-read");
         return Result<ActivePairBinding>.Ok(new ActivePairBinding(
             pair,
             project.Value,
             playback.Value,
-            resolution));
+            resolution) { StorageRevision = storageRevision });
     }
 
     public static bool ConsumePairChanged()
@@ -385,40 +428,6 @@ internal static class ActiveProjectPairSource
 
             _pairChangedSinceLastConsume = false;
             return _activePair != null;
-        }
-    }
-
-    private static bool TryResolveDataRoot(
-        string dataRootOverride,
-        out string dataRoot)
-    {
-        dataRoot = string.Empty;
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(dataRootOverride))
-            {
-                dataRoot = Path.GetFullPath(dataRootOverride.Trim());
-                return Directory.Exists(dataRoot);
-            }
-
-            string persistent;
-            lock (Gate)
-            {
-                persistent = _persistentDataPath;
-            }
-
-            if (string.IsNullOrWhiteSpace(persistent))
-            {
-                return false;
-            }
-
-            dataRoot = Path.Combine(persistent, "data");
-            return Directory.Exists(dataRoot);
-        }
-        catch
-        {
-            dataRoot = string.Empty;
-            return false;
         }
     }
 

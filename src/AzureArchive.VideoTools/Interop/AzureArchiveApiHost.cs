@@ -72,6 +72,7 @@ internal sealed class AzureArchiveApiHost : IAzureArchiveApi
     // a scene's inherited camera start through this, so the frozen public
     // surface stays untouched.
     internal ISceneCameraCommandDispatcher SceneCameraCommandsInternal => SceneCameraInternal;
+    internal IScopedSceneCameraCommandDispatcher ScopedSceneCameraCommandsInternal => SceneCameraInternal;
     internal CharacterActionService CharacterActionsInternal { get; }
 
     public static AzureArchiveApiHost Create(ConfigFile config) => new(config);

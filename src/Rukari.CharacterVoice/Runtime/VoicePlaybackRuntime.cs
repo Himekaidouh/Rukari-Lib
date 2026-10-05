@@ -27,6 +27,7 @@ internal static class VoicePlaybackRuntime
     private static bool _ownerPreview;
     private static bool _installed;
     private static bool _usesNativeStartedCallback;
+    private static Action<AudioManager, string>? _legacySetVoice;
     private static bool _replayingLoaded;
     private static bool _readingNativeVoiceState;
     private static bool _ownsAudioSource;
@@ -89,6 +90,8 @@ internal static class VoicePlaybackRuntime
         {
             MethodInfo setVoice = VoicePlaybackMethodPolicy.ResolveSetVoice(typeof(AudioManager),
                 typeof(Il2CppSystem.Action), out _usesNativeStartedCallback);
+            _legacySetVoice = VoicePlaybackMethodPolicy.BindLegacyReplay<AudioManager>(
+                setVoice, _usesNativeStartedCallback);
             MethodInfo voicePlaying = AccessTools.PropertyGetter(typeof(AudioManager), "isVoicePlaying")
                 ?? throw new MissingMethodException("AudioManager.get_isVoicePlaying");
             MethodInfo touch = Require(typeof(Test), "OnTouchAreaClicked");
@@ -127,11 +130,12 @@ internal static class VoicePlaybackRuntime
             // session, all on Clear. A player clear is instead covered by the bounded wait: every phase now
             // releases on its own deadline, so a stuck gate can no longer block dialogue advance.
             _installed = true;
-            Plugin.Logger.LogInfo($"Voice playback candidate installed; scope=aavt/voice/; setVoice-uses-native-started-callback={_usesNativeStartedCallback}; callback wrapper is not read or retained; shared native preload admission/cache/source; bounded loading/manual/playback gate; Clear left unpatched; lifetimePending=true.");
+            Plugin.Logger.LogInfo($"Voice playback candidate installed; scope=aavt/voice/; setVoice-uses-native-started-callback={_usesNativeStartedCallback}; legacy-replay-bound={_legacySetVoice is not null}; callback wrapper is not read or retained; shared native preload admission/cache/source; bounded loading/manual/playback gate; caller-tick-fuse=true; Clear left unpatched; lifetimePending=true.");
             return true;
         }
         catch (Exception ex)
         {
+            _legacySetVoice = null;
             harmony.UnpatchSelf();
             ReportFailure("install", ex);
             return false;
@@ -291,9 +295,11 @@ internal static class VoicePlaybackRuntime
             _pollingSuspended = true;
             FailCurrent("preload-admission-error");
             ReportFailure("preload-admission", ex);
-            if (!owned) return true;
-            __result = false;
-            return false;
+            // fix6 still owns this start and its onStarted callback. An observation
+            // fault must pass through this already-entered native preload as well
+            // as the later calls covered by the suspended admission flag.
+            return VoicePlaybackMethodPolicy.AllowNativePreloadAfterFailure(
+                _usesNativeStartedCallback, owned, ref __result);
         }
     }
 
@@ -357,7 +363,25 @@ internal static class VoicePlaybackRuntime
         ResetOnMainThread("voice-module-stopped");
         _installed = false;
         _pollingSuspended = true;
+        _legacySetVoice = null;
         new Harmony(Plugin.Guid + ".voice-playback").UnpatchSelf();
+    }
+
+    internal static void SuspendAfterTickEntryFailure(Exception error)
+    {
+        // Release the managed wait before any existing engine cleanup. A missing
+        // method at tick entry must not strand the dialogue or retry every frame.
+        _pollingSuspended = true;
+        _preloadAdmissionSuspended = true;
+        _legacySetVoice = null;
+        Gate.Cancel("tick-entry-failure");
+        VolumeStartQualification.Reset();
+        _ownerPlayerInstanceId = 0;
+        ReportOnce("tick-entry-suspended",
+            $"Owned voice playback disabled after tick entry failed: {error.GetType().Name}: {error.Message}; dialogue wait released; page and diagnostics updates continue; restart required to retry playback.", true);
+        // Reuse only the existing, bounded source/volume cleanup. The caller's
+        // guard also contains a cleanup failure; no failed tick is re-entered.
+        StopOwnedAudio();
     }
 
     public static void TickOnMainThread()
@@ -401,6 +425,8 @@ internal static class VoicePlaybackRuntime
                 // The callback-capable mode is always Starting/Playing and must never
                 // synthesize an argument-less replay that drops official onStarted.
                 if (_usesNativeStartedCallback) { FailCurrent("unexpected-callback-mode-loading"); return; }
+                Action<AudioManager, string> replay = _legacySetVoice
+                    ?? throw new MissingMethodException("Validated legacy SetVoice replay binding is unavailable.");
                 if (!IsCached(manager, identifier)) return;
                 NativeLoads.Remove(identifier);
                 if (!Gate.IsCurrent(sequence, identifier)) return;
@@ -408,7 +434,7 @@ internal static class VoicePlaybackRuntime
                 if (ReferenceEquals(audio, null)) { FailCurrent("audio-manager-unavailable"); return; }
                 Gate.MarkStarting(sequence, Now());
                 _replayingLoaded = true;
-                try { audio.SetVoice(identifier); }
+                try { replay(audio, identifier); }
                 finally { _replayingLoaded = false; }
                 return;
             }

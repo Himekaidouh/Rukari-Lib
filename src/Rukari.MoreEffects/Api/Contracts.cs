@@ -125,7 +125,11 @@ public sealed record SceneCameraExecutionSnapshot(
     bool ZoomChanged,
     bool BaselineCaptured,
     bool ReplayRestored,
-    bool IsReset);
+    bool IsReset)
+{
+    public SceneCameraScope Scope { get; init; } = SceneCameraScope.Overall;
+    public SceneCameraComposition Composition { get; init; } = SceneCameraComposition.Default;
+}
 
 public sealed record SceneCameraReadSnapshot(
     SceneCameraState State,
@@ -367,6 +371,29 @@ public interface ISceneCameraService
         string sceneIdentity,
         string canonicalDirective);
 }
+
+/// <summary>Optional sibling contract; the original camera interface remains unchanged.</summary>
+public interface IScopedSceneCameraService
+{
+    ApiResult<SceneCameraScopedReadSnapshot> ReadScopedOnMainThread();
+}
+
+public interface IScopedSceneCameraCommandDispatcher
+{
+    ApiResult<SceneCameraScopedInheritedStartSnapshot> ApplyInheritedStartOnMainThread(
+        string sceneIdentity, SceneCameraComposition inheritedState,
+        bool hasOverall, bool hasBackground);
+
+    void UpdateOnMainThread();
+}
+
+public sealed record SceneCameraScopedReadSnapshot(
+    SceneCameraComposition Composition, int BackInstanceId, int SpineInstanceId,
+    bool PhysicalBaselinesCaptured);
+
+public sealed record SceneCameraScopedInheritedStartSnapshot(
+    string SceneIdentity, SceneCameraComposition Before,
+    SceneCameraComposition Applied, bool BaselineCaptured);
 
 /// <summary>
 /// Sibling contract of <see cref="ISceneCameraService"/> (2026-09-18) for scene

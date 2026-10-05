@@ -139,6 +139,22 @@ internal static class ContinueDialogueRuntime
     public static void RememberContinueIdentity(string sha256)
         => SetContinueIdentity(sha256, enabled: true, "editor-sanitizer");
 
+    internal static void InvalidateStorageContext(string source)
+    {
+        lock (Gate)
+        {
+            ContinueIdentities.Clear();
+            ResetPending();
+            _pendingIdentity = _lastArmedIdentity = _lastPrefixAtArm = null;
+            _dialogueChainActive = _suppressEmptyClear = _holdPanelVisible = false;
+            _lastDialogVisible = string.Empty;
+            _dialogLabel = null;
+            _dialogPanel = null;
+        }
+        PlayerCommandObservationLog.Append($"{DateTimeOffset.Now:O} dialog-continue context-invalidated; "
+            + $"source={EscapeShort(source)}; identities=0; armed=false; pending=false");
+    }
+
     public static void ForgetContinueIdentity(string sha256, string source)
         => SetContinueIdentity(sha256, enabled: false, source);
 

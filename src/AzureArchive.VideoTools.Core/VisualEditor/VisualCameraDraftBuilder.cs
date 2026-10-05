@@ -38,6 +38,21 @@ public sealed class VisualCameraDraftBuilder
             durationMilliseconds,
             easing));
 
+    public Result<string> BuildSet(
+        SceneCameraScope scope,
+        SceneCameraState state,
+        int durationMilliseconds,
+        CharacterTransformEasing easing) => Build(new SceneCameraCommand(
+            SceneCameraOperation.Set, state.X, state.Y, null, null,
+            state.Zoom, null, durationMilliseconds, easing) { Scope = scope });
+
+    public Result<string> BuildReset(
+        SceneCameraScope scope,
+        int durationMilliseconds,
+        CharacterTransformEasing easing) => Build(new SceneCameraCommand(
+            SceneCameraOperation.Reset, null, null, null, null, null, null,
+            durationMilliseconds, easing) { Scope = scope });
+
     public Result<string> Build(SceneCameraCommand command)
     {
         Result validation = SceneCameraCommandValidator.Validate(command);
@@ -51,6 +66,7 @@ public sealed class VisualCameraDraftBuilder
             SceneCameraCommandFamilyCompiler.CanonicalRootToken,
             Operation(command.Operation)
         };
+        if (command.Scope == SceneCameraScope.Background) parts.Add("scope=background");
         if (command.Operation == SceneCameraOperation.Set)
         {
             AddFloat(parts, "x", command.X);

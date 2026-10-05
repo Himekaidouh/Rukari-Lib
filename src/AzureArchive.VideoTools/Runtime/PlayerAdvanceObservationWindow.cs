@@ -22,7 +22,11 @@ internal sealed record ClosedAdvanceWindow(
     PlaybackCommandBatch? EmbeddedCommandBatch,
     bool EmbeddedCommandConflict,
     int PlaybackRowIndex,
-    int PlaybackRowReadBefore);
+    int PlaybackRowReadBefore)
+{
+    internal long StorageRevision { get; init; }
+    internal bool BelongsToStorage(long revision) => StorageRevision == revision;
+}
 
 internal readonly record struct AdvanceWindowLifecycleSnapshot(
     long ActiveWindowSequence,
@@ -73,6 +77,9 @@ internal static class PlayerAdvanceObservationWindow
     /// card the row still points at.
     /// </summary>
     public static long Open(int playbackRowIndex = -1)
+        => Open(playbackRowIndex, 0);
+
+    internal static long Open(int playbackRowIndex, long storageRevision)
     {
         lock (Gate)
         {
@@ -84,7 +91,7 @@ internal static class PlayerAdvanceObservationWindow
             }
 
             long sequence = Interlocked.Increment(ref _sequence);
-            _active = new ActiveWindow(sequence) { PlaybackRowIndex = playbackRowIndex };
+            _active = new ActiveWindow(sequence) { PlaybackRowIndex = playbackRowIndex, StorageRevision = storageRevision };
             return sequence;
         }
     }
@@ -199,7 +206,7 @@ internal static class PlayerAdvanceObservationWindow
             active.EmbeddedCommandBatch,
             active.EmbeddedCommandConflict,
             playbackRowIndex >= 0 ? playbackRowIndex : active.PlaybackRowIndex,
-            active.PlaybackRowIndex);
+            active.PlaybackRowIndex) { StorageRevision = active.StorageRevision };
     }
 
     private static void Enqueue(ClosedAdvanceWindow window)
@@ -232,6 +239,7 @@ internal static class PlayerAdvanceObservationWindow
         }
 
         public long Sequence { get; }
+        public long StorageRevision { get; init; }
 
         public List<string> Messages { get; } = new();
 

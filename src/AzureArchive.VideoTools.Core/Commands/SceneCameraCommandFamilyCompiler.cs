@@ -12,6 +12,17 @@ public sealed class SceneCameraCommandFamilyCompiler : ICommandFamilyCompiler
     public const string CanonicalRootToken = "#camera";
     public const string PublicNamespaceToken = "camera";
     public const int SingletonResourceSlot = 0;
+    public const int BackgroundResourceSlot = 6;
+
+    public static int ResourceSlotFor(SceneCameraScope scope) => scope switch
+    {
+        SceneCameraScope.Overall => SingletonResourceSlot,
+        SceneCameraScope.Background => BackgroundResourceSlot,
+        _ => throw new ArgumentOutOfRangeException(nameof(scope))
+    };
+
+    public static bool IsCameraResourceSlot(int slot) =>
+        slot is SingletonResourceSlot or BackgroundResourceSlot;
 
     private readonly ISceneCameraDirectiveParser _parser;
 
@@ -35,6 +46,8 @@ public sealed class SceneCameraCommandFamilyCompiler : ICommandFamilyCompiler
 
         SceneCameraCommand command = parsed.Value;
         var parts = new List<string> { CanonicalRootToken, Operation(command.Operation) };
+        // Legacy overall text stays byte-for-byte canonical as before.
+        if (command.Scope == SceneCameraScope.Background) parts.Add("scope=background");
         if (command.Operation == SceneCameraOperation.Set)
         {
             AddFloat(parts, "x", command.X);
@@ -54,7 +67,7 @@ public sealed class SceneCameraCommandFamilyCompiler : ICommandFamilyCompiler
             CommandTypeId,
             CapabilityId,
             string.Join(';', parts),
-            SingletonResourceSlot));
+            ResourceSlotFor(command.Scope)));
     }
 
     private static void AddFloat(ICollection<string> parts, string name, float? value)

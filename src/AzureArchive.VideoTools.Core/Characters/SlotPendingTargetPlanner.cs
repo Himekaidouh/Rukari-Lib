@@ -41,12 +41,13 @@ public static class SlotPendingTargetPlanner
             case CharacterTransformOperation.Set:
                 target = ComputeSet(command, current);
                 positionChanged = command.X.HasValue || command.Y.HasValue;
-                rotationChanged = command.RotationDegrees.HasValue || command.FlipX.HasValue;
+                rotationChanged = command.RotationDegrees.HasValue
+                    || command.RotationXDegrees.HasValue || command.FlipX.HasValue;
                 break;
             case CharacterTransformOperation.Move:
                 target = ComputeMove(command, current);
                 positionChanged = command.DeltaX.HasValue || command.DeltaY.HasValue;
-                rotationChanged = command.DeltaRotationDegrees.HasValue;
+                rotationChanged = command.DeltaRotationDegrees.HasValue || command.DeltaRotationXDegrees.HasValue;
                 break;
             default:
                 return Result<CharacterTransformTarget>.Fail(
@@ -77,7 +78,9 @@ public static class SlotPendingTargetPlanner
             command.Y ?? current.Position.Y,
             current.Position.Z);
         var rotation = new CharacterVector3(
-            current.LocalEulerAngles.X,
+            command.RotationXDegrees.HasValue
+                ? CharacterAngleMath.NearestEquivalent(command.RotationXDegrees.Value, current.LocalEulerAngles.X)
+                : current.LocalEulerAngles.X,
             command.FlipX.HasValue
                 ? CharacterAngleMath.NearestEquivalent(
                     current.LocalEulerAngles.Y
@@ -101,7 +104,11 @@ public static class SlotPendingTargetPlanner
             current.Position.Y + (command.DeltaY ?? 0f),
             current.Position.Z);
         var rotation = new CharacterVector3(
-            current.LocalEulerAngles.X,
+            command.DeltaRotationXDegrees.HasValue
+                ? CharacterAngleMath.NearestEquivalent(
+                    current.LocalEulerAngles.X + command.DeltaRotationXDegrees.Value,
+                    current.LocalEulerAngles.X)
+                : current.LocalEulerAngles.X,
             current.LocalEulerAngles.Y,
             CharacterAngleMath.NearestEquivalent(
                 current.LocalEulerAngles.Z + (command.DeltaRotationDegrees ?? 0f),

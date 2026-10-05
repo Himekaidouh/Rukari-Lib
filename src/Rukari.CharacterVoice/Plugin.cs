@@ -22,7 +22,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string Guid = "rukari.charactervoice";
     public const string Name = "人物配音支持";
-    public const string Version = "1.6.5";
+    public const string Version = "1.6.7";
     internal static ManualLogSource Logger { get; private set; } = null!;
     private static VoiceAuthoringSession? _voice;
     private static VoiceToolPage? _page;
@@ -148,10 +148,13 @@ public sealed class Plugin : BasePlugin
 
 public sealed class VoiceBehaviour : MonoBehaviour
 {
+    private static readonly VoicePlaybackTickGuard PlaybackTickGuard = new();
+    private static readonly Action PlaybackTick = VoicePlaybackRuntime.TickOnMainThread;
+    private static readonly Action<Exception> PlaybackTickFailed = VoicePlaybackRuntime.SuspendAfterTickEntryFailure;
     public VoiceBehaviour(IntPtr pointer) : base(pointer) { }
     public void Update()
     {
-        VoicePlaybackRuntime.TickOnMainThread();
+        PlaybackTickGuard.Run(PlaybackTick, PlaybackTickFailed);
         Plugin.TickPage();
         Plugin.TickProbe();
     }

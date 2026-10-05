@@ -12,6 +12,7 @@
 *.log
 *.dmp
 *.aap
+*.aap2
 *.aas
 *.user
 *.suo

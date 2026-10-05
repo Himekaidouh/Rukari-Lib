@@ -6,6 +6,20 @@ public readonly record struct CharacterPresetPose(
 
 public static class CharacterPresetPoseOverlay
 {
+    /// <summary>
+    /// Keep the measured orientation and scale while choosing an Euler
+    /// representation near the authored pose. In particular, X-axis turns
+    /// must not reverse when Unity exchanges Y/Z half turns above 90 degrees.
+    /// A reference is only a representation hint, never a pose to restore.
+    /// </summary>
+    public static CharacterPresetPose ReexpressRotation(CharacterPresetPose observed, CharacterPresetPose reference)
+    {
+        CharacterVector3 euler = CharacterEulerRepresentation.NearestEquivalent(
+            new CharacterVector3(observed.EulerX, observed.EulerY, observed.EulerZ),
+            new CharacterVector3(reference.EulerX, reference.EulerY, reference.EulerZ));
+        return observed with { EulerX = euler.X, EulerY = euler.Y, EulerZ = euler.Z };
+    }
+
     /// <summary>Project a logical snapshot without changing the displayed native pose.</summary>
     public static CharacterTransformState ProjectAuthoredState(CharacterTransformState current,
         CharacterPresetPose baseline, CharacterPresetPose applied, bool ownsRotation) =>
@@ -13,12 +27,17 @@ public static class CharacterPresetPoseOverlay
 
     /// <summary>Yaw owns one complete orientation; tilt keeps the original Z-channel ownership.</summary>
     public static CharacterTransformState ProjectAuthoredState(CharacterTransformState current,
-        CharacterPresetPose baseline, CharacterPresetPose applied, bool ownsRotation, bool ownsYaw)
+        CharacterPresetPose baseline, CharacterPresetPose applied, bool ownsRotation, bool ownsYaw) =>
+        ProjectAuthoredState(current, baseline, applied, ownsRotation, ownsYaw, false);
+
+    /// <summary>Pitch and yaw both require complete orientation ownership.</summary>
+    public static CharacterTransformState ProjectAuthoredState(CharacterTransformState current,
+        CharacterPresetPose baseline, CharacterPresetPose applied, bool ownsRotation, bool ownsYaw, bool ownsPitch)
     {
         CharacterVector3 euler = current.LocalEulerAngles;
         float physicalZ = CharacterScreenRotation.IsHorizontallyFlipped(euler.Y) ? -euler.Z : euler.Z;
         var pose = new CharacterPresetPose(euler.X, euler.Y, physicalZ, 1f, 1f, 1f);
-        CharacterPresetPose clean = RemoveOwned(pose, baseline, applied, ownsRotation, false, ownsYaw);
+        CharacterPresetPose clean = RemoveOwned(pose, baseline, applied, ownsRotation, false, ownsYaw, ownsPitch);
         return current with
         {
             LocalEulerAngles = new CharacterVector3(clean.EulerX, clean.EulerY,
@@ -29,6 +48,7 @@ public static class CharacterPresetPoseOverlay
     public static CharacterPresetPose Apply(CharacterPresetPose baseline, CharacterPresetFrame frame) =>
         baseline with
         {
+            EulerX = baseline.EulerX + frame.PitchDegrees,
             EulerY = baseline.EulerY + frame.YawDegrees,
             EulerZ = baseline.EulerZ + (CharacterScreenRotation.IsHorizontallyFlipped(baseline.EulerY)
                 ? -frame.RotationDegrees : frame.RotationDegrees),
@@ -55,10 +75,20 @@ public static class CharacterPresetPoseOverlay
     /// </summary>
     public static CharacterPresetPose RemoveOwned(
         CharacterPresetPose current, CharacterPresetPose baseline, CharacterPresetPose applied,
-        bool ownsRotation, bool ownsScale, bool ownsYaw)
+        bool ownsRotation, bool ownsScale, bool ownsYaw) =>
+        RemoveOwned(current, baseline, applied, ownsRotation, ownsScale, ownsYaw, false);
+
+    /// <summary>
+    /// Pitch has the same complete-orientation ownership as yaw. Equivalent
+    /// native Euler representations may change every component on either axis.
+    /// </summary>
+    public static CharacterPresetPose RemoveOwned(
+        CharacterPresetPose current, CharacterPresetPose baseline, CharacterPresetPose applied,
+        bool ownsRotation, bool ownsScale, bool ownsYaw, bool ownsPitch)
     {
-        bool restoreRotation = ownsRotation && ownsYaw && SameRotation(current, applied);
-        bool restoreTilt = ownsRotation && !ownsYaw && SameAngle(current.EulerZ, applied.EulerZ);
+        bool ownsOrientation = ownsYaw || ownsPitch;
+        bool restoreRotation = ownsRotation && ownsOrientation && SameRotation(current, applied);
+        bool restoreTilt = ownsRotation && !ownsOrientation && SameAngle(current.EulerZ, applied.EulerZ);
         return current with
         {
             EulerX = restoreRotation ? baseline.EulerX : current.EulerX,

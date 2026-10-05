@@ -1,9 +1,9 @@
 extern alias unitycore;
 
+using System.Diagnostics;
 using AzureArchive.VideoTools.Api;
 using AzureArchive.VideoTools.Core;
 using AzureArchive.VideoTools.Core.Cameras;
-using AzureArchive.VideoTools.Core.Characters;
 using AzureArchive.VideoTools.Core.Commands;
 using AzureArchive.VideoTools.Core.Results;
 using Transform = unitycore::UnityEngine.Transform;
@@ -11,21 +11,24 @@ using Vector3 = unitycore::UnityEngine.Vector3;
 
 namespace AzureArchive.VideoTools.Interop;
 
-internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraCommandDispatcher
+internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraCommandDispatcher,
+    IScopedSceneCameraService, IScopedSceneCameraCommandDispatcher, ISceneCameraMutationEvidenceDispatcher
 {
     private const int MaximumAncestorDepth = 16;
 
     private readonly int _mainThreadId = Environment.CurrentManagedThreadId;
     private readonly SceneCameraDirectiveParser _parser = new();
     private readonly SceneCameraPlanner _planner = new();
-    private readonly Dictionary<string, SceneCameraBaseline> _sceneEntries =
-        new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Scene, SceneCameraScope Scope), SceneCameraBaseline> _sceneEntries = new();
 
     private int? _backInstanceId;
     private int? _spineInstanceId;
     private LayerBaseline? _backBaseline;
     private LayerBaseline? _spineBaseline;
-    private SceneCameraState _currentState = SceneCameraState.Default;
+    private SceneCameraMotion _motion = new();
+    private SceneCameraComposition _appliedComposition = SceneCameraComposition.Default;
+    private SceneCameraMotionFields _pendingWrites;
+    private SceneCameraPhysicalWrites _writtenLayers;
 
     public SceneCameraService(RuntimeCapabilityService capabilities)
     {
@@ -58,7 +61,7 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
             }
 
             return ApiResult<SceneCameraReadSnapshot>.Ok(new(
-                _currentState,
+                _motion.Target.Overall,
                 layers.Back.GetInstanceID(),
                 layers.Spine.GetInstanceID(),
                 _backBaseline.HasValue && _spineBaseline.HasValue));
@@ -68,6 +71,16 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
             return ApiResult<SceneCameraReadSnapshot>.Fail(
                 $"Scene camera state read failed: {ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    public ApiResult<SceneCameraScopedReadSnapshot> ReadScopedOnMainThread()
+    {
+        ApiResult<SceneCameraReadSnapshot> read = ReadOnMainThread();
+        return read.Success && read.Value != null
+            ? ApiResult<SceneCameraScopedReadSnapshot>.Ok(new(
+                _motion.Target, read.Value.BackInstanceId, read.Value.SpineInstanceId,
+                read.Value.PhysicalBaselinesCaptured))
+            : ApiResult<SceneCameraScopedReadSnapshot>.Fail(read.Error);
     }
 
     public ApiResult<SceneCameraExecutionSnapshot> ExecuteOnMainThread(
@@ -117,36 +130,29 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
             }
 
             SceneCameraCommand command = parsed.Value;
+            var entryKey = (sceneIdentity, command.Scope);
             bool baselineCaptured = !_sceneEntries.TryGetValue(
-                sceneIdentity,
+                entryKey,
                 out SceneCameraBaseline? existingEntry);
-            SceneCameraBaseline sceneEntry;
+            SceneCameraState current = _motion.Target.ForScope(command.Scope);
+            SceneCameraBaseline sceneEntry = existingEntry ?? new SceneCameraBaseline(sceneIdentity, current);
+            SceneCameraMotion candidate = _motion.Copy();
+            double now = MonotonicSeconds();
             bool replayRestored = false;
-            if (baselineCaptured)
+            SceneCameraTarget? replayRestore = null;
+            if (!baselineCaptured)
             {
-                sceneEntry = new SceneCameraBaseline(sceneIdentity, _currentState);
-            }
-            else
-            {
-                sceneEntry = existingEntry!;
-                var restore = _planner.PlanReplayRestore(command, _currentState, sceneEntry);
+                var restore = _planner.PlanReplayRestore(command, current, sceneEntry);
                 if (!restore.Success || restore.Value == null)
                 {
                     return ApiResult<SceneCameraExecutionSnapshot>.Fail(restore.Error);
                 }
 
-                ApiResult<bool> restored = ApplyTarget(layers, restore.Value);
-                if (!restored.Success)
-                {
-                    return ApiResult<SceneCameraExecutionSnapshot>.Fail(
-                        $"Scene camera replay restore failed: {restored.Error}");
-                }
-
-                _currentState = restore.Value.State;
+                replayRestore = restore.Value;
                 replayRestored = true;
             }
 
-            SceneCameraState before = _currentState;
+            SceneCameraState before = replayRestore?.State ?? candidate.Target.ForScope(command.Scope);
             var planned = _planner.Plan(command, before, sceneEntry);
             if (!planned.Success || planned.Value == null)
             {
@@ -154,16 +160,26 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
             }
 
             SceneCameraTarget target = planned.Value;
-            ApiResult<bool> applied = ApplyTarget(layers, target);
+            Result begun = replayRestore == null
+                ? candidate.Begin(command, target, now)
+                : candidate.BeginReplay(command, replayRestore, target, now);
+            if (!begun.Success) return ApiResult<SceneCameraExecutionSnapshot>.Fail(begun.Error);
+            Result<SceneCameraComposition> sampled = candidate.Sample(now);
+            if (!sampled.Success) return ApiResult<SceneCameraExecutionSnapshot>.Fail(sampled.Error);
+            SceneCameraMotionFields commandFields = SceneCameraMotion.FieldsFor(command);
+            ApiResult<bool> applied = ApplyComposition(
+                layers, sampled.Value, commandFields | _pendingWrites | candidate.ActiveFields(now), commandFields);
             if (!applied.Success)
             {
                 return ApiResult<SceneCameraExecutionSnapshot>.Fail(applied.Error);
             }
 
-            _currentState = target.State;
+            _motion = candidate;
+            _appliedComposition = sampled.Value;
+            _pendingWrites = candidate.ActiveFields(now);
             if (baselineCaptured)
             {
-                _sceneEntries.Add(sceneIdentity, sceneEntry);
+                _sceneEntries.Add(entryKey, sceneEntry);
             }
 
             return ApiResult<SceneCameraExecutionSnapshot>.Ok(
@@ -176,7 +192,11 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
                     target.ZoomChanged,
                     baselineCaptured,
                     replayRestored,
-                    target.IsReset));
+                    target.IsReset)
+                {
+                    Scope = command.Scope,
+                    Composition = candidate.Target
+                });
         }
         catch (Exception ex)
         {
@@ -201,9 +221,37 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
         string sceneIdentity,
         SceneCameraState inheritedState)
     {
+        ApiResult<SceneCameraScopedInheritedStartSnapshot> result = ApplyInheritedStartOnMainThread(
+            sceneIdentity, new SceneCameraComposition(inheritedState, SceneCameraState.Default), true, false);
+        return result.Success && result.Value != null
+            ? ApiResult<SceneCameraInheritedStartSnapshot>.Ok(new(
+                result.Value.SceneIdentity, result.Value.Before.Overall, result.Value.Applied.Overall,
+                result.Value.BaselineCaptured))
+            : ApiResult<SceneCameraInheritedStartSnapshot>.Fail(result.Error);
+    }
+
+    public ApiResult<SceneCameraScopedInheritedStartSnapshot> ApplyInheritedStartOnMainThread(
+        string sceneIdentity,
+        SceneCameraComposition inheritedState,
+        bool hasOverall,
+        bool hasBackground) =>
+        ApplyInheritedStartWithFailureEvidenceOnMainThread(
+            sceneIdentity, inheritedState, hasOverall, hasBackground, out _);
+
+    public ApiResult<SceneCameraScopedInheritedStartSnapshot> ApplyInheritedStartWithFailureEvidenceOnMainThread(
+        string sceneIdentity,
+        SceneCameraComposition inheritedState,
+        bool hasOverall,
+        bool hasBackground,
+        out SceneCameraMutationFailureEvidence failure)
+    {
+        // Every early return replaces the caller's prior evidence. No failure
+        // fields are retained between calls or borrowed from _writtenLayers.
+        failure = default;
+        bool physicalApplied = false;
         if (!IsMainThread())
         {
-            return ApiResult<SceneCameraInheritedStartSnapshot>.Fail(
+            return ApiResult<SceneCameraScopedInheritedStartSnapshot>.Fail(
                 "Scene camera inherited starts may only be applied on the Unity main thread.");
         }
 
@@ -211,59 +259,123 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
         {
             if (string.IsNullOrWhiteSpace(sceneIdentity))
             {
-                return ApiResult<SceneCameraInheritedStartSnapshot>.Fail(
+                return ApiResult<SceneCameraScopedInheritedStartSnapshot>.Fail(
                     "Scene identity is required for a scene camera inherited start.");
-            }
-
-            Result stateValidation = SceneCameraCommandValidator.ValidateTarget(inheritedState);
-            if (!stateValidation.Success)
-            {
-                return ApiResult<SceneCameraInheritedStartSnapshot>.Fail(
-                    $"Scene camera inherited start state is invalid: {stateValidation.Error}");
             }
 
             ApiResult<LiveSceneLayers> resolved = ResolveLayers();
             if (!resolved.Success || resolved.Value == null)
             {
-                return ApiResult<SceneCameraInheritedStartSnapshot>.Fail(resolved.Error);
+                return ApiResult<SceneCameraScopedInheritedStartSnapshot>.Fail(resolved.Error);
             }
 
             ApiResult<bool> baselineReady = EnsurePhysicalBaselines(resolved.Value);
             if (!baselineReady.Success)
             {
-                return ApiResult<SceneCameraInheritedStartSnapshot>.Fail(baselineReady.Error);
+                return ApiResult<SceneCameraScopedInheritedStartSnapshot>.Fail(baselineReady.Error);
             }
 
-            SceneCameraState before = _currentState;
-            var target = new SceneCameraTarget(
-                inheritedState,
-                PositionChanged: true,
-                ZoomChanged: true,
-                DurationMilliseconds: 0,
-                CharacterTransformEasing.Linear,
-                IsReset: false);
-            ApiResult<bool> applied = ApplyTarget(resolved.Value, target);
+            SceneCameraComposition before = _motion.Target;
+            SceneCameraMotion candidate = _motion.Copy();
+            double now = MonotonicSeconds();
+            Result seeded = candidate.Seed(inheritedState, hasOverall, hasBackground, now);
+            if (!seeded.Success) return ApiResult<SceneCameraScopedInheritedStartSnapshot>.Fail(seeded.Error);
+            SceneCameraMotionFields fields = (hasOverall
+                ? SceneCameraMotionFields.OverallPosition | SceneCameraMotionFields.OverallZoom : 0)
+                | (hasBackground ? SceneCameraMotionFields.BackgroundPosition | SceneCameraMotionFields.BackgroundZoom : 0);
+            Result<SceneCameraComposition> sampled = candidate.Sample(now);
+            if (!sampled.Success) return ApiResult<SceneCameraScopedInheritedStartSnapshot>.Fail(sampled.Error);
+            ApiResult<bool> applied = ApplyComposition(
+                resolved.Value, sampled.Value, fields | _pendingWrites | candidate.ActiveFields(now), fields,
+                out failure);
             if (!applied.Success)
             {
-                return ApiResult<SceneCameraInheritedStartSnapshot>.Fail(
+                return ApiResult<SceneCameraScopedInheritedStartSnapshot>.Fail(
                     $"Scene camera inherited start could not be applied: {applied.Error}");
             }
+            physicalApplied = true;
 
-            bool baselineCaptured = !_sceneEntries.ContainsKey(sceneIdentity);
-            _sceneEntries[sceneIdentity] = new SceneCameraBaseline(sceneIdentity, inheritedState);
-            _currentState = inheritedState;
-            return ApiResult<SceneCameraInheritedStartSnapshot>.Ok(new(
+            bool baselineCaptured = false;
+            if (hasOverall)
+            {
+                baselineCaptured |= !_sceneEntries.ContainsKey((sceneIdentity, SceneCameraScope.Overall));
+                _sceneEntries[(sceneIdentity, SceneCameraScope.Overall)] = new(sceneIdentity, inheritedState.Overall);
+            }
+            if (hasBackground)
+            {
+                baselineCaptured |= !_sceneEntries.ContainsKey((sceneIdentity, SceneCameraScope.Background));
+                _sceneEntries[(sceneIdentity, SceneCameraScope.Background)] = new(sceneIdentity, inheritedState.Background);
+            }
+            _motion = candidate;
+            _appliedComposition = sampled.Value;
+            _pendingWrites = candidate.ActiveFields(now);
+            return ApiResult<SceneCameraScopedInheritedStartSnapshot>.Ok(new(
                 sceneIdentity,
                 before,
-                inheritedState,
+                candidate.Target,
                 baselineCaptured));
         }
         catch (Exception ex)
         {
-            return ApiResult<SceneCameraInheritedStartSnapshot>.Fail(
+            // A managed commit failure after the setters also needs cleanup;
+            // the evidence still belongs to this exact application.
+            if (physicalApplied)
+                failure = failure with { HasResidualMutation = failure.AttemptedFields != SceneCameraMotionFields.None };
+            return ApiResult<SceneCameraScopedInheritedStartSnapshot>.Fail(
                 $"Scene camera inherited start failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
+
+    public void UpdateOnMainThread()
+    {
+        if (!IsMainThread() || _pendingWrites == SceneCameraMotionFields.None) return;
+        try
+        {
+            ApiResult<LiveSceneLayers> resolved = ResolveLayers();
+            if (!resolved.Success || resolved.Value == null)
+            {
+                StopMotion(resolved.Error);
+                return;
+            }
+            ApiResult<bool> baseline = EnsurePhysicalBaselines(resolved.Value);
+            if (!baseline.Success)
+            {
+                StopMotion(baseline.Error);
+                return;
+            }
+            if (_pendingWrites == SceneCameraMotionFields.None) return;
+            double now = MonotonicSeconds();
+            Result<SceneCameraComposition> sample = _motion.Sample(now);
+            if (!sample.Success)
+            {
+                StopMotion(sample.Error);
+                return;
+            }
+            SceneCameraMotionFields active = _motion.ActiveFields(now);
+            ApiResult<bool> applied = ApplyComposition(resolved.Value, sample.Value, _pendingWrites | active,
+                SceneCameraMotionFields.None);
+            if (!applied.Success)
+            {
+                StopMotion(applied.Error);
+                return;
+            }
+            _appliedComposition = sample.Value;
+            _pendingWrites = active;
+        }
+        catch (Exception ex)
+        {
+            StopMotion($"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    private void StopMotion(string reason)
+    {
+        _motion = new SceneCameraMotion(_appliedComposition);
+        _pendingWrites = SceneCameraMotionFields.None;
+        Plugin.Logger.LogWarning("Scene camera animation stopped: " + reason);
+    }
+
+    private static double MonotonicSeconds() => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
 
     private ApiResult<bool> EnsurePhysicalBaselines(LiveSceneLayers layers)
     {
@@ -284,14 +396,15 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
             && _spineBaseline.HasValue)
         {
             var failures = new List<string>();
+            SceneCameraPhysicalWrites owned = _writtenLayers;
             if (sameBack)
             {
                 RollBackLayer(
                     "Back-survivor",
                     layers.Back,
                     _backBaseline.Value,
-                    restorePosition: true,
-                    restoreScale: true,
+                    restorePosition: owned.BackPosition,
+                    restoreScale: owned.BackScale,
                     failures);
             }
             else
@@ -300,8 +413,8 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
                     "Spine-survivor",
                     layers.Spine,
                     _spineBaseline.Value,
-                    restorePosition: true,
-                    restoreScale: true,
+                    restorePosition: owned.SpinePosition,
+                    restoreScale: owned.SpineScale,
                     failures);
             }
 
@@ -325,24 +438,40 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
         _spineInstanceId = spineInstanceId;
         _backBaseline = back;
         _spineBaseline = spine;
-        _currentState = SceneCameraState.Default;
+        _motion = new SceneCameraMotion();
+        _appliedComposition = SceneCameraComposition.Default;
+        _pendingWrites = SceneCameraMotionFields.None;
+        _writtenLayers = default;
         _sceneEntries.Clear();
         return ApiResult<bool>.Ok(true);
     }
 
-    private ApiResult<bool> ApplyTarget(
+    private ApiResult<bool> ApplyComposition(
         LiveSceneLayers layers,
-        SceneCameraTarget target)
+        SceneCameraComposition composition,
+        SceneCameraMotionFields fields,
+        SceneCameraMotionFields cancelTweens) =>
+        ApplyComposition(layers, composition, fields, cancelTweens, out _);
+
+    private ApiResult<bool> ApplyComposition(
+        LiveSceneLayers layers,
+        SceneCameraComposition composition,
+        SceneCameraMotionFields fields,
+        SceneCameraMotionFields cancelTweens,
+        out SceneCameraMutationFailureEvidence failure)
     {
+        failure = default;
         if (!_backBaseline.HasValue || !_spineBaseline.HasValue)
         {
             return ApiResult<bool>.Fail("Scene camera physical baselines are unavailable.");
         }
 
-        bool applyPosition = target.PositionChanged || target.ZoomChanged;
-        bool applyScale = target.ZoomChanged;
-        LayerTarget backTarget = MapTarget(_backBaseline.Value, target.State);
-        LayerTarget spineTarget = MapTarget(_spineBaseline.Value, target.State);
+        Result<SceneCameraComposedLayers> composed = SceneCameraCompositionPlanner.Compose(composition);
+        if (!composed.Success || composed.Value == null) return ApiResult<bool>.Fail(composed.Error);
+        SceneCameraPhysicalWrites writes = SceneCameraCompositionPlanner.WritesFor(fields);
+        SceneCameraPhysicalWrites cancel = SceneCameraCompositionPlanner.WritesFor(cancelTweens);
+        LayerTarget backTarget = MapTarget(_backBaseline.Value, composed.Value.Back);
+        LayerTarget spineTarget = MapTarget(_spineBaseline.Value, composed.Value.Spine);
         if (!backTarget.IsFinite || !spineTarget.IsFinite)
         {
             return ApiResult<bool>.Fail(
@@ -357,32 +486,40 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
                 "Back or Spine has a non-finite pre-application transform; rollback is unsafe.");
         }
 
+        SceneCameraPhysicalWrites attempted = default;
+        var mutationAttempt = new SceneCameraMutationAttempt(fields);
         try
         {
-            ApplyLayer(
+            WriteLayer(
                 layers.Back,
+                isBack: true,
                 backTarget,
-                applyPosition,
-                applyScale,
-                target.DurationMilliseconds,
-                target.Easing);
-            ApplyLayer(
+                writes.BackPosition,
+                writes.BackScale,
+                cancel.BackPosition,
+                cancel.BackScale,
+                ref attempted,
+                mutationAttempt);
+            WriteLayer(
                 layers.Spine,
+                isBack: false,
                 spineTarget,
-                applyPosition,
-                applyScale,
-                target.DurationMilliseconds,
-                target.Easing);
+                writes.SpinePosition,
+                writes.SpineScale,
+                cancel.SpinePosition,
+                cancel.SpineScale,
+                ref attempted,
+                mutationAttempt);
+            failure = mutationAttempt.Evidence(hasResidualMutation: false);
             return ApiResult<bool>.Ok(true);
         }
         catch (Exception ex)
         {
-            string rollback = RollBackLayers(
-                layers,
-                backBefore,
-                spineBefore,
-                applyPosition,
-                applyScale);
+            var failures = new List<string>();
+            RollBackLayer("Back", layers.Back, backBefore, attempted.BackPosition, attempted.BackScale, failures);
+            RollBackLayer("Spine", layers.Spine, spineBefore, attempted.SpinePosition, attempted.SpineScale, failures);
+            string rollback = failures.Count == 0 ? "succeeded" : string.Join("|", failures);
+            failure = mutationAttempt.Evidence(hasResidualMutation: failures.Count != 0);
             string residual = string.Equals(rollback, "succeeded", StringComparison.Ordinal)
                 ? string.Empty
                 : "; " + RuntimeMutationFailure.ResidualMutationMarker;
@@ -392,57 +529,53 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
         }
     }
 
-    private static void ApplyLayer(
+    private void WriteLayer(
         Transform transform,
+        bool isBack,
         LayerTarget target,
         bool applyPosition,
         bool applyScale,
-        int durationMilliseconds,
-        CharacterTransformEasing easing)
+        bool cancelPositionTween,
+        bool cancelScaleTween,
+        ref SceneCameraPhysicalWrites attempted,
+        SceneCameraMutationAttempt mutationAttempt)
     {
-        float durationSeconds = durationMilliseconds / 1000f;
         if (applyPosition)
         {
             var position = target.Position.ToNative();
-            if (durationMilliseconds == 0)
+            mutationAttempt.BeginPositionWrite(isBack);
+            // Immediate native setters write in their finally block even if
+            // tween cancellation throws. Retain attempted-axis ownership so a
+            // later single-root rebuild cannot absorb a residual mutation.
+            _writtenLayers = isBack ? _writtenLayers with { BackPosition = true }
+                : _writtenLayers with { SpinePosition = true };
+            attempted = isBack ? attempted with { BackPosition = true }
+                : attempted with { SpinePosition = true };
+            if (cancelPositionTween)
             {
                 SetPositionImmediately(transform, position);
             }
             else
             {
-                TweenPosition? tween = TweenPosition.Begin(
-                    transform.gameObject,
-                    durationSeconds,
-                    position,
-                    false);
-                if (ReferenceEquals(tween, null))
-                {
-                    throw new InvalidOperationException("TweenPosition.Begin returned null.");
-                }
-
-                tween.method = MapEasing(easing);
+                transform.localPosition = position;
             }
         }
 
         if (applyScale)
         {
             var scale = target.Scale.ToNative();
-            if (durationMilliseconds == 0)
+            mutationAttempt.BeginScaleWrite(isBack);
+            _writtenLayers = isBack ? _writtenLayers with { BackScale = true }
+                : _writtenLayers with { SpineScale = true };
+            attempted = isBack ? attempted with { BackScale = true }
+                : attempted with { SpineScale = true };
+            if (cancelScaleTween)
             {
                 SetScaleImmediately(transform, scale);
             }
             else
             {
-                TweenScale? tween = TweenScale.Begin(
-                    transform.gameObject,
-                    durationSeconds,
-                    scale);
-                if (ReferenceEquals(tween, null))
-                {
-                    throw new InvalidOperationException("TweenScale.Begin returned null.");
-                }
-
-                tween.method = MapEasing(easing);
+                transform.localScale = scale;
             }
         }
     }
@@ -485,31 +618,6 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
         {
             transform.localScale = scale;
         }
-    }
-
-    private static string RollBackLayers(
-        LiveSceneLayers layers,
-        LayerBaseline backBefore,
-        LayerBaseline spineBefore,
-        bool restorePosition,
-        bool restoreScale)
-    {
-        var failures = new List<string>();
-        RollBackLayer(
-            "Back",
-            layers.Back,
-            backBefore,
-            restorePosition,
-            restoreScale,
-            failures);
-        RollBackLayer(
-            "Spine",
-            layers.Spine,
-            spineBefore,
-            restorePosition,
-            restoreScale,
-            failures);
-        return failures.Count == 0 ? "succeeded" : string.Join("|", failures);
     }
 
     private static void RollBackLayer(
@@ -615,28 +723,19 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
 
     private static LayerTarget MapTarget(
         LayerBaseline baseline,
-        SceneCameraState camera)
+        SceneCameraLayerComposition camera)
     {
         float zoom = camera.Zoom;
         return new LayerTarget(
             new ManagedVector3(
-                baseline.Position.X - (camera.X * zoom),
-                baseline.Position.Y - (camera.Y * zoom),
+                baseline.Position.X - camera.OffsetX,
+                baseline.Position.Y - camera.OffsetY,
                 baseline.Position.Z),
             new ManagedVector3(
                 baseline.Scale.X * zoom,
                 baseline.Scale.Y * zoom,
                 baseline.Scale.Z));
     }
-
-    private static UITweener.Method MapEasing(CharacterTransformEasing easing) => easing switch
-    {
-        CharacterTransformEasing.Linear => UITweener.Method.Linear,
-        CharacterTransformEasing.EaseIn => UITweener.Method.EaseIn,
-        CharacterTransformEasing.EaseOut => UITweener.Method.EaseOut,
-        CharacterTransformEasing.EaseInOut => UITweener.Method.EaseInOut,
-        _ => UITweener.Method.Linear
-    };
 
     private bool IsMainThread() => Environment.CurrentManagedThreadId == _mainThreadId;
 

@@ -58,6 +58,11 @@ public sealed class CharacterPresetCommandFamilyCompiler : ICommandFamilyCompile
             parts.Add($"cycles={command.Cycles.ToString(CultureInfo.InvariantCulture)}");
         }
 
+        if (command.Kind == CharacterPresetKind.Spin && command.SpinAxis == CharacterPresetSpinAxis.X)
+        {
+            parts.Add("axis=x");
+        }
+
         parts.Add(command.Direction < 0 ? "direction=left" : "direction=right");
         if (command.Bezier is { } bezier)
         {

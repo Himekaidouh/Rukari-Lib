@@ -18,7 +18,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string Guid = "rukari.moreeffects";
     public const string Name = "更多的画面效果";
-    public const string Version = "1.4.4";
+    public const string Version = "1.5.2";
 
     internal static ManualLogSource Logger { get; private set; } = null!;
     public static IAzureArchiveApi Api { get; private set; } = null!;

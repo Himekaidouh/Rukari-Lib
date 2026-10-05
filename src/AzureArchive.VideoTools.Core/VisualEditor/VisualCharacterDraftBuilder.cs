@@ -21,7 +21,10 @@ public sealed record VisualCharacterDraftRequest(
     float? RotationDegrees,
     bool? FlipX,
     int DurationMilliseconds,
-    CharacterTransformEasing Easing);
+    CharacterTransformEasing Easing)
+{
+    public float? RotationXDegrees { get; init; }
+}
 
 public sealed class VisualCharacterDraftBuilder
 {
@@ -69,7 +72,11 @@ public sealed class VisualCharacterDraftBuilder
                 : command.RotationDegrees,
             command.FlipX,
             command.DurationMilliseconds,
-            command.Easing));
+            command.Easing)
+        {
+            RotationXDegrees = command.Operation == CharacterTransformOperation.Move
+                ? command.DeltaRotationXDegrees : command.RotationXDegrees
+        });
     }
 
     public Result<string> Build(VisualCharacterDraftRequest request)
@@ -88,7 +95,7 @@ public sealed class VisualCharacterDraftBuilder
                 $"Duration must be between 0 and {CharacterTransformCommandValidator.MaximumDurationMilliseconds} milliseconds.");
         }
 
-        if (!AllFinite(request.X, request.Y, request.RotationDegrees))
+        if (!AllFinite(request.X, request.Y, request.RotationDegrees, request.RotationXDegrees))
         {
             return Result<string>.Fail("Character transform values must be finite numbers.");
         }
@@ -116,7 +123,11 @@ public sealed class VisualCharacterDraftBuilder
             operation == CharacterTransformOperation.Move ? request.RotationDegrees : null,
             operation == CharacterTransformOperation.Set ? request.FlipX : null,
             request.Occupied ? request.DurationMilliseconds : 0,
-            request.Occupied ? request.Easing : CharacterTransformEasing.Linear);
+            request.Occupied ? request.Easing : CharacterTransformEasing.Linear)
+        {
+            RotationXDegrees = operation == CharacterTransformOperation.Set ? request.RotationXDegrees : null,
+            DeltaRotationXDegrees = operation == CharacterTransformOperation.Move ? request.RotationXDegrees : null
+        };
         Result validation = CharacterTransformCommandValidator.Validate(command);
         if (!validation.Success)
         {
@@ -141,6 +152,7 @@ public sealed class VisualCharacterDraftBuilder
             AddFloat(parts, "x", request.X);
             AddFloat(parts, "y", request.Y);
             AddFloat(parts, "rotation", request.RotationDegrees);
+            AddFloat(parts, "rotationX", request.RotationXDegrees);
             if (request.FlipX.HasValue)
             {
                 parts.Add($"flipX={request.FlipX.Value.ToString().ToLowerInvariant()}");
@@ -151,6 +163,7 @@ public sealed class VisualCharacterDraftBuilder
             AddFloat(parts, "dx", request.X);
             AddFloat(parts, "dy", request.Y);
             AddFloat(parts, "drotation", request.RotationDegrees);
+            AddFloat(parts, "drotationX", request.RotationXDegrees);
         }
 
         if (request.Occupied)

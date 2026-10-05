@@ -23,6 +23,7 @@ internal sealed class CharacterPresetEditorSession
     private long _lastRead;
     private EditorCommandDocumentSnapshot? _source;
     private int _direction = 1;
+    private CharacterPresetSpinAxis _spinAxis = CharacterPresetSpinAxis.Y;
     private int _finiteCycles = 3;
     private bool _loop;
     private bool _dirty;
@@ -54,6 +55,7 @@ internal sealed class CharacterPresetEditorSession
     internal int Generation { get; private set; }
     internal bool Loop => _loop;
     internal int Direction => _direction;
+    internal CharacterPresetSpinAxis SpinAxis => _spinAxis;
     internal bool Editable => _source?.InputAvailable == true && _source.InputMatchesScript
         && !string.IsNullOrEmpty(_source.RuntimeSelectionKey);
     internal bool CanUndo => Editable && _source?.UndoAvailable == true;
@@ -61,7 +63,7 @@ internal sealed class CharacterPresetEditorSession
         : string.IsNullOrWhiteSpace(_source.DialogueText) ? "（当前为空台词 / 动作行）"
         : Shorten(_source.DialogueText, 48);
     internal string CurrentEffect => Existing == null ? "本槽尚未设置动作"
-        : "本槽已设置：" + Title(Existing.Kind);
+        : "本槽已设置：" + Title(Existing.Kind, Existing.SpinAxis);
 
     internal void Show(CharacterPresetKind kind)
     {
@@ -171,6 +173,7 @@ internal sealed class CharacterPresetEditorSession
         Numbers.Clear();
         LoadBezier(command.Bezier);
         _direction = command.Direction;
+        _spinAxis = command.SpinAxis;
         _loop = command.Cycles == 0;
         _finiteCycles = command.Cycles > 0 ? command.Cycles : Kind == CharacterPresetKind.Spin ? 2 : 3;
         if (Kind == CharacterPresetKind.Headbutt)
@@ -288,6 +291,14 @@ internal sealed class CharacterPresetEditorSession
         Changed();
     }
 
+    internal void SetSpinAxis(CharacterPresetSpinAxis axis)
+    {
+        if (!Editable || Kind != CharacterPresetKind.Spin
+            || axis is not (CharacterPresetSpinAxis.X or CharacterPresetSpinAxis.Y)) return;
+        _spinAxis = axis;
+        Changed();
+    }
+
     private void Changed() { _dirty = true; Notice = "设置尚未应用。"; }
 
     internal bool TryDirective(out string directive, out string error)
@@ -307,6 +318,8 @@ internal sealed class CharacterPresetEditorSession
             parts.Add(number.Key + "=" + value.ToString("R", CultureInfo.InvariantCulture));
         }
         parts.Add(_direction < 0 ? "direction=left" : "direction=right");
+        if (Kind == CharacterPresetKind.Spin && _spinAxis == CharacterPresetSpinAxis.X)
+            parts.Add("axis=x");
         if (!TryBezier(out CharacterPresetBezier? curve, out error)) return false;
         if (curve.HasValue) parts.Add("bezier=" + curve.Value.ToDirectiveValue());
         var compiled = _compiler.Canonicalize(string.Join(";", parts));
@@ -421,11 +434,20 @@ internal sealed class CharacterPresetEditorSession
     internal static string Description(CharacterPresetKind kind) => kind switch
     {
         CharacterPresetKind.Sway => "左右倾斜摇晃，结束后恢复原姿势。",
-        CharacterPresetKind.Spin => "绕 Y 轴原地转身，结束后恢复原朝向。",
+        CharacterPresetKind.Spin => "可选 X 或 Y 轴旋转，结束后恢复原朝向。",
         CharacterPresetKind.Headbutt => "先后仰，再向前顶出，最后恢复原姿势。",
         CharacterPresetKind.Squash => "横向伸长时纵向压扁，反向亦然，结束后恢复。",
         _ => string.Empty
     };
+
+    internal static string Title(CharacterPresetKind kind, CharacterPresetSpinAxis axis) =>
+        kind == CharacterPresetKind.Spin ? Title(kind) + (axis == CharacterPresetSpinAxis.X ? " · X 轴" : " · Y 轴")
+            : Title(kind);
+
+    internal static string Description(CharacterPresetKind kind, CharacterPresetSpinAxis axis) =>
+        kind == CharacterPresetKind.Spin
+            ? "绕 " + (axis == CharacterPresetSpinAxis.X ? "X" : "Y") + " 轴原地旋转，结束后恢复原朝向。"
+            : Description(kind);
 
     private static string ToCanonical(string directive) => directive.StartsWith("#aavt;", StringComparison.OrdinalIgnoreCase)
         ? "#" + directive[6..] : directive;

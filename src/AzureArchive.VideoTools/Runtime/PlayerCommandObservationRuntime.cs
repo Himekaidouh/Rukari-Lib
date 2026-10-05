@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AzureArchive.VideoTools.Api;
+using AzureArchive.VideoTools.Core.Cameras;
 using AzureArchive.VideoTools.Core.Characters;
 using AzureArchive.VideoTools.Core.Commands;
 using AzureArchive.VideoTools.Core.Mapping;
@@ -83,8 +84,10 @@ internal static class PlayerCommandObservationRuntime
     // FIX D bookkeeping, scoped per DataList generation instead of the editor
     // observation sequence (which repeated green previews without
     // OnChildSelect never advance). The lease reservation records the
-    // generation whose chain coverage an authorized-but-not-yet-dispatched
-    // lease owns; the enqueue marker records the generation that already has
+    // generation whose chain coverage an authorized lease or scene-command
+    // batch owns; it also prevents a late chain-only pending from resetting a
+    // scene after its own commands have started. The enqueue marker records
+    // the generation that already has
     // a chain-only pending. Generation ids themselves are marked applied via
     // EmbeddedEditorPreviewLeaseCache.TryMarkGenerationChainApplied.
     private static long _leaseReservedChainGenerationId;
@@ -111,6 +114,8 @@ internal static class PlayerCommandObservationRuntime
     private static int _queuedPrefixOnlyEvents;
     private static int _droppedPrefixOnlyEvents;
     private static int _indexReloadRequested;
+    private static long _indexStorageRevision = -1;
+    private static long _indexLoadStorageRevision = -1;
     private static PlaybackDispatchCanaryGate? _dispatchCanaryGate;
     private static PlaybackSceneDispatchGate? _sceneDispatchGate;
     private static volatile bool _embeddedEditorCommandsRuntimeReady;
@@ -525,6 +530,8 @@ internal static class PlayerCommandObservationRuntime
 
             _updateStage = "editor-preview-mode";
             MaintainEditorPreviewMode(options.Stage);
+            _updateStage = "official-storage-path";
+            OfficialStoragePathBridge.CaptureOnMainThread(force: false);
             _updateStage = "reload-reset";
             RefreshDirectiveRegistry();
             ConsumeIndexReloadRequest(options.Stage, update);
@@ -532,6 +539,7 @@ internal static class PlayerCommandObservationRuntime
             PollArchiveChanges(options.Stage, update);
             _updateStage = "pending-embedded-previews";
             ManagedUnityLogSelectionProbe.PumpOnMainThread();
+            ConsumeIndexReloadRequest(options.Stage, update);
             DrainPendingEmbeddedPreviews(options.Stage, update);
             DrainPrefixOnlyEvents(options.Stage);
             _updateStage = "index-load";
@@ -595,6 +603,7 @@ internal static class PlayerCommandObservationRuntime
             // behaviour's Update. Drain their managed observations here,
             // then settle pending/inherited state before Unity renders.
             ManagedUnityLogSelectionProbe.PumpOnMainThread();
+            ConsumeIndexReloadRequest(options.Stage, update);
             DrainClosedWindows(options.Stage, update);
             DrainPendingEmbeddedPreviews(options.Stage, update);
             ScanSlotPendings(options);
@@ -608,6 +617,7 @@ internal static class PlayerCommandObservationRuntime
                 update,
                 ManagedDispatchPhase.LateUpdate);
             Plugin.Host.CharacterPresetsInternal.LateUpdate();
+            Plugin.Host.ScopedSceneCameraCommandsInternal.UpdateOnMainThread();
             ContinueDialogueRuntime.UpdateTick();
         }
         catch (Exception ex)
@@ -640,11 +650,14 @@ internal static class PlayerCommandObservationRuntime
         DeferredEditorPreviews.Clear();
         PendingEmbeddedPreviews.Clear();
         _index = null;
+        _indexStorageRevision = -1;
         _indexLoadTask = null;
         _indexLoadConsumed = false;
         _lastFailedIndexLoadUpdate = 0;
         _lastFailedIndexLoadSignature = null;
         _publishPendingSignature = null;
+        _playbackPairDiscoveryAttempts = 0;
+        ContinueDialogueRuntime.InvalidateStorageContext("index-reload");
         EditorNotifications.ClearPlaybackNotice();
         _chainSource = null;
         _chainSourceLoadTask = null;
@@ -778,6 +791,7 @@ internal static class PlayerCommandObservationRuntime
             PlayerCommandObservationOptions snapshot = options with { };
             bool retryAfterFailure = _lastFailedIndexLoadSignature != null;
             _indexLoadConsumed = false;
+            _indexLoadStorageRevision = ActiveProjectPairSource.StorageRevision;
             _indexLoadTask = Task.Run(() => LoadIndex(snapshot));
             PlayerCommandObservationLog.Append(
                 $"{Stamp()} index-load queued=true; worker=managed-background-read-only; stage={options.Stage}; "
@@ -787,6 +801,13 @@ internal static class PlayerCommandObservationRuntime
 
         if (_indexLoadConsumed || !_indexLoadTask.IsCompleted)
         {
+            return;
+        }
+        if (ActiveProjectPairSource.Enabled
+            && !ActiveProjectPairSource.IsStorageRevisionCurrent(_indexLoadStorageRevision))
+        {
+            RequestIndexReload();
+            ConsumeIndexReloadRequest(options.Stage, update);
             return;
         }
 
@@ -893,6 +914,7 @@ internal static class PlayerCommandObservationRuntime
         }
 
         _index = result.Index;
+        _indexStorageRevision = _indexLoadStorageRevision;
         DiscoveredProjectPair? loadedPair = ActiveProjectPairSource.ActivePairSnapshot();
         // The baseline must describe the pair the index was actually built from,
         // so the signature the worker observed before its reads wins: a fresh
@@ -1190,6 +1212,8 @@ internal static class PlayerCommandObservationRuntime
                 && !contextRead)
             {
                 contextRead = true;
+                OfficialStoragePathBridge.CaptureOnMainThread(force: true);
+                ConsumeIndexReloadRequest(stage, update);
                 contextResult = Plugin.Api.PlayerContext.ReadOnMainThread();
             }
 
@@ -1342,6 +1366,19 @@ internal static class PlayerCommandObservationRuntime
         ApiResult<PlayerRuntimeContextSnapshot>? contextResult,
         ICollection<string> lines)
     {
+        if (ActiveProjectPairSource.Enabled
+            && !window.BelongsToStorage(ActiveProjectPairSource.StorageRevision))
+        {
+            lines.Add($"{Stamp()} advance-window sequence={window.Sequence}; status=STALE_STORAGE_CONTEXT; "
+                + $"capturedRevision={window.StorageRevision}; currentRevision={ActiveProjectPairSource.StorageRevision}; action=NO_OP");
+            return;
+        }
+        if (ActiveProjectPairSource.Enabled && _index != null
+            && !ActiveProjectPairSource.IsStorageRevisionCurrent(_indexStorageRevision))
+        {
+            RequestIndexReload();
+            ConsumeIndexReloadRequest(stage, update);
+        }
         lines.Add(
             $"{Stamp()} advance-window sequence={window.Sequence}; close={window.CloseReason}; "
             + $"managedUnityStrings={window.ManagedUnityMessages.Count}; "
@@ -2026,6 +2063,13 @@ internal static class PlayerCommandObservationRuntime
                     out DataListGenerationScope batchScope)
                     ? batchScope.GenerationId
                     : 0;
+            if (stage == PlayerCommandObservationStage.SceneCommandDispatch
+                && chainGenerationId != 0 && batch.Commands.Count != 0)
+            {
+                // A late graph load may improve the next replay, but must not
+                // preposition this scene after its current commands have run.
+                _leaseReservedChainGenerationId = chainGenerationId;
+            }
             DeferredBatches.Enqueue(new DeferredCommandBatch(
                 windowSequence,
                 schedule,
@@ -2176,6 +2220,7 @@ internal static class PlayerCommandObservationRuntime
         while (PendingEmbeddedPreviews.Count >= MaximumPendingEmbeddedPreviews)
         {
             PendingEmbeddedPreview dropped = PendingEmbeddedPreviews.Dequeue();
+            ReleaseChainOnlyReservation(dropped);
             PlayerCommandObservationLog.Append(
                 $"{Stamp()} preview-retry status=DROPPED; sequence={dropped.WindowSequence}; "
                 + "reason=pending-overflow");
@@ -2200,8 +2245,7 @@ internal static class PlayerCommandObservationRuntime
     {
         if (stage != PlayerCommandObservationStage.SceneCommandDispatch
             || !previewMode
-            || _options?.PreviewChainEnabled != true
-            || _chainSource == null)
+            || _options?.PreviewChainEnabled != true)
         {
             return;
         }
@@ -2291,6 +2335,7 @@ internal static class PlayerCommandObservationRuntime
             if (identity == null
                 || identity.ObservationSequence != pending.EditorObservationSequence)
             {
+                ReleaseChainOnlyReservation(pending);
                 lines.Add(
                     $"{Stamp()} preview-retry status=DROPPED; sequence={pending.WindowSequence}; "
                     + "reason=editor-identity-moved-on");
@@ -2311,6 +2356,7 @@ internal static class PlayerCommandObservationRuntime
                     && (drainScope.ChainApplied
                         || drainScope.GenerationId == _leaseReservedChainGenerationId))
                 {
+                    ReleaseChainOnlyReservation(pending);
                     lines.Add(
                         $"{Stamp()} preview-chain status=CHAIN_ONLY_SKIPPED; "
                         + $"sequence={pending.WindowSequence}; "
@@ -2417,6 +2463,7 @@ internal static class PlayerCommandObservationRuntime
             out DataListGenerationScope scope);
         if (hasScope && scope.GenerationId != pending.ChainGenerationId)
         {
+            ReleaseChainOnlyReservation(pending);
             lines.Add(
                 $"{Stamp()} preview-chain status=CHAIN_ONLY_DROPPED; sequence={pending.WindowSequence}; "
                 + $"reason=editor-generation-superseded; pendingGeneration={pending.ChainGenerationId}; "
@@ -2426,6 +2473,7 @@ internal static class PlayerCommandObservationRuntime
 
         if (!hasScope || scope.ChainApplied)
         {
+            ReleaseChainOnlyReservation(pending);
             lines.Add(
                 $"{Stamp()} preview-chain status=CHAIN_ONLY_SKIPPED; sequence={pending.WindowSequence}; "
                 + "reason=chain-already-applied-for-generation");
@@ -2434,46 +2482,32 @@ internal static class PlayerCommandObservationRuntime
 
         // Editor-preview only drain: prefer the live editor graph.
         PreviewChainSource? source = EffectiveChainSource(preferLiveEditorGraph: true);
-        if (source == null)
-        {
-            lines.Add(
-                $"{Stamp()} preview-chain status=CHAIN_ONLY_SKIPPED; sequence={pending.WindowSequence}; "
-                + "reason=chain-source-unavailable");
-            TryMarkChainAppliedForPending(pending);
-            return;
-        }
-
-        bool budgetExhausted =
-            update - pending.CreatedUpdate >= EmbeddedPreviewRetryUpdates;
         ConfiguredSceneResolutionSnapshot? selected = Plugin.Api.SceneResolution.Current;
-        if (selected == null
-            || selected.ObservationSequence != pending.EditorObservationSequence
-            || selected.Status != ConfiguredSceneResolutionStatus.Mapped
-            || !selected.SelectedSceneTrusted
-            || !selected.SceneIndex.HasValue)
+        bool selectedReady = selected != null
+            && selected.ObservationSequence == pending.EditorObservationSequence
+            && selected.Status == ConfiguredSceneResolutionStatus.Mapped
+            && selected.SelectedSceneTrusted
+            && selected.SceneIndex.HasValue;
+        PreviewChainPendingAction availability = PreviewChainRecoveryPolicy.DecidePending(
+            contextCurrent: true,
+            prerequisitesReady: source != null && selectedReady,
+            retryBudgetExhausted: update - pending.CreatedUpdate >= EmbeddedPreviewRetryUpdates,
+            currentCommandsReserved: scope.GenerationId == _leaseReservedChainGenerationId);
+        if (availability != PreviewChainPendingAction.Apply)
         {
-            if (budgetExhausted)
-            {
-                lines.Add(
-                    $"{Stamp()} preview-chain status=CHAIN_ONLY_DROPPED; sequence={pending.WindowSequence}; "
-                    + $"reason=retry-budget-exhausted; waitedUpdates={update - pending.CreatedUpdate}");
-                TryMarkChainAppliedForPending(pending);
-                return;
-            }
-
-            PendingEmbeddedPreviews.Enqueue(pending);
+            RetryOrDropChainOnlyPreview(pending, update,
+                source == null ? "chain-source-unavailable" : "scene-resolution-unavailable", lines);
             return;
         }
 
-        TryMarkChainAppliedForPending(pending);
-        StoryNodeSnapshot? node = source.Project.Nodes.FirstOrDefault(n =>
-            string.Equals(n.NodeGuid, selected.NodeGuid, StringComparison.Ordinal));
-        int sceneIndex = selected.SceneIndex.Value;
+        PreviewChainSource readySource = source!;
+        ConfiguredSceneResolutionSnapshot trustedSelection = selected!;
+        StoryNodeSnapshot? node = readySource.Project.Nodes.FirstOrDefault(n =>
+            string.Equals(n.NodeGuid, trustedSelection.NodeGuid, StringComparison.Ordinal));
+        int sceneIndex = trustedSelection.SceneIndex!.Value;
         if (node == null || sceneIndex < 0 || sceneIndex >= node.Scenes.Count)
         {
-            lines.Add(
-                $"{Stamp()} preview-chain status=CHAIN_ONLY_DROPPED; sequence={pending.WindowSequence}; "
-                + "reason=scene-missing-from-chain-source");
+            RetryOrDropChainOnlyPreview(pending, update, "scene-missing-from-chain-source", lines);
             return;
         }
 
@@ -2483,24 +2517,81 @@ internal static class PlayerCommandObservationRuntime
             .Distinct()
             .OrderBy(slot => slot)
             .ToArray();
-        var sceneKey = new SceneKey(selected.NodeGuid, sceneIndex, selected.SceneFingerprint);
+        var sceneKey = new SceneKey(trustedSelection.NodeGuid, sceneIndex, trustedSelection.SceneFingerprint);
         string sceneIdentity =
             $"playback-sidecar:{sceneKey.NodeGuid}:{sceneKey.SceneIndex}:{sceneKey.Fingerprint}";
-        Result<PreviewChainResolution> resolved = source.Resolver.Resolve(
+        Result<PreviewChainResolution> resolved = readySource.Resolver.Resolve(
             sceneKey,
             occupiedSlots,
-            (key, slot) => source.Directives.TryGet(key.NodeGuid, key.SceneIndex, slot, out string directive)
+            (key, slot) => readySource.Directives.TryGet(key.NodeGuid, key.SceneIndex, slot, out string directive)
                 ? directive
                 : null);
         if (!resolved.Success || resolved.Value == null)
         {
-            lines.Add(
-                $"{Stamp()} preview-chain status=CHAIN_ONLY_FAILED; sequence={pending.WindowSequence}; "
-                + $"detail={Escape(resolved.Error)}");
+            RetryOrDropChainOnlyPreview(pending, update, "resolver-failed:" + resolved.Error, lines);
             return;
         }
 
-        ApplyPreviewChainSlots(pending.WindowSequence, resolved.Value, sceneIdentity, lines);
+        PreviewChainApplyResult application = ApplyPreviewChainSlots(
+            pending.WindowSequence, resolved.Value, sceneIdentity, lines);
+        if (!application.CoverageComplete)
+        {
+            if (application.ResidualMutationSlots.Count != 0)
+            {
+                ReleaseChainOnlyReservation(pending);
+                lines.Add(
+                    $"{Stamp()} preview-chain status=CHAIN_ONLY_FAILED; sequence={pending.WindowSequence}; "
+                    + "reason=residual-mutation; chainCovered=false");
+                return;
+            }
+
+            RetryOrDropChainOnlyPreview(pending, update, "inherited-slots-not-applied", lines);
+            return;
+        }
+
+        TryMarkChainAppliedForPending(pending);
+        ReleaseChainOnlyReservation(pending);
+    }
+
+    private static void RetryOrDropChainOnlyPreview(
+        PendingEmbeddedPreview pending,
+        long update,
+        string reason,
+        ICollection<string> lines)
+    {
+        bool contextCurrent = EmbeddedEditorPreviewLeaseCache.TryGetCurrentGeneration(
+            out DataListGenerationScope scope)
+            && scope.GenerationId == pending.ChainGenerationId
+            && !scope.ChainApplied;
+        bool commandsReserved = contextCurrent
+            && scope.GenerationId == _leaseReservedChainGenerationId;
+        PreviewChainPendingAction action = PreviewChainRecoveryPolicy.DecidePending(
+            contextCurrent,
+            prerequisitesReady: false,
+            update - pending.CreatedUpdate >= EmbeddedPreviewRetryUpdates,
+            currentCommandsReserved: commandsReserved);
+        if (action == PreviewChainPendingAction.Retry)
+        {
+            PendingEmbeddedPreviews.Enqueue(pending);
+            return;
+        }
+
+        ReleaseChainOnlyReservation(pending);
+        string dropReason = commandsReserved ? "editor-preview-commands-authoritative"
+            : contextCurrent ? "retry-budget-exhausted" : "editor-generation-superseded";
+        lines.Add(
+            $"{Stamp()} preview-chain status=CHAIN_ONLY_DROPPED; sequence={pending.WindowSequence}; "
+            + $"reason={dropReason}; "
+            + $"prerequisite={Escape(reason)}; waitedUpdates={update - pending.CreatedUpdate}; chainCovered=false");
+    }
+
+    private static void ReleaseChainOnlyReservation(PendingEmbeddedPreview pending)
+    {
+        if (pending.ChainGenerationId != 0
+            && _chainOnlyEnqueuedGenerationId == pending.ChainGenerationId)
+        {
+            _chainOnlyEnqueuedGenerationId = 0;
+        }
     }
 
     /// <summary>
@@ -2525,14 +2616,27 @@ internal static class PlayerCommandObservationRuntime
     {
         var appliedSlots = new HashSet<int>();
         var residualMutationSlots = new HashSet<int>();
+        var failedSlots = new HashSet<int>();
+        int expectedInheritedSlots = 0;
         foreach (PreviewChainSlotResolution slot in chain.Slots)
         {
             lines.Add(
                 $"{Stamp()} preview-chain-slot sequence={windowSequence}; slot={slot.PublicSlot}; "
                 + $"folded={slot.State.FoldedCommandCount}; stop={slot.StopReason}; "
                 + $"inherited={slot.HasInheritedStart}; occupant={Escape(slot.ExpectedOccupant)}");
-            if (!slot.HasInheritedStart || !slot.HasExpectedOccupant)
+            if (!slot.HasInheritedStart)
             {
+                continue;
+            }
+
+            expectedInheritedSlots++;
+            if (!slot.HasExpectedOccupant)
+            {
+                failedSlots.Add(slot.PublicSlot);
+                lines.Add(
+                    $"{Stamp()} SCENE_CHAIN_FAILED sequence={windowSequence}; "
+                    + $"slot={slot.PublicSlot}; reason=expected-occupant-unavailable; "
+                    + "action=continue-without-chain; chainCovered=false");
                 continue;
             }
 
@@ -2545,6 +2649,7 @@ internal static class PlayerCommandObservationRuntime
                     slot.LineageIdentity);
             if (!applied.Success || applied.Value == null)
             {
+                failedSlots.Add(slot.PublicSlot);
                 if (MayHaveResidualMutation(applied.Error))
                 {
                     residualMutationSlots.Add(slot.PublicSlot);
@@ -2574,7 +2679,8 @@ internal static class PlayerCommandObservationRuntime
                 + $"lineage={Escape(slot.LineageIdentity)}");
         }
 
-        return new PreviewChainApplyResult(appliedSlots, residualMutationSlots);
+        return new PreviewChainApplyResult(
+            appliedSlots, residualMutationSlots, failedSlots, expectedInheritedSlots);
     }
 
     private static bool TryValidateEditorPreviewDirectives(
@@ -2670,7 +2776,7 @@ internal static class PlayerCommandObservationRuntime
             {
                 EditorPreviewCommandKind.Camera => new EditorPreviewResource(
                     RuntimeEditorPreviewResourceKind.Camera,
-                    0),
+                    publicSlot),
                 EditorPreviewCommandKind.SpineOverlay => new EditorPreviewResource(
                     RuntimeEditorPreviewResourceKind.SpineOverlay,
                     publicSlot,
@@ -2838,9 +2944,12 @@ internal static class PlayerCommandObservationRuntime
             // the chain, so sibling windows collapse onto their window marker
             // while the green replay button's NEXT window (same generation —
             // replays never raise DataList) rebuilds the chain again.
-            EmbeddedEditorPreviewLeaseCache.TryMarkGenerationChainApplied(
-                lease.DataListGeneration,
-                lease.ClaimedWindowSequence);
+            if (chainApply.CoverageComplete)
+            {
+                EmbeddedEditorPreviewLeaseCache.TryMarkGenerationChainApplied(
+                    lease.DataListGeneration,
+                    lease.ClaimedWindowSequence);
+            }
         }
 
         var activeResources = new HashSet<EditorPreviewResource>();
@@ -2875,11 +2984,18 @@ internal static class PlayerCommandObservationRuntime
         // Reproduce the playback composition BEFORE this scene's own commands so
         // a relative camera command plans from the same base it would in
         // playback. A scene with no ancestor camera command stays untouched.
-        if (TryApplyInheritedCameraStart(lease, lines))
+        IReadOnlyList<int> inheritedCameraSlots = TryApplyInheritedCameraStart(lease, lines, out bool cameraResidual);
+        foreach (int inheritedCameraSlot in inheritedCameraSlots)
         {
             activeResources.Add(new EditorPreviewResource(
                 RuntimeEditorPreviewResourceKind.Camera,
-                SceneCameraCommandFamilyCompiler.SingletonResourceSlot));
+                inheritedCameraSlot));
+        }
+        if (cameraResidual)
+        {
+            FailEditorPreviewDispatch(queued, activeResources,
+                "inherited camera left residual mutation risk", lines);
+            return;
         }
 
         for (int index = 0; index < queued.Commands.Count; index++)
@@ -3133,18 +3249,13 @@ internal static class PlayerCommandObservationRuntime
                     slot,
                     out bool authoritative,
                     out string? overlayDirective);
-                if (authoritative)
-                {
-                    return overlayDirective;
-                }
-
-                return source.Directives.TryGet(
+                return PreviewDirectiveAuthority.Resolve(authoritative, overlayDirective, () => source.Directives.TryGet(
                     key.NodeGuid,
                     key.SceneIndex,
                     slot,
                     out string directive)
                         ? directive
-                        : null;
+                        : null);
             });
         if (!resolved.Success || resolved.Value == null)
         {
@@ -3244,13 +3355,15 @@ internal static class PlayerCommandObservationRuntime
     /// unavailable graph, scene or camera service leaves the scene on its
     /// official composition instead of blocking the dispatch.
     /// </summary>
-    private static bool TryApplyInheritedCameraStart(
+    private static IReadOnlyList<int> TryApplyInheritedCameraStart(
         EmbeddedEditorPreviewLease lease,
-        ICollection<string> lines)
+        ICollection<string> lines,
+        out bool residualMutation)
     {
+        residualMutation = false;
         if (_options?.PreviewCameraChainEnabled != true)
         {
-            return false;
+            return Array.Empty<int>();
         }
 
         PreviewChainSource? source = EffectiveChainSource(preferLiveEditorGraph: true);
@@ -3259,7 +3372,7 @@ internal static class PlayerCommandObservationRuntime
             lines.Add(
                 $"{Stamp()} editor-preview-camera-chain status=SKIP; "
                 + "reason=chain-source-unavailable");
-            return false;
+            return Array.Empty<int>();
         }
 
         StoryNodeSnapshot? node = source.Project.Nodes.FirstOrDefault(candidate =>
@@ -3272,38 +3385,35 @@ internal static class PlayerCommandObservationRuntime
                 $"{Stamp()} editor-preview-camera-chain status=SKIP; "
                 + "reason=live-scene-not-in-loaded-project; "
                 + $"node={Escape(lease.Scene.NodeGuid)}; scene={lease.Scene.SceneIndex}");
-            return false;
+            return Array.Empty<int>();
         }
 
         SceneKey sceneKey = node.Scenes[lease.Scene.SceneIndex].Key;
         Result<PreviewCameraChainResolution> resolved = source.CameraChains.Resolve(
             sceneKey,
-            key =>
+            (key, scope) =>
             {
-                if (EmbeddedEditorPreviewLeaseCache.TryGetOverlayDirective(
+                EmbeddedEditorPreviewLeaseCache.TryGetOverlayDirective(
                         lease.Scene.ProjectKey,
                         key.NodeGuid,
                         key.SceneIndex,
-                        SceneCameraCommandFamilyCompiler.SingletonResourceSlot,
+                        SceneCameraCommandFamilyCompiler.ResourceSlotFor(scope),
                         out bool authoritative,
-                        out string? overlayDirective))
-                {
-                    return authoritative ? overlayDirective : null;
-                }
-
-                return source.Directives.TryGetCamera(
+                        out string? overlayDirective);
+                return PreviewDirectiveAuthority.Resolve(authoritative, overlayDirective, () => source.Directives.TryGetCamera(
                     key.NodeGuid,
                     key.SceneIndex,
+                    scope,
                     out string indexDirective)
                         ? indexDirective
-                        : null;
+                        : null);
             });
         if (!resolved.Success || resolved.Value == null)
         {
             lines.Add(
                 $"{Stamp()} editor-preview-camera-chain status=SKIP; reason=resolver-failed; "
                 + $"detail={Escape(resolved.Error)}");
-            return false;
+            return Array.Empty<int>();
         }
 
         PreviewCameraChainResolution folded = resolved.Value;
@@ -3314,29 +3424,39 @@ internal static class PlayerCommandObservationRuntime
             + $"{folded.InheritedState.Zoom:R})");
         if (!folded.HasInheritedStart)
         {
-            return false;
+            return Array.Empty<int>();
         }
 
-        ApiResult<SceneCameraInheritedStartSnapshot> applied =
-            Plugin.Host.SceneCameraCommandsInternal.ApplyInheritedStartOnMainThread(
+        ApiResult<SceneCameraScopedInheritedStartSnapshot> applied =
+            ((ISceneCameraMutationEvidenceDispatcher)Plugin.Host.ScopedSceneCameraCommandsInternal)
+            .ApplyInheritedStartWithFailureEvidenceOnMainThread(
                 lease.StableSceneIdentity,
-                folded.InheritedState);
+                folded.InheritedComposition,
+                folded.HasOverallInheritedStart,
+                folded.HasBackgroundInheritedStart,
+                out SceneCameraMutationFailureEvidence failure);
         if (!applied.Success || applied.Value == null)
         {
+            residualMutation = failure.HasResidualMutation;
             lines.Add(
                 $"{Stamp()} editor-preview-camera-chain status=FAILED; "
-                + $"reason={Escape(applied.Error)}; action=continue-without-inherited-camera");
-            return false;
+                + $"reason={Escape(applied.Error)}; attemptedFields={failure.AttemptedFields}; "
+                + $"residualMutation={residualMutation}; "
+                + $"action={(residualMutation ? "fail-and-clean-attempted-camera" : "continue-without-inherited-camera")}");
+            return SceneCameraMutationAttempt.CleanupResourceSlots(failure);
         }
 
-        SceneCameraInheritedStartSnapshot start = applied.Value;
+        SceneCameraScopedInheritedStartSnapshot start = applied.Value;
         lines.Add(
             $"{Stamp()} editor-preview-camera-chain status=APPLIED; "
             + $"folded={folded.FoldedCommandCount}; stop={folded.StopReason}; "
-            + $"beforeX={start.Before.X:R}; beforeY={start.Before.Y:R}; beforeZoom={start.Before.Zoom:R}; "
-            + $"startX={start.Applied.X:R}; startY={start.Applied.Y:R}; startZoom={start.Applied.Zoom:R}; "
+            + $"overall={start.Applied.Overall}; background={start.Applied.Background}; "
             + $"baselineCaptured={start.BaselineCaptured}");
-        return true;
+        return new[]
+        {
+            folded.HasOverallInheritedStart ? SceneCameraCommandFamilyCompiler.SingletonResourceSlot : -1,
+            folded.HasBackgroundInheritedStart ? SceneCameraCommandFamilyCompiler.BackgroundResourceSlot : -1
+        }.Where(slot => slot >= 0).ToArray();
     }
 
     private static bool CleanupEditorPreviewResources(
@@ -3357,7 +3477,9 @@ internal static class PlayerCommandObservationRuntime
                 ApiResult<SceneCameraExecutionSnapshot> reset =
                     Plugin.Api.SceneCamera.ExecuteOnMainThread(
                         active.SceneIdentity,
-                        "#camera;reset;duration=0;easing=linear");
+                        resource.PublicSlot == SceneCameraCommandFamilyCompiler.BackgroundResourceSlot
+                            ? "#camera;reset;scope=background;duration=0;easing=linear"
+                            : "#camera;reset;duration=0;easing=linear");
                 bool restored = reset.Success && reset.Value != null;
                 success &= restored;
                 lines.Add(
@@ -3619,13 +3741,14 @@ internal static class PlayerCommandObservationRuntime
 
         if (queued.ApplyResolvedChain && queued.Chain != null)
         {
-            ApplyPreviewChain(authorization, queued.Chain, lines);
+            PreviewChainApplyResult chainApplication = ApplyPreviewChain(
+                authorization, queued.Chain, lines);
             // FIX D/E: only editor-preview batches carry a DataList
             // generation id; formal playback batches carry 0 and apply the
             // same chain machinery without ever consulting or mutating editor
             // generation state. The planner is idempotent, so playback never
             // needs its own suppression marker.
-            if (queued.ChainGenerationId != 0)
+            if (queued.ChainGenerationId != 0 && chainApplication.CoverageComplete)
             {
                 EmbeddedEditorPreviewLeaseCache.TryMarkGenerationChainApplied(
                     queued.ChainGenerationId);
@@ -3839,12 +3962,12 @@ internal static class PlayerCommandObservationRuntime
         }
     }
 
-    private static void ApplyPreviewChain(
+    private static PreviewChainApplyResult ApplyPreviewChain(
         PlaybackSceneDispatchAuthorization authorization,
         PreviewChainResolution chain,
         ICollection<string> lines)
     {
-        ApplyPreviewChainSlots(
+        return ApplyPreviewChainSlots(
             authorization.WindowSequence,
             chain,
             authorization.SceneIdentity,
@@ -4373,9 +4496,17 @@ internal static class PlayerCommandObservationRuntime
 
     private sealed record PreviewChainApplyResult(
         HashSet<int> AppliedSlots,
-        HashSet<int> ResidualMutationSlots)
+        HashSet<int> ResidualMutationSlots,
+        HashSet<int> FailedSlots,
+        int ExpectedInheritedSlots)
     {
-        public static PreviewChainApplyResult Empty => new(new(), new());
+        public static PreviewChainApplyResult Empty => new(new(), new(), new(), 0);
+
+        public bool CoverageComplete => PreviewChainRecoveryPolicy.HasCompleteCoverage(
+            resolutionSucceeded: true,
+            ExpectedInheritedSlots,
+            AppliedSlots.Count,
+            FailedSlots.Count);
     }
 
     private sealed record DeferredCommandBatch(

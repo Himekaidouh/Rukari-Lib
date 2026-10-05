@@ -38,6 +38,16 @@ public static class CharacterPresetCommandValidator
             return Result.Fail("Character preset direction must be left or right.");
         }
 
+        if (command.SpinAxis is not (CharacterPresetSpinAxis.Y or CharacterPresetSpinAxis.X))
+        {
+            return Result.Fail("Character preset spin axis must be X or Y.");
+        }
+
+        if (command.Kind != CharacterPresetKind.Spin && command.SpinAxis != CharacterPresetSpinAxis.Y)
+        {
+            return Result.Fail("A custom spin axis is valid only for the spin preset.");
+        }
+
         if (command.Bezier is { IsValid: false })
         {
             return Result.Fail("Character preset Bezier coordinates must be finite numbers between 0 and 1.");

@@ -40,11 +40,19 @@ public sealed record CharacterTransformCommand(
     float? DeltaRotationDegrees,
     bool? FlipX,
     int DurationMilliseconds,
-    CharacterTransformEasing Easing);
+    CharacterTransformEasing Easing)
+{
+    /// <summary>Local X-axis pitch. The original RotationDegrees remains screen-space Z tilt.</summary>
+    public float? RotationXDegrees { get; init; }
+
+    /// <summary>Relative local X-axis pitch, independent of horizontal facing.</summary>
+    public float? DeltaRotationXDegrees { get; init; }
+}
 
 /// <summary>
-/// Managed character transform snapshot. Position and local X/Y Euler values
-/// follow the live character Transform. LocalEulerAngles.Z is intentionally the
+/// Managed character transform snapshot. Position follows the live character
+/// Transform; local X/Y use a verified equivalent Euler representation of its
+/// measured orientation. LocalEulerAngles.Z is intentionally the
 /// tilt visible on screen: its sign is compensated across a horizontal Y-axis
 /// half turn and is not the raw Unity local Z value.
 /// </summary>

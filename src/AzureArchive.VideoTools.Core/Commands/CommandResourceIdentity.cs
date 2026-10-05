@@ -21,6 +21,7 @@ namespace AzureArchive.VideoTools.Core.Commands;
 public static class CommandResourceIdentity
 {
     public const string CameraKey = "camera";
+    public const string BackgroundCameraKey = "camera:background";
 
     /// <summary>Shared scene budget for extraction, saved indexes and preview leases.</summary>
     internal static bool IsWithinSceneBudget(IEnumerable<string> commandTypes)
@@ -45,7 +46,8 @@ public static class CommandResourceIdentity
                 SceneCameraCommandFamilyCompiler.CommandTypeId,
                 StringComparison.Ordinal))
         {
-            return CameraKey;
+            return command.PublicSlot == SceneCameraCommandFamilyCompiler.BackgroundResourceSlot
+                ? BackgroundCameraKey : CameraKey;
         }
 
         string slot = command.PublicSlot.ToString(CultureInfo.InvariantCulture);

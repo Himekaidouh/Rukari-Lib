@@ -90,7 +90,7 @@ internal sealed class ToolboxDrawer : IDisposable
     /// Which hosted page owns the visible panel, so its show and hide callbacks fire once per transition no
     /// matter which of the several paths closes the panel.
     /// </summary>
-    private readonly ToolPanelSession _hostedSession = new();
+    private readonly ToolHostedPageGuard _hostedGuard;
     /// <summary>Usable content width of this frame's sheet, which a hosted page may have chosen for itself.</summary>
     private float _contentWidth = ContentWidth;
     /// <summary>Width and height of this frame's sheet in canvas units, logged so a screenshot can be matched.</summary>
@@ -124,7 +124,6 @@ internal sealed class ToolboxDrawer : IDisposable
     private bool _imeFailureLogged;
     private bool _hostedDragging;
     private bool _hostedOverflowLogged;
-    private string _hostedFailureLogged = "";
     /// <summary>The ids of the hosted controls last written to the log, so one layout is reported once.</summary>
     private string _lastHostedIds = "";
     private float _hostedPointerX;
@@ -172,6 +171,7 @@ internal sealed class ToolboxDrawer : IDisposable
     {
         _input = input;
         _log = log;
+        _hostedGuard = new ToolHostedPageGuard(log);
         var registration = input.RegisterRegion("rukari.lib.runtime", "shared-toolbox");
         if (!registration.Success) throw new InvalidOperationException(registration.Error!.Message);
         _region = registration.Value;
@@ -284,10 +284,22 @@ internal sealed class ToolboxDrawer : IDisposable
         // A module with several pages no longer needs a switcher row inside the panel: those pages are the middle
         // column, so the panel is always measured as a single-page sheet. A hosted page states the sheet height
         // it wants instead, and the same panel scale still shrinks it to fit the window.
+        if (_hostedGuard.Select(expanded ? selected : null, expanded ? hosted : null, selected?.Id ?? string.Empty))
+        {
+            ResetInteraction();
+            HideHostedControls();
+        }
+        bool previouslyFailed = _hostedGuard.HasFailure;
+        var hostedSize = _hostedGuard.Measure();
+        if (!previouslyFailed && _hostedGuard.HasFailure)
+        {
+            ResetInteraction();
+            HideHostedControls();
+        }
         ToolDrawerLayout layout = hosted is null
             ? ToolDrawerLayout.Measure(1, filtered.Count, snapshot.Buttons.Count,
                 hasList, _activeSearch, snapshot.Summary, snapshot.Status)
-            : ToolDrawerLayout.MeasureHosted(hosted.PreferredHeight, RequestedWidthOf(hosted));
+            : ToolDrawerLayout.MeasureHosted(hostedSize.Height, hostedSize.Width);
         _contentWidth = layout.InnerWidth;
         _sheetWidth = layout.PanelWidth;
         _sheetHeight = layout.Height;
@@ -391,7 +403,7 @@ internal sealed class ToolboxDrawer : IDisposable
         cursor -= ToolDrawerLayout.HeaderRowHeight;
         if (hosted is not null)
         {
-            DrawHosted(hosted, layout.ContentHeight);
+            DrawHosted(layout.ContentHeight);
             PublishExpandedFrame(pixelWidth, pixelHeight, modules.Count, placement, collapseOne);
             return;
         }
@@ -690,13 +702,9 @@ internal sealed class ToolboxDrawer : IDisposable
     /// Draws a self-hosted page's content and feeds it this frame's pointer. The page never sees a game object:
     /// it asks for controls inside its own rectangle and the drawer reuses its pooled ones, which is what keeps
     /// one theme, one input owner and one canvas across every mod.
-    ///
-    /// <paramref name="cursor"/> is the bottom of the panel's remaining space, so the content is everything
-    /// between the panel's padding and the header.
     /// </summary>
     /// <param name="contentHeight">Usable height of the content rectangle, from the layout contract.</param>
-    /// </summary>
-    private void DrawHosted(IToolPanelContent hosted, float contentHeight)
+    private void DrawHosted(float contentHeight)
     {
         _hostedDragging = false;
         var content = new ToolInputRect(0f, 0f, _contentWidth, Math.Max(1f, contentHeight));
@@ -723,23 +731,21 @@ internal sealed class ToolboxDrawer : IDisposable
         var keyboard = new ToolPanelKeyboard(_hostedTyped, _hostedBackspace, _hostedSubmit, _hostedCancel,
             _hostedDelete, _hostedLeft, _hostedRight, _hostedHome, _hostedEnd, _hostedSelectAll, _hostedComposition);
         var builder = new ToolPanelBuilder(content, pointer, _hostedPressed, contentPixels, keyboard);
-        string failure = "";
-        try
+        string failure;
+        ToolPanelBuilder completeFrame = _hostedGuard.DrawFrame(builder);
+        if (ReferenceEquals(completeFrame, builder))
         {
-            hosted.Draw(builder);
             _hostedField = builder.FocusedField;
+            failure = string.Empty;
         }
-        catch (Exception ex)
+        else
         {
-            // A page's bug must not take the shared toolbox down with it: report it on the page itself, once.
-            failure = ex.GetType().Name + ": " + ex.Message;
-            builder = new ToolPanelBuilder(content, pointer, _hostedPressed, contentPixels, keyboard);
-            _hostedField = null;
-        }
-        if (!string.Equals(failure, _hostedFailureLogged, StringComparison.Ordinal))
-        {
-            _hostedFailureLogged = failure;
-            if (failure.Length != 0) _log?.Invoke($"Hosted tool page failed to draw and was replaced by its error message: {failure}");
+            // Discard partial controls and stale presses/typing from the failed
+            // provider, while the drawer's close button and rail remain usable.
+            failure = _hostedGuard.FailureMessage;
+            ResetInteraction();
+            HideHostedControls();
+            builder = completeFrame;
         }
         IReadOnlyList<ToolPanelElement> elements = builder.Elements;
         _hostedLast = elements as ToolPanelElement[] ?? elements.ToArray();
@@ -750,7 +756,7 @@ internal sealed class ToolboxDrawer : IDisposable
 
     private void DrawHostedElements(IReadOnlyList<ToolPanelElement> elements, string failure)
     {
-        EnsureHostedPool(elements.Count);
+        EnsureHostedPool(elements.Count + (failure.Length != 0 ? 1 : 0));
         int used = 0;
         for (int i = 0; i < elements.Count; i++)
         {
@@ -1079,6 +1085,7 @@ internal sealed class ToolboxDrawer : IDisposable
 
     internal void ResetPage()
     {
+        _hostedGuard.Select(null, null, string.Empty);
         // Release the visible page, not the session's saved navigation. Opted-in pages restore their
         // own project/list context on the next Tick; legacy pages still open at their original first page.
         _navigationPageId = null;
@@ -1150,6 +1157,7 @@ internal sealed class ToolboxDrawer : IDisposable
     internal void BeginLevelChange()
     {
         if (_disposed) return;
+        _hostedGuard.Select(null, null, string.Empty);
         ResetInteraction();
         HideHostedControls();
         _active.Clear();
@@ -1180,31 +1188,14 @@ internal sealed class ToolboxDrawer : IDisposable
     /// </summary>
     private void SyncHostedLifecycle(IToolPanelContent? next)
     {
-        if (_hostedSession.Advance(next) is not { } change) return;
-        NotifyHosted(change.Hidden, shown: false);
-        NotifyHosted(change.Shown, shown: true);
-    }
-
-    /// <summary>
-    /// Runs one lifecycle callback. A page's bug here must not take the shared toolbox down, for the same reason a
-    /// page's draw failure must not: the failure is logged and the next frame carries on.
-    /// </summary>
-    private void NotifyHosted(IToolPanelContent? page, bool shown)
-    {
-        if (page is not IToolPanelLifecycle lifecycle) return;
-        try
+        bool previouslyFailed = _hostedGuard.HasFailure;
+        if (next is null) _hostedGuard.Hide(); else _hostedGuard.Show();
+        if (!previouslyFailed && _hostedGuard.HasFailure)
         {
-            if (shown) lifecycle.OnShown(); else lifecycle.OnHidden();
-        }
-        catch (Exception ex)
-        {
-            _log?.Invoke($"Hosted tool page {(shown ? "shown" : "hidden")} callback failed: {ex.GetType().Name}: {ex.Message}");
+            ResetInteraction();
+            HideHostedControls();
         }
     }
-
-    /// <summary>The sheet width a page asks for, or zero when it implements no sizing and has no opinion.</summary>
-    private static float RequestedWidthOf(IToolPanelContent? hosted) =>
-        hosted is IToolPanelSizing sizing ? sizing.PreferredWidth : 0f;
 
     internal void Hide()
     {
@@ -1212,6 +1203,7 @@ internal sealed class ToolboxDrawer : IDisposable
         ResetInteraction();
         HideHostedControls();
         SyncHostedLifecycle(null);
+        _hostedGuard.Select(null, null, string.Empty);
         _depth = 0;
         _region.Update(Array.Empty<ToolInputRect>());
         _canvasObject.SetActive(false);

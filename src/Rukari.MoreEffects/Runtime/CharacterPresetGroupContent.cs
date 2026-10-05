@@ -28,7 +28,7 @@ internal sealed class CharacterPresetGroupContent : IToolPanelContent, IToolPane
                 ReturnToChoices();
                 return;
             }
-            surface.Text("preset.group.current", CharacterPresetEditorSession.Title(_selectedKind),
+            surface.Text("preset.group.current", CharacterPresetEditorSession.Title(_selectedKind, _session.SpinAxis),
                 new ToolInputRect(220f, back.Y, Math.Max(1f, surface.Width - 220f), back.Height), 20);
             details.Draw(surface, NavigationHeight);
             return;

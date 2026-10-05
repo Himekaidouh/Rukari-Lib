@@ -45,7 +45,7 @@ public sealed record EmbeddedAavtExtraction(
 public sealed class EmbeddedAavtDirectiveExtractor
 {
     /// <summary>
-    /// Five character slots, five transient preset resources, one camera resource, and up to ten spine overlays — one per reserved
+    /// Five character slots, five transient preset resources, two camera scope resources, and up to ten spine overlays — one per reserved
     /// track, so a card can drive several parts of one character at once.
     /// <para>
     /// A spine overlay is a resource of its own, keyed by the character slot <em>and</em> the track
@@ -54,7 +54,7 @@ public sealed class EmbeddedAavtDirectiveExtractor
     /// the width of the reserved range rather than a Spine limit; the real bound is per key.
     /// </para>
     /// </summary>
-    public const int MaxCommandsPerScene = 21;
+    public const int MaxCommandsPerScene = 22;
 
     private readonly CharacterTransformCommandFamilyCompiler _characterCompiler = new();
     private readonly SlotPendingCommandFamilyCompiler _slotPendingCompiler = new();
@@ -133,7 +133,7 @@ public sealed class EmbeddedAavtDirectiveExtractor
         {
             errors.Add(
                 "A scene may contain at most five AAVT character directives, five transient presets, ten spine overlay "
-                + "directives and one camera directive.");
+                + "directives and two independent camera scope directives.");
         }
 
         return new EmbeddedAavtExtraction(
@@ -243,8 +243,8 @@ public sealed class EmbeddedAavtDirectiveExtractor
                         + "spine overlay directive in this scene."
                     : canonical.Value.CommandType == CharacterPresetCommandFamilyCompiler.CommandTypeId
                         ? $"Line {lineNumber}: slot {canonical.Value.PublicSlot} already has an AAVT preset directive in this scene."
-                    : canonical.Value.PublicSlot == SceneCameraCommandFamilyCompiler.SingletonResourceSlot
-                        ? $"Line {lineNumber}: this scene already has an AAVT camera directive."
+                    : canonical.Value.CommandType == SceneCameraCommandFamilyCompiler.CommandTypeId
+                        ? $"Line {lineNumber}: this scene already has an AAVT camera directive for this scope."
                         : $"Line {lineNumber}: slot {canonical.Value.PublicSlot} already has an AAVT "
                             + "character directive in this scene.");
             return;

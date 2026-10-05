@@ -10,6 +10,12 @@ public enum SceneCameraOperation
     Reset = 2
 }
 
+public enum SceneCameraScope
+{
+    Overall = 0,
+    Background = 1
+}
+
 public sealed record SceneCameraCommand(
     SceneCameraOperation Operation,
     float? X,
@@ -19,7 +25,11 @@ public sealed record SceneCameraCommand(
     float? Zoom,
     float? DeltaZoom,
     int DurationMilliseconds,
-    CharacterTransformEasing Easing);
+    CharacterTransformEasing Easing)
+{
+    // Keep the original positional constructor and deconstruction ABI.
+    public SceneCameraScope Scope { get; init; } = SceneCameraScope.Overall;
+}
 
 public readonly record struct SceneCameraState(float X, float Y, float Zoom)
 {
@@ -28,6 +38,38 @@ public readonly record struct SceneCameraState(float X, float Y, float Zoom)
     public bool IsFinite =>
         float.IsFinite(X) && float.IsFinite(Y) && float.IsFinite(Zoom);
 }
+
+public readonly record struct SceneCameraComposition(
+    SceneCameraState Overall,
+    SceneCameraState Background)
+{
+    public static SceneCameraComposition Default => new(
+        SceneCameraState.Default, SceneCameraState.Default);
+
+    public SceneCameraState ForScope(SceneCameraScope scope) => scope switch
+    {
+        SceneCameraScope.Overall => Overall,
+        SceneCameraScope.Background => Background,
+        _ => throw new ArgumentOutOfRangeException(nameof(scope))
+    };
+
+    public SceneCameraComposition WithScope(SceneCameraScope scope, SceneCameraState state) => scope switch
+    {
+        SceneCameraScope.Overall => this with { Overall = state },
+        SceneCameraScope.Background => this with { Background = state },
+        _ => throw new ArgumentOutOfRangeException(nameof(scope))
+    };
+}
+
+/// <summary>Offset subtracted from a physical layer's original local position.</summary>
+public readonly record struct SceneCameraLayerComposition(float OffsetX, float OffsetY, float Zoom);
+
+public sealed record SceneCameraComposedLayers(
+    SceneCameraLayerComposition Back,
+    SceneCameraLayerComposition Spine);
+
+public readonly record struct SceneCameraPhysicalWrites(
+    bool BackPosition, bool BackScale, bool SpinePosition, bool SpineScale);
 
 public sealed record SceneCameraBaseline(
     string SceneIdentity,

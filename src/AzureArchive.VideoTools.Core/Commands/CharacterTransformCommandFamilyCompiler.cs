@@ -44,6 +44,7 @@ public sealed class CharacterTransformCommandFamilyCompiler : ICommandFamilyComp
                 AddFloat(parts, "x", command.X);
                 AddFloat(parts, "y", command.Y);
                 AddFloat(parts, "rotation", command.RotationDegrees);
+                AddFloat(parts, "rotationX", command.RotationXDegrees);
                 if (command.FlipX.HasValue)
                 {
                     parts.Add($"flipX={command.FlipX.Value.ToString().ToLowerInvariant()}");
@@ -54,6 +55,7 @@ public sealed class CharacterTransformCommandFamilyCompiler : ICommandFamilyComp
                 AddFloat(parts, "dx", command.DeltaX);
                 AddFloat(parts, "dy", command.DeltaY);
                 AddFloat(parts, "drotation", command.DeltaRotationDegrees);
+                AddFloat(parts, "drotationX", command.DeltaRotationXDegrees);
                 break;
             case CharacterTransformOperation.Reset:
                 break;

@@ -1,9 +1,9 @@
 {
   "name": "更多Spine动画支持",
-  "version_number": "1.6.2",
+  "version_number": "1.6.3",
   "website_url": "",
   "description": "更多Spine动画支持。动画选择、触摸与卡片适配，不含实验叠加台。AA 1.0 适配候选，游戏内验收待完成。",
   "dependencies": [
-    "RukariLib/0.4.2"
+    "RukariLib/0.4.3"
   ]
 }

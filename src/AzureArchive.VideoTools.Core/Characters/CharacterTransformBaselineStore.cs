@@ -1,3 +1,4 @@
+using AzureArchive.VideoTools.Core.Commands;
 using AzureArchive.VideoTools.Core.Results;
 
 namespace AzureArchive.VideoTools.Core.Characters;
@@ -83,6 +84,60 @@ public sealed class CharacterTransformBaselineStore : ICharacterTransformBaselin
         }
 
         return Result<CharacterTransformBaseline>.Ok(baseline);
+    }
+
+    /// <summary>
+    /// Seeds the replay entry from a successfully applied and read-back inherited
+    /// start. Only inherited axes replace the earlier entry: a late graph load or
+    /// an ancestor edit must update the start without adopting this scene's own
+    /// effects on uncontrolled axes. Position Z is never inherited.
+    /// </summary>
+    public Result<CharacterTransformBaseline> SeedInheritedEntry(
+        string sceneIdentity,
+        int publicSlot,
+        string occupantIdentifier,
+        CharacterTransformState appliedState,
+        PreviewChainSlotState inheritedStart)
+    {
+        if (inheritedStart == null || inheritedStart.PublicSlot != publicSlot)
+        {
+            return Result<CharacterTransformBaseline>.Fail(
+                "Inherited replay entry belongs to a different slot.");
+        }
+
+        if (appliedState == null
+            || !appliedState.Position.IsFinite
+            || !appliedState.LocalEulerAngles.IsFinite)
+        {
+            return Result<CharacterTransformBaseline>.Fail(
+                "Inherited replay entry values must be finite.");
+        }
+
+        Result<CharacterTransformBaseline> captured = Capture(
+            sceneIdentity, publicSlot, occupantIdentifier, appliedState);
+        if (!captured.Success || captured.Value == null)
+        {
+            return captured;
+        }
+
+        CharacterTransformState entry = captured.Value.State;
+        var seeded = captured.Value with
+        {
+            State = new CharacterTransformState(
+                new CharacterVector3(
+                    inheritedStart.X.IsControlled ? appliedState.Position.X : entry.Position.X,
+                    inheritedStart.Y.IsControlled ? appliedState.Position.Y : entry.Position.Y,
+                    entry.Position.Z),
+                new CharacterVector3(
+                    inheritedStart.RotationX.IsControlled
+                        ? appliedState.LocalEulerAngles.X : entry.LocalEulerAngles.X,
+                    inheritedStart.FlipControlled
+                        ? appliedState.LocalEulerAngles.Y : entry.LocalEulerAngles.Y,
+                    inheritedStart.RotationZ.IsControlled
+                        ? appliedState.LocalEulerAngles.Z : entry.LocalEulerAngles.Z))
+        };
+        _baselines[publicSlot] = seeded;
+        return Result<CharacterTransformBaseline>.Ok(seeded);
     }
 
     public void Clear()

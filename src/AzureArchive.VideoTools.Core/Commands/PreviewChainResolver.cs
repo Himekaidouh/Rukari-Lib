@@ -64,6 +64,9 @@ public sealed record PreviewChainSlotState(
     /// mentioned horizontal orientation.
     /// </summary>
     public bool FlipControlled { get; init; }
+
+    /// <summary>Local X pitch; omitted by old chains and uncontrolled until explicitly commanded.</summary>
+    public PreviewChainAxisState RotationX { get; init; }
 }
 
 public sealed record PreviewChainSlotResolution(
@@ -363,6 +366,7 @@ public sealed class PreviewChainResolver
         FoldAndReturn:
         var x = PreviewChainAxisState.Clear();
         var y = PreviewChainAxisState.Clear();
+        var rotationX = PreviewChainAxisState.Clear();
         var rotationZ = PreviewChainAxisState.Clear();
         bool flipped = false;
         bool flipControlled = false;
@@ -376,6 +380,7 @@ public sealed class PreviewChainResolver
                         publicSlot,
                         ref x,
                         ref y,
+                        ref rotationX,
                         ref rotationZ,
                         ref flipped,
                         ref flipControlled,
@@ -411,6 +416,7 @@ public sealed class PreviewChainResolver
             publicSlot,
             x,
             y,
+            rotationX,
             rotationZ,
             flipped,
             flipControlled,
@@ -430,6 +436,7 @@ public sealed class PreviewChainResolver
         int expectedSlot,
         ref PreviewChainAxisState x,
         ref PreviewChainAxisState y,
+        ref PreviewChainAxisState rotationX,
         ref PreviewChainAxisState rotationZ,
         ref bool flipped,
         ref bool flipControlled,
@@ -460,6 +467,7 @@ public sealed class PreviewChainResolver
                 // targets instead of falling back to uncontrolled state.
                 x = PreviewChainAxisState.Official();
                 y = PreviewChainAxisState.Official();
+                rotationX = PreviewChainAxisState.Official();
                 rotationZ = PreviewChainAxisState.Official();
                 flipped = false;
                 flipControlled = true;
@@ -478,6 +486,11 @@ public sealed class PreviewChainResolver
                 if (command.RotationDegrees.HasValue)
                 {
                     rotationZ = PreviewChainAxisState.Absolute(command.RotationDegrees.Value);
+                }
+
+                if (command.RotationXDegrees.HasValue)
+                {
+                    rotationX = PreviewChainAxisState.Absolute(command.RotationXDegrees.Value);
                 }
 
                 if (command.FlipX.HasValue)
@@ -501,6 +514,11 @@ public sealed class PreviewChainResolver
                 if (command.DeltaRotationDegrees.HasValue)
                 {
                     rotationZ = rotationZ.Add(command.DeltaRotationDegrees.Value);
+                }
+
+                if (command.DeltaRotationXDegrees.HasValue)
+                {
+                    rotationX = rotationX.Add(command.DeltaRotationXDegrees.Value);
                 }
 
                 return true;
@@ -581,6 +599,7 @@ public sealed class PreviewChainResolver
         int publicSlot,
         PreviewChainAxisState x,
         PreviewChainAxisState y,
+        PreviewChainAxisState rotationX,
         PreviewChainAxisState rotationZ,
         bool flipped,
         bool flipControlled,
@@ -593,7 +612,8 @@ public sealed class PreviewChainResolver
             new PreviewChainSlotState(
                 publicSlot, x, y, rotationZ, flipped, foldedCommands)
             {
-                FlipControlled = flipControlled
+                FlipControlled = flipControlled,
+                RotationX = rotationX
             },
             stopReason,
             diagnostics)

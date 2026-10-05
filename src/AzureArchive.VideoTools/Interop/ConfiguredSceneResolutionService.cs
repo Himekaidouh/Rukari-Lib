@@ -35,6 +35,7 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
     private ResolutionRequest? _pending;
     private ConfiguredSceneResolutionSnapshot? _current;
     private bool _workerRunning;
+    private long _storageRevision;
 
     public ConfiguredSceneResolutionService(
         ConfigFile config,
@@ -66,7 +67,7 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
             "SceneIdentityFiles",
             "AutoDataRoot",
             string.Empty,
-            "Optional absolute data root containing projects/ and saves/. Empty derives the root from the game's persistent data path.");
+            "Optional absolute data root containing projects/ and saves/. Empty follows the official authoring/playback path; persistentDataPath/data is used only before an official path is available.");
         _embeddedEditorCommandsEnabled = config.Bind(
             "EditorEmbeddedCommands",
             "Enabled",
@@ -116,6 +117,7 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
     internal void Enqueue(EditorSceneIdentitySnapshot identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
+        if (_autoDiscoverEnabled.Value) OfficialStoragePathBridge.CaptureOnMainThread(force: true);
         if (!_enabled.Value)
         {
             SetCurrent(new ConfiguredSceneResolutionSnapshot(
@@ -141,7 +143,8 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
             _pending = new ResolutionRequest(
                 identity,
                 _projectPath.Value ?? string.Empty,
-                _playbackPath.Value ?? string.Empty);
+                _playbackPath.Value ?? string.Empty,
+                _storageRevision);
             if (_workerRunning)
             {
                 return;
@@ -151,6 +154,17 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
         }
 
         _ = Task.Run(ProcessPending);
+    }
+
+    internal void OnOfficialStoragePathsChanged(long revision)
+    {
+        lock (_lock)
+        {
+            if (revision <= _storageRevision) return;
+            _storageRevision = revision;
+            _pending = null;
+            _current = null;
+        }
     }
 
     private void ProcessPending()
@@ -170,21 +184,28 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
                 _pending = null;
             }
 
+            if (_autoDiscoverEnabled.Value && !ActiveProjectPairSource.IsStorageRevisionCurrent(request.StorageRevision))
+                continue;
+
             try
             {
                 Resolve(
                     request.Identity,
                     request.ProjectPath,
-                    request.PlaybackPath);
+                    request.PlaybackPath,
+                    request.StorageRevision);
             }
             catch (Exception ex)
             {
+                if (_autoDiscoverEnabled.Value
+                    && !ActiveProjectPairSource.IsStorageRevisionCurrent(request.StorageRevision)) continue;
                 PublishFailure(
                     request.Identity,
                     ConfiguredSceneResolutionStatus.Failed,
                     string.Empty,
                     string.Empty,
-                    $"Unhandled managed resolver error: {ex.GetType().Name}: {ex.Message}");
+                    $"Unhandled managed resolver error: {ex.GetType().Name}: {ex.Message}",
+                    storageRevision: _autoDiscoverEnabled.Value ? request.StorageRevision : null);
             }
         }
     }
@@ -192,11 +213,12 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
     private void Resolve(
         EditorSceneIdentitySnapshot identity,
         string configuredProjectPath,
-        string configuredPlaybackPath)
+        string configuredPlaybackPath,
+        long storageRevision)
     {
         if (_autoDiscoverEnabled.Value)
         {
-            ResolveAuto(identity);
+            ResolveAuto(identity, storageRevision);
             return;
         }
 
@@ -263,7 +285,7 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
             : new(static script => script, "editor-projection:identity");
     }
 
-    private void ResolveAuto(EditorSceneIdentitySnapshot identity)
+    private void ResolveAuto(EditorSceneIdentitySnapshot identity, long storageRevision)
     {
         var observed = new ObservedCompiledSceneIdentity(
             identity.CompiledScriptSha256,
@@ -271,6 +293,7 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
             identity.CompiledScriptLineCount);
         Result<ActivePairBinding> binding =
             ActiveProjectPairSource.ResolveActive(observed);
+        if (!ActiveProjectPairSource.IsStorageRevisionCurrent(storageRevision)) return;
         if (!binding.Success || binding.Value == null)
         {
             PublishFailure(
@@ -279,43 +302,44 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
                 string.Empty,
                 string.Empty,
                 binding.Error,
-                "auto-discover");
+                "auto-discover",
+                storageRevision);
             return;
         }
 
         ActivePairBinding pair = binding.Value;
-        // FIX B source 1: a successful auto-discover resolution proves the
-        // trusted AAP path of the open project. Push the already-managed path
-        // string into the file service (rooted candidates win precedence
-        // there); only a managed string crosses, so this is safe from this
-        // background Task.Run worker. Idempotent re-reads are no-ops inside
-        // ObserveProject; the rotation edge fires exactly once per change.
-        Plugin.Host.FilesInternal.ObserveProject(
-            pair.Pair.AapPath,
-            "auto-discover-trusted-bind");
-        if (Plugin.Host.FilesInternal.ConsumeProjectKeyRotated())
+        ActiveProjectPairSource.CommitIfStorageRevisionCurrent(storageRevision, () =>
         {
-            EmbeddedEditorPreviewLeaseCache.OnProjectKeyRotated(
-                "trusted-path-arrived",
-                ShortKey(Plugin.Host.FilesInternal.EffectiveProjectKey));
-        }
+            // A worker can publish state only while its captured storage epoch is current.
+            // Holding this managed commit protects FilesInternal as well as the result snapshot.
+            Plugin.Host.FilesInternal.ObserveProject(
+                pair.Pair.AapPath,
+                "auto-discover-trusted-bind");
+            if (Plugin.Host.FilesInternal.ConsumeProjectKeyRotated())
+            {
+                EmbeddedEditorPreviewLeaseCache.OnProjectKeyRotated(
+                    "trusted-path-arrived",
+                    ShortKey(Plugin.Host.FilesInternal.EffectiveProjectKey));
+            }
 
-        PublishResolution(
-            identity,
-            pair.Resolution,
-            pair.Project,
-            pair.Playback,
-            pair.Pair.AapPath,
-            pair.Pair.AasPath,
-            "auto-discover",
-            $"auto-discovered project '{pair.Pair.Name}'");
-        if (ActiveProjectPairSource.ConsumePairChanged())
-        {
-            Plugin.Logger.LogInfo(
-                $"Auto project discovery active pair changed to '{pair.Pair.Name}'; "
-                + "requesting player command index reload.");
-            PlayerCommandObservationRuntime.RequestIndexReload();
-        }
+            PublishResolution(
+                identity,
+                pair.Resolution,
+                pair.Project,
+                pair.Playback,
+                pair.Pair.AapPath,
+                pair.Pair.AasPath,
+                "auto-discover",
+                $"auto-discovered project '{pair.Pair.Name}'",
+                storageRevision);
+            if (ActiveProjectPairSource.ConsumePairChanged())
+            {
+                Plugin.Logger.LogInfo(
+                    $"Auto project discovery active pair changed to '{pair.Pair.Name}'; "
+                    + "requesting player command index reload.");
+                PlayerCommandObservationRuntime.RequestIndexReload();
+            }
+        });
     }
 
     private void PublishResolvedIdentity(
@@ -368,7 +392,8 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
         string projectPath,
         string playbackPath,
         string sourceLabel,
-        string? diagnostic)
+        string? diagnostic,
+        long? storageRevision = null)
     {
         SceneKey? scene = resolution.Scene;
         string issues = string.Join(
@@ -389,7 +414,7 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
             resolution.ArchivePairFresh,
             resolution.PairingTrusted,
             issues.Length == 0 ? (diagnostic ?? "none") : issues);
-        SetCurrent(snapshot);
+        if (!SetCurrent(snapshot, storageRevision)) return;
 
         if (snapshot.Status == ConfiguredSceneResolutionStatus.Mapped
             && snapshot.SelectedSceneTrusted)
@@ -422,7 +447,8 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
         string projectPath,
         string playbackPath,
         string diagnostic,
-        string sourceLabel = "explicit-config")
+        string sourceLabel = "explicit-config",
+        long? storageRevision = null)
     {
         var snapshot = new ConfiguredSceneResolutionSnapshot(
             identity.ObservationSequence,
@@ -439,20 +465,22 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
             false,
             false,
             diagnostic);
-        SetCurrent(snapshot);
+        if (!SetCurrent(snapshot, storageRevision)) return;
         _capabilities.Degraded(CapabilityId, diagnostic);
         Plugin.Logger.LogWarning(FormatResult(snapshot, sourceLabel));
     }
 
-    private void SetCurrent(ConfiguredSceneResolutionSnapshot snapshot)
+    private bool SetCurrent(ConfiguredSceneResolutionSnapshot snapshot, long? storageRevision = null)
     {
         lock (_lock)
         {
+            if (storageRevision.HasValue && storageRevision.Value != _storageRevision) return false;
             if (_current == null
                 || snapshot.ObservationSequence >= _current.ObservationSequence)
             {
                 _current = snapshot;
             }
+            return true;
         }
     }
 
@@ -515,5 +543,6 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
     private sealed record ResolutionRequest(
         EditorSceneIdentitySnapshot Identity,
         string ProjectPath,
-        string PlaybackPath);
+        string PlaybackPath,
+        long StorageRevision);
 }

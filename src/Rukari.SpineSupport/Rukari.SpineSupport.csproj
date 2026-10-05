@@ -3,7 +3,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>Rukari.SpineSupport</AssemblyName>
     <RootNamespace>Rukari.SpineSupport</RootNamespace>
-    <Version>1.6.2</Version>
+    <Version>1.6.3</Version>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

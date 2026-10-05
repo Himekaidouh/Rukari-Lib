@@ -1,3 +1,4 @@
+using AzureArchive.VideoTools.Core.Characters;
 using AzureArchive.VideoTools.Core.Results;
 
 namespace AzureArchive.VideoTools.Core.Cameras;
@@ -14,6 +15,10 @@ public static class SceneCameraCommandValidator
         {
             return Result.Fail("Scene camera command is null.");
         }
+
+        if (!Enum.IsDefined(typeof(SceneCameraScope), command.Scope)
+            || !Enum.IsDefined(typeof(CharacterTransformEasing), command.Easing))
+            return Result.Fail("Unknown scene camera scope or easing.");
 
         if (command.DurationMilliseconds < 0
             || command.DurationMilliseconds > MaximumDurationMilliseconds)
@@ -52,6 +57,29 @@ public static class SceneCameraCommandValidator
         return state.Zoom is >= MinimumZoom and <= MaximumZoom
             ? Result.Ok()
             : Result.Fail($"Zoom must be between {MinimumZoom} and {MaximumZoom}.");
+    }
+
+    public static Result ValidateComposition(SceneCameraComposition composition)
+    {
+        Result overall = ValidateTarget(composition.Overall);
+        if (!overall.Success) return Result.Fail("Overall camera: " + overall.Error);
+        Result background = ValidateTarget(composition.Background);
+        if (!background.Success) return Result.Fail("Background camera: " + background.Error);
+
+        float zoom = composition.Overall.Zoom * composition.Background.Zoom;
+        if (!float.IsFinite(zoom) || zoom is < MinimumZoom or > MaximumZoom)
+            return Result.Fail($"Combined background zoom must be between {MinimumZoom} and {MaximumZoom}.");
+
+        float backX = composition.Overall.X * composition.Overall.Zoom
+            + composition.Background.X * zoom;
+        float backY = composition.Overall.Y * composition.Overall.Zoom
+            + composition.Background.Y * zoom;
+        float spineX = composition.Overall.X * composition.Overall.Zoom;
+        float spineY = composition.Overall.Y * composition.Overall.Zoom;
+        return float.IsFinite(backX) && float.IsFinite(backY)
+            && float.IsFinite(spineX) && float.IsFinite(spineY)
+                ? Result.Ok()
+                : Result.Fail("Combined scene camera position overflows the finite transform range.");
     }
 
     private static Result ValidateSet(SceneCameraCommand command)

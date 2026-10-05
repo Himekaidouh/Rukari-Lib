@@ -1,6 +1,6 @@
 {
   "name": "RukariLib",
-  "version_number": "0.4.2",
+  "version_number": "0.4.3",
   "website_url": "https://github.com/Himekaidouh/Rukari-Lib",
   "description": "提供统一工具箱、模组设置与共享界面，是 Rukari 功能模组的前置。适用于 AA 1.0 fix6。",
   "dependencies": []
