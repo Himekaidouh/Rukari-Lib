@@ -166,6 +166,24 @@ public sealed partial class VisualEditorBehaviour
     }
 
     /// <summary>
+    /// Reads the given layers of the selected row for whichever layer editor is asking. The two editor partials share
+    /// these two calls, so a mode cannot read or write differently from its neighbour (2026-10-13).
+    /// </summary>
+    private static EffectLayerRead ReadLayersOnMainThread(IReadOnlyList<EffectLayer> layers) =>
+        Plugin.Api.EditorCommandDocuments is EditorCommandDocumentService service
+            ? service.ReadLayersOnMainThread(layers)
+            : EffectLayerRead.Failed("当前编辑服务暂不支持读取效果层。");
+
+    /// <summary>Writes the given layers in one transaction, or says why this build cannot.</summary>
+    private static EffectLayerApply WriteLayersOnMainThread(
+        string expectedRevisionSha256,
+        string selectionToken,
+        IReadOnlyList<EffectLayerEdit> layers) =>
+        Plugin.Api.EditorCommandDocuments is EditorCommandDocumentService service
+            ? service.ApplyLayersOnMainThread(expectedRevisionSha256, selectionToken, layers)
+            : EffectLayerApply.Failed("当前编辑服务暂不支持整层写入。");
+
+    /// <summary>
     /// Re-reads the row at a walk, and never on top of work the author has not applied: a re-read would silently
     /// replace the stack being built.
     /// </summary>
@@ -207,8 +225,16 @@ public sealed partial class VisualEditorBehaviour
             : text + "　（选中的段在另一层，切换范围可看到它）";
     }
 
+    /// <summary>
+    /// Points the stack at the layer the scope selector is showing before a button acts on a row. Without this a
+    /// selection made over one scope would be moved or deleted in the other one, because a stack keeps one selection
+    /// across all of its layers (2026-10-13).
+    /// </summary>
+    private void FocusCameraLayer() => _cameraLayers.Select(CurrentCameraLayer, _cameraLayers.SelectedIndex);
+
     private bool CanMoveCameraSegment(int delta)
     {
+        FocusCameraLayer();
         int index = _cameraLayers.SelectedIndex;
         return index >= 0
             && index + delta >= 0
@@ -218,6 +244,7 @@ public sealed partial class VisualEditorBehaviour
     /// <summary>Moves the selection to the next effect of this layer: what the selector button does when pressed.</summary>
     private void CycleCameraSegment()
     {
+        FocusCameraLayer();
         int total = _cameraLayers.CountOf(CurrentCameraLayer);
         if (total == 0)
         {
@@ -249,12 +276,14 @@ public sealed partial class VisualEditorBehaviour
 
     private void MoveCameraSegment(int delta)
     {
+        FocusCameraLayer();
         _cameraLayers.MoveSelected(delta);
         SetCameraLayerStatus(_cameraLayers.Status);
     }
 
     private void DeleteCameraSegment()
     {
+        FocusCameraLayer();
         _cameraLayers.DeleteSelected();
         SetCameraLayerStatus(_cameraLayers.Status);
     }
@@ -335,6 +364,7 @@ public sealed partial class VisualEditorBehaviour
     /// <summary>Keeps the two value buttons' labels in step with the stack; enabled state is a predicate.</summary>
     private void UpdateCameraLayerButtons()
     {
+        FocusCameraLayer();
         if (_controlButtons.TryGetValue("camera-seg", out ControlButton? segment))
         {
             int total = _cameraLayers.CountOf(CurrentCameraLayer);

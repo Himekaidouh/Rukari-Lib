@@ -4598,7 +4598,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
                 || _screenTextClearAllDraft);
         bool cameraApplyEnabled = _mode == VisualEditorMode.Camera && _cameraLayers.HasWorkToWrite;
         bool characterApplyEnabled = _mode == VisualEditorMode.Character
-            && CharacterLayers?.HasWorkToWrite == true;
+            && CharacterEditor?.Stack.HasWorkToWrite == true;
         bool applyEnabled = _expanded
             && (cameraApplyEnabled
                 || characterApplyEnabled
@@ -4615,7 +4615,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             _applyButtonText.text = _mode switch
             {
                 VisualEditorMode.Camera => _cameraLayers.HasPendingChanges ? "应用镜头层 *" : "应用镜头层",
-                VisualEditorMode.Character => CharacterLayers?.HasPendingChanges == true ? "应用角色层 *" : "应用角色层",
+                VisualEditorMode.Character => CharacterEditor?.HasPendingChanges == true ? "应用角色层 *" : "应用角色层",
                 _ => "应用草稿"
             };
         }
