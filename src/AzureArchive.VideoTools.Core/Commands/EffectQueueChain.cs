@@ -4,11 +4,11 @@ using AzureArchive.VideoTools.Core.Results;
 namespace AzureArchive.VideoTools.Core.Commands;
 
 /// <summary>
-/// One effect's place in the queue a row is written as (2026-10-13).
+/// One effect's place in the queue a row is laid out as (2026-10-13).
 ///
 /// <para>
-/// <paramref name="IndexInLayer"/> is what lets a window find its own line again: the plan covers the whole row, while
-/// a window may only write the layer it owns, so it matches its directives by (layer, ordinal within that layer).
+/// <paramref name="IndexInLayer"/> and <paramref name="LayerKey"/> say which line of the document this effect came
+/// from, so a plan can be read back against the row it describes.
 /// </para>
 /// </summary>
 public sealed record EffectQueueStep(
@@ -25,13 +25,12 @@ public sealed record EffectQueueStep(
 }
 
 /// <summary>
-/// What a row looks like once its layers are read as one queue, or as independent tracks (2026-10-13).
+/// What a row looks like once its effects are read as one queue (2026-10-13).
 ///
 /// <para>
-/// <see cref="Rewritten"/> is the row's canonical directives in the same order, each carrying the placement the mode
-/// asks for; a window converts its own entries with <c>ToPublicDirective</c> and writes only those. Everything here is
-/// checked against <see cref="SlotActionQueuePlanner"/>, the same call the player makes before it arms the action
-/// hold, so "where each effect starts" is never this file's opinion.
+/// <see cref="Rewritten"/> is the row's canonical directives in the same order, each carrying the placement the queue
+/// needs. Everything here is checked against <see cref="SlotActionQueuePlanner"/>, the same call the player makes
+/// before it arms the action hold, so "where each effect starts" is never this file's opinion.
 /// </para>
 /// </summary>
 public sealed record EffectQueuePlan(
@@ -40,32 +39,28 @@ public sealed record EffectQueuePlan(
     double TotalMs,
     double BudgetMs,
     bool OverBudget,
-    bool Serial,
     string Note,
     string Error)
 {
-    /// <summary>Nothing could be planned; the row is left exactly as it was.</summary>
+    /// <summary>Nothing could be planned; the row is left exactly as it was, and the caller says why.</summary>
     public static EffectQueuePlan Failed(string error) => new(
         Array.Empty<EffectQueueStep>(),
         Array.Empty<string>(),
         0d,
         SlotActionQueuePlanner.DefaultBudgetMilliseconds,
         false,
-        true,
         string.Empty,
         error ?? string.Empty);
 
     public bool Success => Error.Length == 0;
 
-    /// <summary>The one line a surface shows about the queue it just wrote.</summary>
+    /// <summary>The one line a surface shows about the queue a row is in.</summary>
     public string Line
     {
         get
         {
             if (!Success) return Error;
-            string head = Serial
-                ? $"本行串成一条：共 {Seconds(TotalMs)} s"
-                : $"各层并行：最长 {Seconds(TotalMs)} s";
+            string head = $"本行串成一条：共 {Seconds(TotalMs)} s";
             return Note.Length == 0 ? head : head + " · " + Note;
         }
     }
@@ -75,24 +70,27 @@ public sealed record EffectQueuePlan(
 }
 
 /// <summary>
-/// Reads a whole row as one queue — the 「串成一条」 mode — or strips the queue placement back out of it, which is the
-/// 「各层并行」 mode (2026-10-13).
+/// Lays a whole row out as one queue: 人物-人物-镜头, each effect starting where the one before it ended (2026-10-13).
 ///
 /// <para>
 /// The overlay model gives every layer its own track: one character slot is one track, the screen is one track, one
-/// slot's presets are one track. Tracks run in parallel and a second effect on a track appends, so a row of
-/// 人物-人物-镜头 plays the two character effects one after the other and the camera over the top of both. Authors who
-/// want the row to read as a single sequence instead say so once, and this turns that into the placement the player
-/// already understands: every effect that would otherwise start too early gets <c>at=</c> at the moment the effect
-/// before it ends.
+/// slot's presets are one track. Tracks run in parallel and a second effect on a track appends, so a row plays the two
+/// character effects one after the other and the camera over the top of both. A row that carries the
+/// <c>#aavt;queue</c> marker asks for the other reading, and this turns that into the placement the player already
+/// understands: every effect that would otherwise start too early gets <c>at=</c> at the moment the effect before it
+/// ends.
 /// </para>
 ///
 /// <para>
 /// Only the joints carry <c>at=</c>. Two effects that already follow each other on one track need nothing, and writing
 /// an offset they do not need would be a second, weaker copy of a fact the track already holds — so the rule is
 /// "write it where it changes the outcome, and nowhere else". The result is re-planned and compared against the
-/// sequence this file intended, because a queue that a window believes in and the player does not is worse than no
-/// queue at all.
+/// sequence this file intended, because a row that plays differently from what it says is worse than no queue at all.
+/// </para>
+///
+/// <para>
+/// It is called from the embedded compile, which rebuilds the row's projection from the row's own text every time, so
+/// nothing here is ever written back into the document and no layout can go stale behind the author's back.
 /// </para>
 /// </summary>
 public static class EffectQueueChain
@@ -130,12 +128,10 @@ public static class EffectQueueChain
     }
 
     /// <summary>
-    /// Plans the row. <paramref name="serial"/> is the 「串成一条」 mode; without it every offset is removed and the
-    /// layers keep their own tracks, which is what the row did before this mode existed.
+    /// Lays the row out as one queue.
     /// </summary>
     public static EffectQueuePlan Plan(
         IReadOnlyList<EmbeddedAavtCommand> rowCommands,
-        bool serial,
         double budgetMilliseconds = SlotActionQueuePlanner.DefaultBudgetMilliseconds)
     {
         ArgumentNullException.ThrowIfNull(rowCommands);
@@ -175,27 +171,17 @@ public static class EffectQueueChain
         }
 
         var steps = new List<EffectQueueStep>(rewritten.Count);
-        if (!serial)
-        {
-            for (int index = 0; index < rewritten.Count; index++)
-            {
-                if (inputs[index] is not null && SupportsOffset(rewritten[index]))
-                    rewritten[index] = WithoutOffset(rewritten[index]);
-                steps.Add(new EffectQueueStep(index, keys[index], indexInLayer[index], -1));
-            }
-
-            return Finish(rewritten, steps, serial: false, budgetMilliseconds, 0d, notes);
-        }
 
         // interrupt= takes over its own track and cancels what that track still had to run. One shared queue cannot be
-        // laid over that without silently rewriting the intent behind it, so the row is refused with both ways out.
+        // laid over that without silently rewriting the intent behind it, so the row is refused and the marker's two
+        // ways out are named: drop the interrupt=, or drop the marker and let the layers keep their own tracks.
         for (int index = 0; index < inputs.Length; index++)
         {
             if (inputs[index] is { Interrupt: true })
             {
                 return EffectQueuePlan.Failed(
-                    $"第 {index + 1} 段带 interrupt=，它是自己那条轨的接管指令，和「串成一条」不能共存；"
-                    + "去掉 interrupt= 或切回「各层并行」再应用。");
+                    $"第 {index + 1} 段带 interrupt=，它是自己那条轨的接管指令，和 #aavt;queue 不能共存；"
+                    + "去掉 interrupt=，或删掉这一行的队列标记。");
             }
         }
 
@@ -259,17 +245,16 @@ public static class EffectQueueChain
         if (pendingNotQueued)
             notes.Add("起点预置段（charp）不排队，它仍在同一帧提交");
 
-        return Finish(rewritten, steps, serial: true, budgetMilliseconds, chain, notes);
+        return Finish(rewritten, steps, budgetMilliseconds, chain, notes);
     }
 
     /// <summary>
-    /// The player's own answer about the row that is about to be written. A queue whose joints do not add up to the
-    /// sequence this file intended is a bug in the writing, not a row to save.
+    /// The player's own answer about the row this queue describes. A layout whose joints do not add up to the sequence
+    /// this file intended is a bug in the laying out, not a row to play.
     /// </summary>
     private static EffectQueuePlan Finish(
         IReadOnlyList<string> rewritten,
         IReadOnlyList<EffectQueueStep> steps,
-        bool serial,
         double budgetMilliseconds,
         double chainMilliseconds,
         List<string> notes)
@@ -279,22 +264,19 @@ public static class EffectQueueChain
             return EffectQueuePlan.Failed("无法规划这一行：" + (planned.Error ?? "未知原因"));
 
         SlotActionQueuePlan plan = planned.Value;
-        if (serial)
+        foreach (string diagnostic in plan.Diagnostics)
         {
-            foreach (string diagnostic in plan.Diagnostics)
-            {
-                if (diagnostic.StartsWith("overlap", StringComparison.Ordinal))
-                    return EffectQueuePlan.Failed("队列自检发现两段重叠：" + diagnostic);
-            }
+            if (diagnostic.StartsWith("overlap", StringComparison.Ordinal))
+                return EffectQueuePlan.Failed("队列自检发现两段重叠：" + diagnostic);
+        }
 
-            // Over budget is not a failure: the player collapses the tail to its end state on purpose, and that
-            // collapse is what the total then reports. Anything else would be the two of us disagreeing.
-            double expected = plan.OverBudget ? Math.Min(chainMilliseconds, budgetMilliseconds) : chainMilliseconds;
-            if (Math.Abs(plan.TotalMs - expected) > 0.5d)
-            {
-                return EffectQueuePlan.Failed(
-                    $"队列自检不一致：播放器算出 {plan.TotalMs:0} ms，队列应长 {expected:0} ms。");
-            }
+        // Over budget is not a failure: the player collapses the tail to its end state on purpose, and that collapse is
+        // what the total then reports. Anything else would be the two of us disagreeing.
+        double expected = plan.OverBudget ? Math.Min(chainMilliseconds, budgetMilliseconds) : chainMilliseconds;
+        if (Math.Abs(plan.TotalMs - expected) > 0.5d)
+        {
+            return EffectQueuePlan.Failed(
+                $"队列自检不一致：播放器算出 {plan.TotalMs:0} ms，队列应长 {expected:0} ms。");
         }
 
         if (plan.OverBudget)
@@ -308,7 +290,6 @@ public static class EffectQueueChain
             plan.TotalMs,
             budgetMilliseconds,
             plan.OverBudget,
-            serial,
             string.Join(" · ", notes),
             string.Empty);
     }

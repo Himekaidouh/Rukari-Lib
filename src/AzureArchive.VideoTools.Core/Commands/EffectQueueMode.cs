@@ -1,47 +1,27 @@
 namespace AzureArchive.VideoTools.Core.Commands;
 
 /// <summary>
-/// Which queue the layer surfaces write when an author presses 应用 (2026-10-13).
+/// How one dialogue row asked its effects to be laid out, as the row itself says it (2026-10-13).
 ///
 /// <para>
-/// It is one switch for the whole editor rather than one per window, because the thing it decides is a property of the
-/// row: whether the row plays as one sequence (人物-人物-镜头, each waiting for the one before it) or as independent
-/// tracks that all start together. A window that wrote its own answer would leave the row half in each mode, and the
-/// layer it does not own would keep the offsets of the other one.
+/// The marker is a line in the row's own additional prompt — <c>#aavt;queue</c> — so the answer lives with the content
+/// it describes: it survives saving, it can be typed by hand, and every window that writes a layer into that row is
+/// writing into a row that already says how it plays. Nothing about it is stored in the editor.
 /// </para>
 ///
 /// <para>
-/// The mode is not stored in the document. What it produces — the <c>at=</c> offsets at the joints — is, and that is
-/// the part playback reads; this flag only says what the next 应用 should do. It belongs to the editing session, so it
-/// starts each session at its default, and the two modes are one press apart.
+/// A row without the marker keeps every layer on its own track, which is what rows did before the marker existed, so
+/// adding the marker is the only way to change a row's layout and no existing content moves.
 /// </para>
 /// </summary>
-public static class EffectQueueMode
+public enum EffectQueueMode
 {
-    private static bool _serial = true;
+    /// <summary>No marker: each layer keeps its own track and they all start together.</summary>
+    IndependentTracks = 0,
 
     /// <summary>
-    /// Whether 应用 reads the whole row as one queue. On by default: the row reads as the order its effects are
-    /// stacked in, and an author who wants the layers to run side by side says so once.
+    /// <c>#aavt;queue</c>: the whole row is one queue, and each effect starts where the one before it ended —
+    /// 人物-人物-镜头, one after another, whatever layer each effect belongs to.
     /// </summary>
-    public static bool Serial
-    {
-        get => _serial;
-        set => _serial = value;
-    }
-
-    /// <summary>Flips the mode and says what it became, for a button that has one label to update.</summary>
-    public static bool Toggle()
-    {
-        _serial = !_serial;
-        return _serial;
-    }
-
-    /// <summary>What the switch reads. The label is the mode, not the action: it says what the next 应用 will write.</summary>
-    public static string Label => _serial ? "队列：串成一条" : "队列：各层并行";
-
-    /// <summary>One sentence for a status line or a log, saying what the mode means for the row.</summary>
-    public static string Describe => _serial
-        ? "整行按层顺序排成一条队列：后一段等前一段结束（写 at= 偏移）。"
-        : "各层各自成轨，同时开始，互不等待。";
+    OneQueue = 1,
 }

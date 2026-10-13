@@ -165,6 +165,12 @@ public sealed record EditorCommandDocumentSnapshot(
 
     // UI preference identity only. This never substitutes for RuntimeSelectionKey or a revision.
     internal string RuntimeContextId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// How the row asked to be laid out: <c>EffectQueueMode.OneQueue</c> when it carries the <c>#aavt;queue</c> marker.
+    /// A row without it keeps every layer on its own track (2026-10-13).
+    /// </summary>
+    public EffectQueueMode QueueMode { get; init; } = EffectQueueMode.IndependentTracks;
 }
 
 public sealed record EditorCommandEditPreviewSnapshot(
@@ -186,6 +192,13 @@ public sealed record EditorCommandContinueApplySnapshot(
     EditorCommandDocumentSnapshot Before,
     EditorCommandDocumentSnapshot After,
     bool ContinueEnabled,
+    bool AlreadyPresent);
+
+/// <summary>What one press of the row's queue switch did: the row before, the row after, and what it now says.</summary>
+public sealed record EditorCommandQueueApplySnapshot(
+    EditorCommandDocumentSnapshot Before,
+    EditorCommandDocumentSnapshot After,
+    EffectQueueMode QueueMode,
     bool AlreadyPresent);
 
 public sealed record EditorCommandVoiceApplySnapshot(

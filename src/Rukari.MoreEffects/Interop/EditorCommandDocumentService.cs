@@ -240,24 +240,9 @@ internal sealed class EditorCommandDocumentService : IEditorCommandDocumentServi
                 revision = edit.Value.ResultRevisionSha256;
             }
 
-            // The layers are in the row; now the row's queue decides where each effect starts. This is the only place
-            // that can do it, because only here is the whole row known: a window holds one layer, and in 串成一条 mode
-            // the offset of an effect depends on the effects of every other layer in front of it.
-            EffectQueuePlan? queue = ReadQueue(text, out string? queueError);
-            if (queueError is not null) return EffectLayerApply.Failed(queueError);
-            if (queue is not null)
-            {
-                foreach (EffectLayerEdit layer in layers)
-                {
-                    if (layer is null) continue;
-                    if (!QueueRewritten(queue, layer, out IReadOnlyList<string>? rewritten)) continue;
-                    var edit = _composer.PreviewReplaceResource(text, revision, layer.LayerKey, rewritten!);
-                    if (!edit.Success || edit.Value is null)
-                        return EffectLayerApply.Failed(edit.Error ?? "无法写入本行的队列。");
-                    text = edit.Value.UpdatedText;
-                    revision = edit.Value.ResultRevisionSha256;
-                }
-            }
+            // The row's layout is not decided here. A row that carries the #aavt;queue marker is laid out as one queue
+            // by the embedded compile, which rebuilds it from the row's own text every time — so a layer write never
+            // touches another layer's timing, and nothing it writes can go stale (2026-10-13).
 
             string? conflict = DirectiveOwnershipError(text);
             if (conflict is not null) return EffectLayerApply.Failed(conflict);
@@ -265,7 +250,7 @@ internal sealed class EditorCommandDocumentService : IEditorCommandDocumentServi
             // The readback names the layers that were written, so the window that asked sees exactly its own rows.
             List<EffectLayer> written = LayersOf(layers);
             if (string.Equals(revision, selection.Revision, StringComparison.OrdinalIgnoreCase))
-                return EffectLayerApply.Ok(ToLayerRead(selection, written), queue);
+                return EffectLayerApply.Ok(ToLayerRead(selection, written));
 
             var write = documents.Value.Replace(
                 new Rukari.Lib.Editor.EditorDocumentEditRequest(selectionToken, expectedRevisionSha256, text));
@@ -282,70 +267,12 @@ internal sealed class EditorCommandDocumentService : IEditorCommandDocumentServi
             _capabilities.Verified(
                 "Editor.EffectLayerWrite",
                 "shared transaction replace -> extractor readback of the written layers");
-            return EffectLayerApply.Ok(ToLayerRead(write.Value.Selection, written), queue);
+            return EffectLayerApply.Ok(ToLayerRead(write.Value.Selection, written));
         }
         catch (Exception ex)
         {
             return EffectLayerApply.Failed(PatchGuard.Describe(ex));
         }
-    }
-
-    /// <summary>
-    /// The queue the merged row would be written as, or the reason it cannot be. A row whose text does not parse is
-    /// left to the layers themselves: the merge above already refused anything it could not read, and a queue is not
-    /// the place to report it a second time.
-    /// </summary>
-    private static EffectQueuePlan? ReadQueue(string text, out string? error)
-    {
-        error = null;
-        EmbeddedAavtExtraction extraction = new EmbeddedAavtDirectiveExtractor().Extract(text);
-        if (extraction.Errors.Count != 0 || extraction.Commands.Count == 0) return null;
-        EffectQueuePlan plan = EffectQueueChain.Plan(extraction.Commands, EffectQueueMode.Serial);
-        if (plan.Success) return plan;
-        error = plan.Error;
-        return null;
-    }
-
-    /// <summary>
-    /// One layer's directives with the queue's placement: the mode decides, not the window. Returns false when this
-    /// layer's lines already say exactly that, so an unchanged layer is not written a second time.
-    /// </summary>
-    private static bool QueueRewritten(
-        EffectQueuePlan queue,
-        EffectLayerEdit layer,
-        out IReadOnlyList<string>? rewritten)
-    {
-        rewritten = null;
-        IReadOnlyList<string> directives = layer.Directives ?? Array.Empty<string>();
-        var candidate = new List<string>(directives.Count);
-        bool changed = false;
-        for (int index = 0; index < directives.Count; index++)
-        {
-            EffectQueueStep? step = null;
-            foreach (EffectQueueStep candidateStep in queue.Steps)
-            {
-                if (candidateStep.IndexInLayer != index) continue;
-                if (!string.Equals(candidateStep.LayerKey, layer.LayerKey, StringComparison.Ordinal)) continue;
-                step = candidateStep;
-                break;
-            }
-
-            if (step is null)
-            {
-                candidate.Add(directives[index]);
-                continue;
-            }
-
-            string text = step.HasOffset
-                ? EffectQueueChain.WithOffset(directives[index], step.OffsetMs)
-                : EffectQueueChain.WithoutOffset(directives[index]);
-            changed |= !string.Equals(text, directives[index], StringComparison.Ordinal);
-            candidate.Add(text);
-        }
-
-        if (!changed) return false;
-        rewritten = candidate;
-        return true;
     }
 
     /// <summary>The layers a set of edits names, in the order they were written.</summary>
@@ -476,8 +403,105 @@ internal sealed class EditorCommandDocumentService : IEditorCommandDocumentServi
         }
     }
 
-    public ApiResult<EditorCommandScreenTextApplySnapshot> ApplyScreenTextOnMainThread(
-        string expectedRevisionSha256,
+    // A module-internal operation; the shared public editor contracts keep their ABI.
+    /// <summary>
+    /// Adds or removes the row's <c>#aavt;queue</c> marker, which is the whole switch: the row plays as one queue
+    /// while the line is there, and every layer keeps its own track when it is not (2026-10-13).
+    ///
+    /// <para>
+    /// It is a document edit like the continue toggle rather than a pending layer edit, because it describes the row
+    /// and not one layer of it: pressing it changes what the row means, and the next playback obeys it whether or not
+    /// any window applies anything.
+    /// </para>
+    /// </summary>
+    internal ApiResult<EditorCommandQueueApplySnapshot> ApplyQueueModeOnMainThread(
+        EffectQueueMode mode,
+        string? expectedSelectionToken = null)
+    {
+        try
+        {
+            if (!_editor.TryGetInternalSelection(
+                    out EditorSceneService.InternalSceneSelection selection,
+                    out string selectionError))
+            {
+                return ApiResult<EditorCommandQueueApplySnapshot>.Fail(selectionError);
+            }
+
+            ApiResult<EditorCommandDocumentSnapshot> currentResult = ReadSelection(selection);
+            if (!currentResult.Success || currentResult.Value == null)
+            {
+                return ApiResult<EditorCommandQueueApplySnapshot>.Fail(currentResult.Error);
+            }
+
+            EditorCommandDocumentSnapshot before = currentResult.Value;
+            if (!MatchesSelectionToken(before, expectedSelectionToken))
+                return ApiResult<EditorCommandQueueApplySnapshot>.Fail("台词选择已变化，请重新操作。");
+            if (!before.InputAvailable || !before.InputMatchesScript)
+            {
+                return ApiResult<EditorCommandQueueApplySnapshot>.Fail(
+                    "Official additional-prompt input is not synchronized with the selected Script.");
+            }
+
+            EditorCommandQueueEdit edit;
+            try
+            {
+                edit = _composer.SetQueueMode(
+                    before.AdditionalPrompt,
+                    before.RevisionSha256,
+                    mode);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<EditorCommandQueueApplySnapshot>.Fail(ex.Message);
+            }
+
+            if (edit.AlreadyPresent)
+            {
+                return ApiResult<EditorCommandQueueApplySnapshot>.Ok(new(
+                    before,
+                    before,
+                    mode,
+                    AlreadyPresent: true));
+            }
+
+            ApiResult<EditorCommandDocumentSnapshot> write = WriteExact(
+                selection,
+                before.Address,
+                edit.UpdatedText,
+                edit.ResultRevisionSha256,
+                expectedSelectionToken!, before.RevisionSha256);
+            if (!write.Success || write.Value == null)
+            {
+                string rollback = RollBack(
+                    selection,
+                    before.Address,
+                    before.AdditionalPrompt,
+                    before.RevisionSha256);
+                return ApiResult<EditorCommandQueueApplySnapshot>.Fail(
+                    $"AAVT queue marker verification failed: {write.Error} {rollback}");
+            }
+
+            EditorCommandDocumentSnapshot after = write.Value with { UndoAvailable = true };
+            _capabilities.Verified(
+                "Editor.QueueMarker",
+                mode == EffectQueueMode.OneQueue
+                    ? "#aavt;queue appended through the official input path and read back"
+                    : "#aavt;queue removed through the official input path and read back");
+            return ApiResult<EditorCommandQueueApplySnapshot>.Ok(new(
+                before,
+                after,
+                mode,
+                AlreadyPresent: false));
+        }
+        catch (Exception ex)
+        {
+            string detail = PatchGuard.Describe(ex);
+            _capabilities.Degraded("Editor.QueueMarker", detail);
+            return ApiResult<EditorCommandQueueApplySnapshot>.Fail(detail);
+        }
+    }
+
+    public ApiResult<EditorCommandScreenTextApplySnapshot> ApplyScreenTextOnMainThread(        string expectedRevisionSha256,
         ScreenTextDirective? directive,
         string? expectedSelectionToken = null)
     {
@@ -804,7 +828,8 @@ internal sealed class EditorCommandDocumentService : IEditorCommandDocumentServi
                 ResolveOfficialTransitionSlots(scene.Value.Address).ToArray()))
         {
             RuntimeSelectionKey = shared.SelectionToken,
-            RuntimeContextId = shared.ContextId
+            RuntimeContextId = shared.ContextId,
+            QueueMode = document.QueueMode
         });
     }
 

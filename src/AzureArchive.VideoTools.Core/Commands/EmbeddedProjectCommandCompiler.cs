@@ -87,15 +87,28 @@ public sealed class EmbeddedProjectCommandCompiler
                     continue;
                 }
 
-                AuthoringCommand[] commands = extracted.Commands
-                    .Select((command, index) => new AuthoringCommand(
+                // 2026-10-13: a row carrying #aavt;queue plays as one queue. The row itself stays free of offsets —
+                // the queue is laid out here, in the compiled projection, which is rebuilt from the row's text every
+                // time. So the layout always describes the row as it is now, and no window has to rewrite another
+                // window's lines to keep it true.
+                Result<IReadOnlyList<string>> directives = QueueDirectivesFor(extracted);
+                if (!directives.Success || directives.Value == null)
+                {
+                    return Result<EmbeddedProjectCommandCompilation>.Fail(
+                        $"reason=embedded-queue-invalid; node={Locator(node.Name, 24)}; "
+                        + $"scene={scene.Key.NodeGuid}:{scene.Key.SceneIndex}; "
+                        + $"dialogue={Locator(scene.DialogueText, 32)}; {directives.Error}");
+                }
+
+                AuthoringCommand[] commands = directives.Value
+                    .Select((directive, index) => new AuthoringCommand(
                         DeterministicGuid(
                             $"AzureArchive.VideoTools/embedded-command/v1\n{scene.Key.NodeGuid}\n"
-                            + $"{scene.Key.SceneIndex}\n{command.CanonicalDirective}"),
+                            + $"{scene.Key.SceneIndex}\n{directive}"),
                         index,
                         CommandTimelinePhase.SceneEnter,
-                        FamilyTypeIdFor(command.CanonicalDirective),
-                        command.CanonicalDirective,
+                        FamilyTypeIdFor(directive),
+                        directive,
                         Enabled: true))
                     .ToArray();
                 entries.Add(new CommandTimelineEntry(
@@ -189,6 +202,26 @@ public sealed class EmbeddedProjectCommandCompiler
             entries.Count,
             commandCount,
             continueIdentities.Value));
+    }
+
+    /// <summary>
+    /// The directives one row compiles to: its own, or the row laid out as a single queue when it carries the
+    /// <c>#aavt;queue</c> marker. A row the queue cannot be laid over (an authored <c>interrupt=</c>) fails here with
+    /// the card named, rather than playing as something the author did not ask for.
+    /// </summary>
+    public static Result<IReadOnlyList<string>> QueueDirectivesFor(EmbeddedAavtExtraction extracted)
+    {
+        ArgumentNullException.ThrowIfNull(extracted);
+        if (extracted.QueueMode != EffectQueueMode.OneQueue)
+        {
+            return Result<IReadOnlyList<string>>.Ok(Array.AsReadOnly(
+                extracted.Commands.Select(command => command.CanonicalDirective).ToArray()));
+        }
+
+        EffectQueuePlan plan = EffectQueueChain.Plan(extracted.Commands);
+        return plan.Success
+            ? Result<IReadOnlyList<string>>.Ok(plan.Rewritten)
+            : Result<IReadOnlyList<string>>.Fail(plan.Error);
     }
 
     private static Result<IReadOnlyList<string>> CompileContinueIdentities(

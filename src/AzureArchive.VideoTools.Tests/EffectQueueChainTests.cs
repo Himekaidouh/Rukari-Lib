@@ -25,7 +25,7 @@ internal static class EffectQueueChainTests
 
     internal static void ACrossLayerJointCarriesTheOffsetAndOneTrackAppendsForFree()
     {
-        EffectQueuePlan plan = Plan(true, CharacterFirst, CharacterSecond, Camera);
+        EffectQueuePlan plan = Plan(CharacterFirst, CharacterSecond, Camera);
 
         AssertEx.Equal(1400d, plan.TotalMs, "The row lasts as long as everything in it added up.");
         AssertEx.Equal(-1, plan.Steps[0].OffsetMs, "The first effect has nothing before it and starts at the origin.");
@@ -43,7 +43,7 @@ internal static class EffectQueueChainTests
     {
         // The same three effects in the opposite authored order: now it is the character who waits for the camera,
         // which is what "共用一条轨道" means — the row's own order is the queue.
-        EffectQueuePlan plan = Plan(true, Camera, CharacterFirst, CharacterSecond);
+        EffectQueuePlan plan = Plan(Camera, CharacterFirst, CharacterSecond);
 
         AssertStarts(plan, 0d, 500d, 1100d);
         AssertEx.Equal(-1, plan.Steps[0].OffsetMs, "The effect the row starts with needs no offset.");
@@ -56,57 +56,52 @@ internal static class EffectQueueChainTests
     {
         // Character, camera, character: the third effect is on the same track as the first, but the queue says it runs
         // after the camera, so the append it would get by default is not enough and it has to say where it starts.
-        EffectQueuePlan plan = Plan(true, CharacterFirst, Camera, CharacterSecond);
+        EffectQueuePlan plan = Plan(CharacterFirst, Camera, CharacterSecond);
 
         AssertStarts(plan, 0d, 600d, 1100d);
         AssertEx.Equal(1100, plan.Steps[2].OffsetMs, "The last effect names the moment the queue puts it at.");
         AssertEx.Equal(1400d, plan.TotalMs, "Every effect is on the queue, so nothing overlaps.");
     }
 
-    internal static void ParallelModeRemovesThePlacementAndKeepsTheTracksIndependent()
+    internal static void ARowWithoutTheMarkerKeepsItsOwnTracks()
     {
+        // The other half of the switch is the absence of the marker: the row's directives are left exactly as they are
+        // and the player keeps the layers apart. Nothing in this file runs at all in that case — the compile hands the
+        // row through untouched — so what is checked here is the plan the player builds from those directives.
         string[] row = { CharacterFirst, CharacterSecond, Camera };
-        EffectQueuePlan serial = Plan(true, row);
-        EffectQueuePlan parallel = Plan(false, row);
-        EffectQueuePlan stripped = Plan(false, Public(serial.Rewritten.ToArray()));
+        EffectQueuePlan queued = Plan(row);
+        var plain = SlotActionQueuePlanner.PlanDirectives(row.Select(ToCanonical).ToArray());
 
-        foreach (string directive in stripped.Rewritten)
-        {
-            AssertEx.False(directive.Contains("at=", StringComparison.Ordinal),
-                "并行模式把偏移去掉，让每条轨回到自己的追加：" + directive);
-        }
-
-        AssertEx.Equal(900d, stripped.TotalMs,
-            "Parallel tracks overlap, so the row lasts as long as its longest track (the two character effects).");
-        AssertEx.Equal(1400d, serial.TotalMs, "The same row read as one queue is longer, not shorter.");
-        AssertEx.True(stripped.Line.Contains("各层并行", StringComparison.Ordinal),
-            "The line says which of the two modes was written: " + stripped.Line);
-        AssertStarts(stripped, 0d, 600d, 0d);
+        AssertEx.Equal(900d, AssertEx.NotNull(plain.Value, "An unmarked row still plans.").TotalMs,
+            "Unmarked layers overlap, so the row lasts as long as its longest track (the two character effects).");
+        AssertEx.Equal(1400d, queued.TotalMs, "The same row as one queue is longer, not shorter.");
+        AssertEx.True(queued.Line.Contains("串成一条", StringComparison.Ordinal),
+            "The line says what the row was laid out as: " + queued.Line);
     }
 
     internal static void PlanningTheRowItJustWroteChangesNothing()
     {
-        EffectQueuePlan first = Plan(true, CharacterFirst, Camera, OtherCharacter);
-        EffectQueuePlan second = Plan(true, Public(first.Rewritten.ToArray()));
+        EffectQueuePlan first = Plan(CharacterFirst, Camera, OtherCharacter);
+        EffectQueuePlan second = Plan(Public(first.Rewritten.ToArray()));
 
         for (int index = 0; index < first.Rewritten.Count; index++)
         {
             AssertEx.Equal(first.Rewritten[index], second.Rewritten[index],
-                $"Applying the queue twice must not move anything (row {index}).");
+                $"Laying the same row out twice must not move anything (row {index}).");
             AssertEx.Equal(first.Steps[index].OffsetMs, second.Steps[index].OffsetMs,
                 $"The second read agrees about where effect {index} starts.");
         }
 
         AssertEx.Equal(first.TotalMs, second.TotalMs, "And the row is the same length both times.");
         AssertEx.False(first.Note.Contains("原有的 at=", StringComparison.Ordinal),
-            "A row this mode wrote has nothing stale in it: " + first.Note);
+            "A row this queue laid out has nothing stale in it: " + first.Note);
     }
 
     internal static void APendingStartStateStaysOutOfTheQueueAndTheChainJumpsOverIt()
     {
         // A pending start state stages a beginning: its grammar has no at=, and the player commits it in the frame the
         // row starts in. So the effect behind it on that track must jump over the gap itself.
-        EffectQueuePlan plan = Plan(true, Camera, Pending, CharacterFirst);
+        EffectQueuePlan plan = Plan(Camera, Pending, CharacterFirst);
 
         AssertEx.True(plan.Success, plan.Error);
         AssertEx.False(plan.Rewritten[1].Contains("at=", StringComparison.Ordinal),
@@ -120,7 +115,7 @@ internal static class EffectQueueChainTests
 
     internal static void AFamilyOutsideTheQueueIsNamedAndLeftAlone()
     {
-        EffectQueuePlan plan = Plan(true, CharacterFirst, Spine, Camera);
+        EffectQueuePlan plan = Plan(CharacterFirst, Spine, Camera);
 
         AssertEx.True(plan.Rewritten[1].StartsWith("#spine;", StringComparison.Ordinal),
             "The overlay keeps its own canonical text: " + plan.Rewritten[1]);
@@ -134,20 +129,20 @@ internal static class EffectQueueChainTests
 
     internal static void AnAuthoredInterruptIsRefusedWithBothWaysOut()
     {
-        EffectQueuePlan plan = Plan(true, CharacterFirst + ";interrupt=true", Camera);
+        EffectQueuePlan plan = Plan(CharacterFirst + ";interrupt=true", Camera);
 
         AssertEx.False(plan.Success, "A takeover cannot be queued with the effects it takes over from.");
         AssertEx.True(plan.Error.Contains("interrupt", StringComparison.Ordinal),
             "The refusal names the parameter: " + plan.Error);
-        AssertEx.True(plan.Error.Contains("各层并行", StringComparison.Ordinal),
-            "and the way out of it: " + plan.Error);
+        AssertEx.True(plan.Error.Contains("#aavt;queue", StringComparison.Ordinal),
+            "and the marker it cannot be combined with: " + plan.Error);
     }
 
     internal static void ALongChainIsWrittenAndSaysTheTailWillCollapse()
     {
         // The player collapses whatever runs past its budget and applies that effect's end state instead of animating
         // it. That is a supported outcome, not a failure — but it has to be visible before the author plays the row.
-        EffectQueuePlan plan = Plan(true, OtherCharacter, LongCamera, OtherCharacter);
+        EffectQueuePlan plan = Plan(OtherCharacter, LongCamera, OtherCharacter);
 
         AssertEx.True(plan.Success, plan.Error);
         AssertEx.True(plan.OverBudget, "3.6 s of queue is past the player's 3 s budget.");
@@ -215,8 +210,12 @@ internal static class EffectQueueChainTests
         return count;
     }
 
-    private static EffectQueuePlan Plan(bool serial, params string[] publicDirectives) =>
-        EffectQueueChain.Plan(Row(publicDirectives), serial);
+    private static EffectQueuePlan Plan(params string[] publicDirectives) =>
+        EffectQueueChain.Plan(Row(publicDirectives));
+
+    /// <summary>The canonical form of one public directive, which is what the planner reads.</summary>
+    private static string ToCanonical(string publicDirective) =>
+        Row(publicDirective)[0].CanonicalDirective;
 
     /// <summary>The public form of canonical directives, which is what a document holds.</summary>
     private static string[] Public(IReadOnlyList<string> canonicalDirectives)

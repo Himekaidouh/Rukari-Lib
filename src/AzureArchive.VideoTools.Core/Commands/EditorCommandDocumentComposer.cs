@@ -14,7 +14,13 @@ public sealed record EditorCommandDocument(
     bool HasContinueDirective,
     bool HasClearScreenTextDirective,
     IReadOnlyList<EmbeddedAavtCommand> Commands,
-    IReadOnlyList<ScreenTextLine> ScreenTextLines);
+    IReadOnlyList<ScreenTextLine> ScreenTextLines)
+{
+    /// <summary>
+    /// How this row asked to be laid out: the <c>#aavt;queue</c> marker, or independent tracks when there is none.
+    /// </summary>
+    public EffectQueueMode QueueMode { get; init; } = EffectQueueMode.IndependentTracks;
+}
 
 public sealed record EditorCommandEditPreview(
     string ExpectedRevisionSha256,
@@ -30,6 +36,24 @@ public sealed record EditorCommandContinueEdit(
     string UpdatedText,
     bool ContinueEnabled,
     bool AlreadyPresent);
+
+/// <summary>The row's queue marker after one toggle: what it now says, and whether it already said it.</summary>
+public sealed record EditorCommandQueueEdit(
+    string ExpectedRevisionSha256,
+    string ResultRevisionSha256,
+    string UpdatedText,
+    EffectQueueMode QueueMode,
+    bool AlreadyPresent);
+
+/// <summary>The standalone marker line this build writes for <see cref="EffectQueueMode.OneQueue"/>.</summary>
+public static class EffectQueueMarker
+{
+    public const string Directive = "#aavt;" + EmbeddedAavtDirectiveExtractor.QueueMarkerNamespace;
+
+    /// <summary>The mode a document is in, read back from the line itself.</summary>
+    public static EffectQueueMode Read(string? additionalPrompt) =>
+        new EmbeddedAavtDirectiveExtractor().Extract(additionalPrompt ?? string.Empty).QueueMode;
+}
 
 public sealed record EditorCommandScreenTextEdit(
     string ExpectedRevisionSha256,
@@ -151,7 +175,10 @@ public sealed class EditorCommandDocumentComposer
             extracted.HasContinueDirective,
             ContainsStandaloneLine(text, "#clearST"),
             extracted.Commands,
-            screenText.Value));
+            screenText.Value)
+        {
+            QueueMode = extracted.QueueMode
+        });
     }
 
     public Result<EditorCommandEditPreview> PreviewUpsert(
@@ -826,6 +853,66 @@ public sealed class EditorCommandDocumentComposer
     private static string AppendContinueLine(string source)
         => AppendStandaloneLine(source, "#aavt;continue");
 
+    /// <summary>
+    /// Adds or removes the row's <c>#aavt;queue</c> marker. Same shape as the continue toggle: the rest of the
+    /// document keeps its own bytes, and the result is re-read before it is returned (2026-10-13).
+    /// </summary>
+    public EditorCommandQueueEdit SetQueueMode(
+        string sourceText,
+        string expectedRevisionSha256,
+        EffectQueueMode mode,
+        bool acceptLegacyCharAlias = true)
+    {
+        Result<EditorCommandDocument> current = ReadDocument(
+            sourceText,
+            acceptLegacyCharAlias,
+            allowMultipleResourcesPerResource: true);
+        if (current.Value == null)
+        {
+            throw new InvalidOperationException(current.Error);
+        }
+
+        if (!string.Equals(
+                current.Value.RevisionSha256,
+                expectedRevisionSha256,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Additional-prompt revision changed after the draft was created.");
+        }
+
+        if (current.Value.QueueMode == mode)
+        {
+            return new EditorCommandQueueEdit(
+                expectedRevisionSha256,
+                expectedRevisionSha256,
+                sourceText,
+                mode,
+                AlreadyPresent: true);
+        }
+
+        string updated = mode == EffectQueueMode.OneQueue
+            ? AppendStandaloneLine(sourceText, EffectQueueMarker.Directive)
+            : RemoveStandaloneLines(sourceText, EffectQueueMarker.Directive);
+        Result<EditorCommandDocument> verified = ReadDocument(
+            updated,
+            acceptLegacyCharAlias,
+            allowMultipleResourcesPerResource: true);
+        if (verified.Value == null || verified.Value.QueueMode != mode)
+        {
+            throw new InvalidOperationException(
+                "Merged additional-prompt document did not keep the queue marker state: "
+                + (verified.Error ?? "unknown error"));
+        }
+
+        return new EditorCommandQueueEdit(
+            expectedRevisionSha256,
+            verified.Value.RevisionSha256,
+            updated,
+            mode,
+            AlreadyPresent: false);
+    }
+
     private static string AppendStandaloneLine(string source, string directive)
     {
         var builder = new StringBuilder(source.Length + directive.Length + 2);
@@ -858,6 +945,10 @@ public sealed class EditorCommandDocumentComposer
     }
 
     private static string RemoveContinueLines(string source)
+        => RemoveStandaloneLines(source, "#aavt;continue");
+
+    /// <summary>Removes every line that is exactly this standalone marker, keeping the rest byte-for-byte.</summary>
+    private static string RemoveStandaloneLines(string source, string directive)
     {
         var output = new StringBuilder(source.Length);
         int offset = 0;
@@ -883,11 +974,11 @@ public sealed class EditorCommandDocumentComposer
             }
 
             string trimmed = source[offset..contentEnd].Trim();
-            bool isContinueLine = string.Equals(
+            bool isMarkerLine = string.Equals(
                 trimmed,
-                "#aavt;continue",
+                directive,
                 StringComparison.OrdinalIgnoreCase);
-            if (!isContinueLine)
+            if (!isMarkerLine)
             {
                 output.Append(source, offset, segmentEnd - offset);
             }

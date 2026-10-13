@@ -25,6 +25,12 @@ public sealed record EmbeddedAavtExtraction(
     public bool HasContinueDirective { get; init; }
 
     /// <summary>
+    /// How this row asked its effects to be laid out: <see cref="EffectQueueMode.OneQueue"/> when it carries the
+    /// <c>#aavt;queue</c> marker, and independent tracks when it does not (2026-10-13).
+    /// </summary>
+    public EffectQueueMode QueueMode { get; init; } = EffectQueueMode.IndependentTracks;
+
+    /// <summary>
     /// True when this text declared AAVT directive lines while every declared
     /// line turned out to be non-visual — a bare <c>#aavt;continue</c> marker, a
     /// mirrored voice line, or both — and nothing was rejected. Only those two
@@ -73,6 +79,7 @@ public sealed class EmbeddedAavtDirectiveExtractor
         var errors = new List<string>();
         var occupiedSlots = new HashSet<string>(StringComparer.Ordinal);
         bool hasContinueDirective = false;
+        EffectQueueMode queueMarkers = EffectQueueMode.IndependentTracks;
         int removedLines = 0;
         int offset = 0;
         int lineNumber = 1;
@@ -111,6 +118,15 @@ public sealed class EmbeddedAavtDirectiveExtractor
                 removedLines++;
                 hasContinueDirective = true;
             }
+            else if (TryReadQueueMarker(trimmed, out EffectQueueMode queueMode, out string? queueError))
+            {
+                removedLines++;
+
+                // One row, one answer. Two markers asking for the same thing are the same marker written twice, and
+                // there is no second layout to ask for, so nothing here needs to disagree with itself.
+                queueMarkers = queueMode;
+                if (queueError is not null) errors.Add($"Line {lineNumber}: {queueError}");
+            }
             else if (IsAavtDirective(trimmed)
                 || (acceptLegacyCharAlias && IsLegacyCharacterDirective(trimmed)))
             {
@@ -142,7 +158,8 @@ public sealed class EmbeddedAavtDirectiveExtractor
             Array.AsReadOnly(errors.ToArray()),
             removedLines)
         {
-            HasContinueDirective = hasContinueDirective
+            HasContinueDirective = hasContinueDirective,
+            QueueMode = queueMarkers
         };
     }
 
@@ -273,4 +290,44 @@ public sealed class EmbeddedAavtDirectiveExtractor
         return string.Equals((separator < 0 ? line : line[..separator]).Trim(),
             root, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Reads the row's queue marker. It is a standalone line like <c>#aavt;continue</c>: it carries no slot and no
+    /// effect, it only says how the row's effects are laid out relative to each other.
+    ///
+    /// <para>
+    /// Only the spelling this build writes is accepted, plus the explicit <c>;serial</c> an author may type for
+    /// readability. Anything else after <c>queue</c> fails closed and names the two forms — a marker that silently
+    /// meant something else would change how a whole row plays.
+    /// </para>
+    /// </summary>
+    private static bool TryReadQueueMarker(
+        string line,
+        out EffectQueueMode mode,
+        out string? error)
+    {
+        mode = EffectQueueMode.IndependentTracks;
+        error = null;
+        string[] parts = line.Split(';');
+        if (parts.Length is < 2 or > 3
+            || !string.Equals(parts[0].Trim(), "#aavt", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(parts[1].Trim(), QueueMarkerNamespace, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (parts.Length == 3
+            && !string.Equals(parts[2].Trim(), "serial", StringComparison.OrdinalIgnoreCase))
+        {
+            error = $"The AAVT queue marker takes no value; write '#aavt;{QueueMarkerNamespace}'"
+                + $" (or '#aavt;{QueueMarkerNamespace};serial').";
+            return true;
+        }
+
+        mode = EffectQueueMode.OneQueue;
+        return true;
+    }
+
+    /// <summary>The namespace of the standalone <c>#aavt;queue</c> marker line.</summary>
+    public const string QueueMarkerNamespace = "queue";
 }

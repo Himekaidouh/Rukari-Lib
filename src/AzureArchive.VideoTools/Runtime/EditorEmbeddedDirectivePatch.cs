@@ -125,6 +125,7 @@ internal static class EditorEmbeddedDirectivePatch
         VoiceDirectiveParseResult voice = VoiceDirectivePolicy.Parse(prompt);
         bool ownsAavtRow = extracted.Commands.Count > 0
             || extracted.HasContinueDirective
+            || extracted.QueueMode == EffectQueueMode.OneQueue
             || voice.HasDirective;
         return extracted.Errors.Count == 0
             && voice.Errors.Count == 0

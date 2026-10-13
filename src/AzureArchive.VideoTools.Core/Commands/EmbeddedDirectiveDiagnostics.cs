@@ -25,6 +25,7 @@ public static class EmbeddedDirectiveDiagnostics
             + $"; commands={extraction.Commands.Count}"
             + $"; errors={extraction.Errors.Count}"
             + $"; continue={extraction.HasContinueDirective}"
+            + $"; queue={extraction.QueueMode}"
             + $"; nonVisualOnly={extraction.HasOnlyNonVisualDirectives}"
             + $"; sanitizedSha256={sanitizedIdentity.Sha256}"
             + $"; sanitizedChars={sanitizedIdentity.Utf16Length}"

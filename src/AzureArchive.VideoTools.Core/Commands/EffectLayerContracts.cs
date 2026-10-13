@@ -167,22 +167,10 @@ public readonly record struct EffectDraft(
 /// <summary>One layer as it should be written: every one of its lines, in order. An empty list removes the layer.</summary>
 public sealed record EffectLayerEdit(string LayerKey, IReadOnlyList<string> Directives);
 
-/// <summary>
-/// What one write did: either the row as it now reads, or why nothing was written.
-/// <para>
-/// <paramref name="Queue"/> is what the write made of the whole row's queue — the 串成一条 / 各层并行 mode — and is
-/// null when the write did not get as far as planning one. A window owns one layer, so the offsets in it are the only
-/// part of a row-wide decision that window could have made; reporting the plan is how the author sees the other half.
-/// </para>
-/// </summary>
-public readonly record struct EffectLayerApply(
-    bool Success,
-    string Error,
-    EffectLayerRead Read,
-    EffectQueuePlan? Queue = null)
+/// <summary>What one write did: either the row as it now reads, or why nothing was written.</summary>
+public readonly record struct EffectLayerApply(bool Success, string Error, EffectLayerRead Read)
 {
-    public static EffectLayerApply Ok(EffectLayerRead read, EffectQueuePlan? queue = null) =>
-        new(true, string.Empty, read, queue);
+    public static EffectLayerApply Ok(EffectLayerRead read) => new(true, string.Empty, read);
 
     public static EffectLayerApply Failed(string error) => new(false, error ?? string.Empty, EffectLayerRead.Failed(error ?? string.Empty));
 }
