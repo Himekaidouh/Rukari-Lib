@@ -95,8 +95,13 @@ public sealed class EmbeddedProjectCommandCompiler
                 AuthoringCommand[] commands = laid.Commands
                     .Select((command, index) => new AuthoringCommand(
                         DeterministicGuid(
-                            $"AzureArchive.VideoTools/embedded-command/v1\n{scene.Key.NodeGuid}\n"
-                            + $"{scene.Key.SceneIndex}\n{command.CanonicalDirective}"),
+                            // v2 (2026-10-14): the position is part of the identity. Deriving it from the text alone
+                            // made two identical lines in one row the same command, and the timeline refuses a
+                            // duplicated command ID by failing the WHOLE project's index — so writing the same move
+                            // twice, which is a normal thing to author and one accidental double press of
+                            // ＋ 加为下一段, took every effect in the project off the air.
+                            $"AzureArchive.VideoTools/embedded-command/v2\n{scene.Key.NodeGuid}\n"
+                            + $"{scene.Key.SceneIndex}\n{index}\n{command.CanonicalDirective}"),
                         index,
                         CommandTimelinePhase.SceneEnter,
                         FamilyTypeIdFor(command.CanonicalDirective),

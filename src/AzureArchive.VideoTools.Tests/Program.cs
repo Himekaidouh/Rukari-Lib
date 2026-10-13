@@ -144,6 +144,7 @@ internal static class Program
             (nameof(SharedDirectiveCompilationTests.ForeignChildRoutesNeverExecuteThroughTheAavtParent), SharedDirectiveCompilationTests.ForeignChildRoutesNeverExecuteThroughTheAavtParent),
             (nameof(SharedDirectiveCompilationTests.ForeignReservedRoutesBlockEditorWritesButIndependentRoutesDoNot), SharedDirectiveCompilationTests.ForeignReservedRoutesBlockEditorWritesButIndependentRoutesDoNot),
             (nameof(EmbeddedAavtDirectiveTests.ForeignChildRoutesAreExcludedFromSavedCommandsAndPreviewChains), EmbeddedAavtDirectiveTests.ForeignChildRoutesAreExcludedFromSavedCommandsAndPreviewChains),
+            (nameof(EmbeddedAavtDirectiveTests.TwoIdenticalDirectivesInOneRowStayTwoCommands), EmbeddedAavtDirectiveTests.TwoIdenticalDirectivesInOneRowStayTwoCommands),
             (nameof(SharedDirectiveCompilationTests.SharedRouteWhitespaceAndMissingArgumentsCannotDisappearSilently), SharedDirectiveCompilationTests.SharedRouteWhitespaceAndMissingArgumentsCannotDisappearSilently),
             (nameof(SharedDirectiveCompilationTests.MixedNamespacesShareFinalIdentityWithoutChangingOfficialBytes), SharedDirectiveCompilationTests.MixedNamespacesShareFinalIdentityWithoutChangingOfficialBytes),
             (nameof(SharedDirectiveCompilationTests.RegisteredAavtFilteringPreservesUnregisteredFlBytes), SharedDirectiveCompilationTests.RegisteredAavtFilteringPreservesUnregisteredFlBytes),

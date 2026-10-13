@@ -34,6 +34,36 @@ internal static class EmbeddedAavtDirectiveTests
         AssertEx.Equal(prompt, project.ScriptNodes.Single().Scenes.Single().AdditionalPrompt);
     }
 
+    public static void TwoIdenticalDirectivesInOneRowStayTwoCommands()
+    {
+        // The same move written twice is normal authoring — and one accidental double press of ＋ 加为下一段. The two
+        // lines must therefore be two commands: deriving a command's identity from its text alone made them one, and
+        // the timeline answers a duplicated command ID by failing the whole project's index, which takes every effect
+        // in the project off the air (2026-10-14).
+        using var files = new TemporaryAapDirectory();
+        string path = files.Write(
+            "duplicate-directives.aap",
+            SyntheticAap.Project(new[]
+            {
+                SyntheticAap.Scene("A", additionalPrompt:
+                    "#aavt;char;3;move;dx=20;duration=300\n#aavt;char;3;move;dx=20;duration=300")
+            }));
+        ProjectSnapshot project = AssertEx.NotNull(new AapProjectReader().Read(path).Value);
+        PlaybackArchiveSnapshot playback = Playback(project, "A", "compiled A");
+
+        var result = new EmbeddedProjectCommandCompiler().Compile(project, playback, "0.7.44");
+
+        AssertEx.True(result.Success, result.Error);
+        EmbeddedProjectCommandCompilation compiled = AssertEx.NotNull(result.Value);
+        AssertEx.Equal(2, compiled.CommandCount, "Both authored lines are compiled.");
+        IReadOnlyList<PlaybackCommandInstruction> commands =
+            compiled.Projection.Batches.Single().Commands;
+        AssertEx.Equal(2, commands.Count, "One row, two commands.");
+        AssertEx.False(
+            string.Equals(commands[0].CommandId, commands[1].CommandId, StringComparison.Ordinal),
+            "Identical text at two positions is still two commands.");
+    }
+
     public static void ExtractsAavtAndPreservesOfficialDirectives()
     {
         const string input =
@@ -110,8 +140,7 @@ internal static class EmbeddedAavtDirectiveTests
     }
 
     public static void ClassifiesCommandlessNonVisualCapturesForTheTombstoneGate()
-    {
-        var extractor = new EmbeddedAavtDirectiveExtractor();
+    {        var extractor = new EmbeddedAavtDirectiveExtractor();
 
         // A bare marker is deliberate: it is removed, yields no command, and
         // must still own cleanup plus inherited-chain semantics in the editor

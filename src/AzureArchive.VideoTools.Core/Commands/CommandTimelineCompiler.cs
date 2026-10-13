@@ -223,11 +223,19 @@ public sealed class CommandTimelineCompiler : ICommandTimelineCompiler
                         $"Command timeline scene {location} contains a null command.");
                 }
 
-                if (!Guid.TryParseExact(command.CommandId, "D", out _)
-                    || !commandIds.Add(command.CommandId))
+                if (!Guid.TryParseExact(command.CommandId, "D", out _))
                 {
                     return Result<InputState>.Fail(
-                        $"Command ID at {location}:{commandIndex} is invalid or duplicated.");
+                        $"Command ID at {location}:{commandIndex} is not a GUID.");
+                }
+
+                if (!commandIds.Add(command.CommandId))
+                {
+                    // 2026-10-14: the two cases used to share one "invalid or duplicated" message, which named a
+                    // command ID and nothing else. The author cannot act on a GUID; the directive is the line they
+                    // can find, so it is part of the failure.
+                    return Result<InputState>.Fail(
+                        $"Command ID at {location}:{commandIndex} is duplicated by '{command.Directive}'.");
                 }
 
                 if (command.Order != commandIndex)
