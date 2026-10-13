@@ -144,6 +144,11 @@ public sealed class VoicePlaybackGate
         LastReason = reason;
     }
 
+    // Keep the original contract for existing callers; runtime callers provide
+    // the actual AUTO state and the input that initiated this advance.
     public bool BlocksAdvance(bool previewRequested, bool playerIsPreview) =>
-        Active && !previewRequested && !playerIsPreview;
+        BlocksAdvance(previewRequested, playerIsPreview, autoEnabled: true, manualInput: false);
+
+    public bool BlocksAdvance(bool previewRequested, bool playerIsPreview, bool autoEnabled, bool manualInput) =>
+        Active && !previewRequested && !playerIsPreview && autoEnabled && !manualInput;
 }

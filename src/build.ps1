@@ -12,6 +12,10 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repo = $PSScriptRoot
 $utf8 = [Text.UTF8Encoding]::new($false)
+. (Join-Path $repo 'scripts/PackagingReadRetry.ps1')
+function Build-FileHash([string]$Path) {
+    Invoke-PackagingReadWithRetry { (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash }
+}
 function Run-DotNet([string[]]$Arguments) {
     & dotnet @Arguments
     if ($LASTEXITCODE -ne 0) { throw "dotnet failed ($LASTEXITCODE): $($Arguments -join ' ')" }
@@ -29,7 +33,7 @@ if (-not $SkipTests) {
         if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ine $expected) { throw "UI hash mismatch: $relative" }
     }
 }
-$common = @('-c',$Configuration,"-p:AzureArchiveTarget=$Target")
+$common = @('-c',$Configuration,"-p:AzureArchiveTarget=$Target",'-m:1','-p:BuildInParallel=false')
 $gameInputs = @()
 $resolvedGame = $null
 if ($CoreOnly) {
@@ -54,11 +58,12 @@ if ($CoreOnly) {
     foreach ($relative in @('GameAssembly.dll','UnityPlayer.dll','AzureArchive_Data/globalgamemanagers',
         'AzureArchive_Data/level1','AzureArchive_Data/level2','BepInEx/interop/Assembly-CSharp.dll',
         'BepInEx/interop/spine-csharp.dll','BepInEx/interop/spine-unity.dll',
+        'BepInEx/interop/UnityEngine.CoreModule.dll',
         'BepInEx/core/BepInEx.Core.dll','BepInEx/core/BepInEx.Unity.IL2CPP.dll',
         'BepInEx/core/Il2CppInterop.Runtime.dll','BepInEx/core/0Harmony.dll',
         'BepInEx/patchers/ModTheAzureArchive.dll')) {
         $inputFile = Join-Path $resolvedGame $relative
-        $gameInputs += [ordered]@{Path=$relative;SHA256=(Get-FileHash -LiteralPath $inputFile -Algorithm SHA256).Hash}
+        $gameInputs += [ordered]@{Path=$relative;SHA256=(Build-FileHash $inputFile)}
     }
     Run-DotNet (@('build',(Join-Path $repo 'Rukari.Mods.sln')) + $common + @("-p:AzureArchiveGameRoot=$resolvedGame"))
     foreach ($project in @('examples/SharedVoiceClient/SharedVoiceClient.csproj','examples/UiToolboxClient/UiToolboxClient.csproj','examples/UiToolboxPlugin/UiToolboxPlugin.csproj','examples/EmbeddedDirectiveClient/EmbeddedDirectiveClient.csproj')) {
@@ -86,16 +91,16 @@ if (-not $CoreOnly -and -not $SkipTests) {
     # Bind every distributable DLL, including the three shared helpers, to this successful build.
     foreach ($project in @('Rukari.Lib.Runtime','Rukari.CharacterVoice','Rukari.MoreEffects','Rukari.SpineSupport')) {
         $relative = "$project/bin/$Configuration/$project.dll"
-        $outputs += [ordered]@{Path=$relative;SHA256=(Get-FileHash -LiteralPath (Join-Path $repo $relative) -Algorithm SHA256).Hash}
+        $outputs += [ordered]@{Path=$relative;SHA256=(Build-FileHash (Join-Path $repo $relative))}
     }
     foreach ($project in @('Rukari.Lib','AzureArchive.VideoTools.Core','AzureArchive.VideoTools.Formats')) {
         $relative = "$project/bin/$Configuration/net6.0/$project.dll"
-        $outputs += [ordered]@{Path=$relative;SHA256=(Get-FileHash -LiteralPath (Join-Path $repo $relative) -Algorithm SHA256).Hash}
+        $outputs += [ordered]@{Path=$relative;SHA256=(Build-FileHash (Join-Path $repo $relative))}
     }
 }
 $records = @(Get-ChildItem -LiteralPath $repo -File -Recurse | Where-Object {
     $_.FullName.Substring($repo.Length + 1) -notmatch '(^|[\\/])(bin|obj|artifacts)[\\/]' -and $_.Extension -in @('.cs','.csproj','.sln','.props','.targets','.ps1','.json')
-} | ForEach-Object { [ordered]@{Path=[IO.Path]::GetRelativePath($repo,$_.FullName).Replace('\','/');SHA256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} })
+} | ForEach-Object { [ordered]@{Path=[IO.Path]::GetRelativePath($repo,$_.FullName).Replace('\','/');SHA256=(Build-FileHash $_.FullName)} })
 $productVersions = [ordered]@{}
 foreach ($project in @('Rukari.Lib.Runtime','Rukari.CharacterVoice','Rukari.MoreEffects','Rukari.SpineSupport')) {
     $manifest = Get-Content -LiteralPath (Join-Path $repo ($project + '/package/manifest.json')) -Raw | ConvertFrom-Json

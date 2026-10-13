@@ -266,7 +266,8 @@ public sealed class CommandWorkspaceAuthoringService
             .Where(scene => scene.PlaybackRecordIndex.HasValue
                 && scene.Status is (
                     ScenePlaybackMappingStatus.UniqueDialogueTextMatch
-                    or ScenePlaybackMappingStatus.AnchoredNodeSequenceMatch))
+                    or ScenePlaybackMappingStatus.AnchoredNodeSequenceMatch
+                    or ScenePlaybackMappingStatus.ObservedCompilerRecordMatch))
             .Select(scene => new CommandAuthoringSceneSnapshot(
                 scene.PlaybackRecordIndex!.Value,
                 scene.Scene,

@@ -187,6 +187,34 @@ hosted 内容坐标以内容区左下角为原点、Y向上，单位为页面画
 
 依据：[ToolDrawerLayout](../src/Rukari.Lib/Tools/ToolDrawerLayout.cs)、[ToolPanelSession](../src/Rukari.Lib/Tools/ToolPanelSession.cs)、[ToolboxDrawer](../src/Rukari.Lib.Runtime/Tools/ToolboxDrawer.cs)、[MoreEffects hosted 包装](../src/Rukari.MoreEffects/Runtime/VisualEditorHostedContent.cs)。
 
+### 5.5 独立工具窗口
+
+抽屉面板是**模态**的：打开任何页面时模块卡与条目列都隐藏，而且同时只有一个页面在屏幕上。需要与其它工具**同屏**的页面（预设效果页与画面效果页就是前两个）改为注册成独立窗口。
+
+窗口能力是工具箱接口的**并列接口** `IToolWindowService`，不是 `IToolboxService` 的新成员：同一 owner / pageId 命名空间，注册方法为 `RegisterWindow(ownerId, windowId, title, content, iconId)` 五参数、无可选参数。宿主实现同时回答两个接口，能力名为 `rukari.tools.windows`。
+
+| 方面 | 规则 |
+|---|---|
+| 入口 | 窗口页仍出现在所属模块的条目列里；选中它是**开/关窗口**，树深度不变，因此条目列保持可见，可以再开第二个工具。单条目模块的模块按钮直接开/关该窗口。 |
+| 尺寸 | 页面 `PreferredWidth` / `PreferredHeight` 表示**内容尺寸**（与抽屉里同一个含义），边框（内边距与标题带）加在外面；窗口按屏幕夹取，最小 360×200，最大为屏幕的 92% / 82%。 |
+| 缩放 | 窗口固定 1 倍缩放：1 画布单位 = 1 物理像素，缩放系数若跟随屏幕会让内容位移与指针位移不一致。**当前不提供用户缩放**：用户只要拖动，把手不画、热区不存在（`ToolWindowInteraction` 以 `resizable:false` 构造），但缩放的几何与测试保留在库内，需要时改这一个参数即可恢复。 |
+| 默认位置 | 贴左下停靠（左 12px、底 44px，避开官方底栏与角落装饰）。宽页面也按屏幕 68% 上限打开，用户可再拉宽。 |
+| 拖动 / 复位 | 标题带是拖动把手；**双击标题带**清除记忆位置并回到默认停靠（位置与尺寸一起回到默认，尺寸跟随页面重新生效）。拖动期间捕获全部指针。 |
+| 位置记忆 | 会话级：关掉窗口再开仍在原处，重启归默认。位置按物理像素存、每次读取按当前屏幕重新夹取，所以换了分辨率窗口不会跑到屏幕外。 |
+| 尺寸跟随 | 窗口尺寸始终跟随页面的 `PreferredHeight` / `PreferredWidth`（抽屉的行为）：用户不缩放，页面改尺寸窗口就改。库内保留了"用户尺寸优先"的规则与测试，启用缩放后即生效。 |
+| 显示边界 | 与抽屉同一条边界：离开 Script 工作台或官方选择窗打开时窗口隐藏并释放输入，回到工作台后按原位置与原开关状态恢复。 |
+| 层级 | `ToolWindowStack` 决定前后次序（画布排序 32720 起，抽屉 32710、全局设置 32730）。**一次按下只归一个界面**：窗口在处理按下前先问层级表，落点属于更上层窗口就整帧忽略；抽屉面板也通过 `CoveredByWindow` 做同样的让步。按下即置顶。 |
+| 失败回退 | `RegisterWindow` 在注册时就把窗口建出来（画布、输入区域、键盘所有权）；建不出来就返回失败并把页面撤掉，调用方应退回 `RegisterHostedPage`。同时最多注册 **10** 个窗口：窗口按每窗一档画布排序号叠放，而"哪一窗接到按下"的层级表必须与画面一致，超过这个数量两者会不一致，因此超限直接返回 `Busy` 而不是让点击落到看不见的窗口上。 |
+| 异常重试 | 页面抛异常后会被隔离，但**每次打开窗口都是一次新的显示**（新的注册身份），所以关掉再开就是重试；这与抽屉"切到别的页面再回来"是同一条语义。 |
+| 页面义务 | 与 hosted 页完全相同：不得自建画布或 GameObject，每帧读取 `Width` / `Height` / `BoundsInPixels`，把输入区域交给宿主。 |
+| 过小尺寸 | 宿主不裁剪也不阻止页面按自己的尺寸画；页面拿到的始终是它请求的尺寸（用户不能缩放），所以按**固定底栏**布局的页面不会自己叠在一起。屏幕小于页面请求时窗口按屏幕夹取，此时页面拿到的是夹取后的尺寸。 |
+
+诊断：窗口每次开关、移动结束、复位与绘制控件集合变化都会写一行 `[tool-window] <windowId> …`，包括 `placement=x,y WxH`，因此"窗口跑到哪去了"可以从日志直接核对。窗口页自己写什么同样要能从日志核对：层摘要行由 `[layer] <资源键> ← <归属窗口> · …` 记一次（见 `docs/44` §6），因此"某个窗口报的段数/时长对不对"不需要看屏幕。
+
+以上能力在当前工作区已实现，尚未随任何对外发布版本号交付；`Rukari.Lib` 的版本号与程序集版本未因此变更。
+
+依据：[ToolWindowContracts](../src/Rukari.Lib/Tools/ToolWindowContracts.cs)、[ToolWindowLayout](../src/Rukari.Lib/Tools/ToolWindowLayout.cs)、[ToolWindowInteraction](../src/Rukari.Lib/Tools/ToolWindowInteraction.cs)（上面这些指针规则就是它的实现与测试）、[ToolWindowStack](../src/Rukari.Lib/Tools/ToolWindowStack.cs)、[ToolPanelWindow](../src/Rukari.Lib.Runtime/Tools/ToolPanelWindow.cs)、[注册与层级接线](../src/Rukari.Lib.Runtime/Tools/ToolsHost.cs)。
+
 ## 6. 共享输入与关闭帧处理
 
 `IToolInputService.RegisterRegion(ownerId, regionId)` 返回输入区域 lease。`Update` 复制物理屏幕矩形；空集合释放区域，`captureAllPointer=true` 用于拖动期间持续占有鼠标，结束后必须恢复。当前上限为64个区域，每次更新最多128个矩形。

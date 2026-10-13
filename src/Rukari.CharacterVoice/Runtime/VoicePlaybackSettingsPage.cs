@@ -72,7 +72,7 @@ internal sealed class VoicePlaybackSettingsPage : IToolPanelContent, IToolPanelS
         surface.Status("voice-volume.note", "50% 保持原音量，100% 最多增强至 2 倍；0% 静音。\n实际响度仍受游戏音量设置与音频本身影响。\n首次调整先检查音源，从后续一段配音起生效。", Band(70f));
         Band(18f);
         surface.Text("voice-delay.title", $"语音结束后额外等待：{_seconds:0.0} 秒", Band(34f), size: 20);
-        surface.Status("voice-delay.scope", "所有由本 Mod 绑定的语音共用，默认 0 秒。", Band(28f));
+        surface.Status("voice-delay.scope", "仅用于 AUTO；所有配音共用，默认 0 秒。", Band(28f));
         ToolInputRect slider = Band(48f);
         float left = slider.X + 12f;
         float width = Math.Max(1f, slider.Width - 24f);
@@ -99,7 +99,7 @@ internal sealed class VoicePlaybackSettingsPage : IToolPanelContent, IToolPanelS
         if (surface.Button("voice-delay.zero", "恢复 0 秒", surface.Cell(buttons, 1, 3), _seconds > 0)) Set(0);
         if (surface.Button("voice-delay.more", "+ 0.1 秒", surface.Cell(buttons, 2, 3), _seconds < VoicePlaybackDelayPolicy.MaximumSeconds)) Set(_seconds + 0.1f);
         Band(10f);
-        surface.Status("voice-delay.note", "音频末尾的静音也算播放时间；已有留白可设为 0。\n游戏原有的 AUTO 等待仍由游戏设置控制。", Band(48f));
+        surface.Status("voice-delay.note", "左键或 Enter 可跳过配音及额外等待。\n音频已有末尾留白可设为 0；官方 AUTO 等待照常。", Band(48f));
         surface.Status("voice-delay.saved", _status, Band(32f));
     }
 

@@ -1,9 +1,12 @@
+extern alias unitycore;
+
 using System.Diagnostics;
 using System.Reflection;
 using Rukari.CharacterVoice.Core;
 using BepInEx.Configuration;
 using FlatData;
 using HarmonyLib;
+using KeyCode = unitycore::UnityEngine.KeyCode;
 
 namespace Rukari.CharacterVoice.Runtime;
 
@@ -71,13 +74,13 @@ internal static class VoicePlaybackRuntime
     {
         if (_installed) return true;
         if (!config.Bind("Voice", "Enabled", true,
-                "Enable owned voice directives and wait for their audio. Restart required.").Value) return false;
+                "Enable owned voice directives and wait for their audio during AUTO only. Manual input may skip. Restart required.").Value) return false;
         _mainThreadId = Environment.CurrentManagedThreadId;
         _volumePercent = config.Bind("Voice", "VolumePercent", VoicePlaybackVolumePolicy.DefaultPercent,
             new ConfigDescription("Strength of imported Mod voice playback in this profile: 0% mute, 50% unchanged, 100% up to 2x the current official voice source level (clamped to the source limit). The first non-default request on each source observes volume without writing; a later different request may apply it. An in-flight request retains its setting; an existing zero baseline stays zero. Native getter, write and restoration each require validation.",
                 new AcceptableValueRange<float>(0f, VoicePlaybackVolumePolicy.MaximumPercent)));
         _postPlaybackDelay = config.Bind("Voice", "PostPlaybackDelaySeconds", 0f,
-            new ConfigDescription("Extra wait after an owned voice finishes, including its trailing silence. Shared by all Mod voice bindings in this profile; applies from the next playback. Official AUTO timing is unchanged.",
+            new ConfigDescription("AUTO-only extra wait after an owned voice finishes, including its trailing silence. Manual left click or Enter may skip playback and this wait. Shared by all Mod voice bindings in this profile; applies from the next playback. Official AUTO timing is unchanged.",
                 new AcceptableValueRange<float>(0f, VoicePlaybackDelayPolicy.MaximumSeconds)));
         _loadingTimeout = config.Bind("Voice", "LoadingTimeoutSeconds", 10f,
             new ConfigDescription("Release the dialogue wait when an owned voice cannot finish loading.",
@@ -130,7 +133,7 @@ internal static class VoicePlaybackRuntime
             // session, all on Clear. A player clear is instead covered by the bounded wait: every phase now
             // releases on its own deadline, so a stuck gate can no longer block dialogue advance.
             _installed = true;
-            Plugin.Logger.LogInfo($"Voice playback candidate installed; scope=aavt/voice/; setVoice-uses-native-started-callback={_usesNativeStartedCallback}; legacy-replay-bound={_legacySetVoice is not null}; callback wrapper is not read or retained; shared native preload admission/cache/source; bounded loading/manual/playback gate; caller-tick-fuse=true; Clear left unpatched; lifetimePending=true.");
+            Plugin.Logger.LogInfo($"Voice playback candidate installed; scope=aavt/voice/; setVoice-uses-native-started-callback={_usesNativeStartedCallback}; legacy-replay-bound={_legacySetVoice is not null}; callback wrapper is not read or retained; shared native preload admission/cache/source; bounded AUTO-only loading/playback gate; manual-click-or-enter=pass-through; caller-tick-fuse=true; Clear left unpatched; lifetimePending=true.");
             return true;
         }
         catch (Exception ex)
@@ -315,7 +318,7 @@ internal static class VoicePlaybackRuntime
             {
                 ObserveOwnedPlayback(ReadNativePlaying(audio));
             }
-            ReportOnce("playback-start", "Owned voice native cached-play callback reached; automatic and ordinary-click waits active; lifetimePending=true.");
+            ReportOnce("playback-start", "Owned voice native cached-play callback reached; AUTO wait active; manual input may skip; lifetimePending=true.");
         }
         catch (Exception ex)
         {
@@ -341,7 +344,14 @@ internal static class VoicePlaybackRuntime
         }
     }
 
-    public static bool TouchPrefix() => !ShouldBlockAdvance(false);
+    public static bool TouchPrefix(bool __runOriginal)
+    {
+        // This is the player's actual dialogue touch callback, not a global
+        // mouse poll. Settings, AUTO toggles and unrelated UI clicks do not
+        // release the request. Leave text reveal/advance decisions to AA.
+        if (__runOriginal) ReleaseManualWait("manual-dialogue-touch");
+        return true;
+    }
 
     public static bool AdvancePrefix(bool preview)
     {
@@ -498,6 +508,17 @@ internal static class VoicePlaybackRuntime
                 if (resetPreview) ResetOnMainThread("editor-preview-advance");
                 return false;
             }
+            bool autoEnabled = Test.Instance.IsAutoEnabled;
+            // Some AA input routes reach AdvanceScenario without going through
+            // OnTouchAreaClicked. Inspect Enter only at an actual advance,
+            // including while AUTO is enabled; never advance from our own Update.
+            bool manualInput = UnityEngine.Input.GetKeyDown(KeyCode.Return)
+                || UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter);
+            if (!autoEnabled || manualInput)
+            {
+                ReleaseManualWait(manualInput ? "manual-enter-advance" : "manual-mode-advance");
+                return false;
+            }
             // The native coroutine can observe audio completion before our next Update.
             // Refresh here so its single AdvanceScenario call is never swallowed by
             // yesterday's Playing state with no coroutine left to retry it.
@@ -512,13 +533,34 @@ internal static class VoicePlaybackRuntime
                 ObserveOwnedPlayback(ReadNativePlaying(audio));
             }
             else if (Gate.Phase == VoicePlaybackPhase.PostPlaybackDelay) ObserveOwnedPlayback(false);
-            return Gate.BlocksAdvance(false, false);
+            return Gate.BlocksAdvance(false, false, autoEnabled, manualInput);
         }
         catch (Exception ex)
         {
             ResetOnMainThread("advance-context-error");
             ReportFailure("advance", ex);
             return false;
+        }
+    }
+
+    private static void ReleaseManualWait(string reason)
+    {
+        if (!IsMainThread() || !Gate.Active) return;
+        try
+        {
+            // An already-started clip can precede our first polling frame. Use
+            // the existing observation boundary before releasing its ownership.
+            if (IsOwnerCurrent(out _) && Gate.Phase is VoicePlaybackPhase.Starting or VoicePlaybackPhase.Playing)
+            {
+                AudioManager audio = AudioManager.Instance;
+                if (!ReferenceEquals(audio, null)) ObserveOwnedPlayback(ReadNativePlaying(audio));
+            }
+        }
+        catch (Exception ex) { ReportFailure("manual-skip-observation", ex); }
+        finally
+        {
+            ResetOnMainThread(reason);
+            ReportOnce("manual-skip", "Owned voice wait released by manual input; AUTO voice timing remains enabled; previous observed audio cleanup requested; native text reveal/advance unchanged; native cold-load late-start acceptance pending.");
         }
     }
 

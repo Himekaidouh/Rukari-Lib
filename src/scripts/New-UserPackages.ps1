@@ -3,6 +3,7 @@
 param(
     [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$OutputDirectory,
     [ValidateSet('Candidate','Stable')][string]$ReleaseChannel = 'Candidate',
+    [ValidatePattern('^AA[0-9]+(?:\.[0-9]+)*(?:-[A-Za-z0-9]+)?$')][string]$GameLabel = 'AA1.0',
     [string]$UserAcceptancePath
 )
 
@@ -112,8 +113,8 @@ foreach ($definition in $definitions) {
         [pscustomobject]@{Path=(Join-Path $stage $_.Path);Entry=$_.Path;SHA256=$_.SHA256}
     })
     $inputs += [pscustomobject]@{Path=$guide;Entry='安装说明.txt';SHA256=(Hash $guide)}
-    $zipSuffix = if ($ReleaseChannel -eq 'Stable') { '-AA1.0.zip' }
-        else { '-AA1.0-candidate-' + (Get-Date -Format 'yyyyMMdd') + '.zip' }
+    $zipSuffix = if ($ReleaseChannel -eq 'Stable') { '-' + $GameLabel + '.zip' }
+        else { '-' + $GameLabel + '-candidate-' + (Get-Date -Format 'yyyyMMdd') + '.zip' }
     $zipName = $definition.Name + '-' + $package.Version + $zipSuffix
     $zipPath = Join-Path $auditRoot $zipName
     $stream = [IO.File]::Open($zipPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
@@ -164,7 +165,7 @@ foreach ($archive in $archives) {
 }
 New-Json (Join-Path $auditRoot 'user-package-receipt.json') ([ordered]@{
     SchemaVersion=2;PackagedAt=(Get-Date -Format o);OutputDirectory=$outputRoot;PackageReceiptSHA256=$receiptHash
-    Packages=@($archives.ToArray());Target='AA 1.0 fix6';Status=$ReleaseChannel.ToLowerInvariant();Compilation=$receipt.Compilation
+    Packages=@($archives.ToArray());Target=$GameLabel;GameRoot=$receipt.GameRoot;Status=$ReleaseChannel.ToLowerInvariant();Compilation=$receipt.Compilation
     ManagedTests=$receipt.ManagedTests;Native='not-run';UserAcceptanceEvidence=$acceptanceReference
     GameStarted=$false;Installed=$false;GitHubReleasePublished=$false
 })

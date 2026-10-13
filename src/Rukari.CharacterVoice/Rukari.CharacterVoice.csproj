@@ -3,7 +3,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>Rukari.CharacterVoice</AssemblyName>
     <RootNamespace>Rukari.CharacterVoice</RootNamespace>
-    <Version>1.6.7</Version>
+    <Version>1.6.8</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
@@ -26,5 +26,6 @@
     <Reference Include="UnityEngine" HintPath="$(AzureArchiveInterop)\UnityEngine.dll" Private="false" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(AzureArchiveInterop)\UnityEngine.CoreModule.dll" Private="false" Aliases="unitycore" />
     <Reference Include="UnityEngine.AudioModule" HintPath="$(AzureArchiveInterop)\UnityEngine.AudioModule.dll" Private="false" />
+    <Reference Include="UnityEngine.InputLegacyModule" HintPath="$(AzureArchiveInterop)\UnityEngine.InputLegacyModule.dll" Private="false" />
   </ItemGroup>
 </Project>

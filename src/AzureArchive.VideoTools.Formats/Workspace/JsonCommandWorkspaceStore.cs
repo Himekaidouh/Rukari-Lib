@@ -1144,7 +1144,7 @@ public sealed class JsonCommandWorkspaceStore : ICommandWorkspaceStore
                 || batch.PlaybackRecordIndex <= previousRecordIndex
                 || !IsSha256(batch.PlaybackRecordFingerprint)
                 || !IsSha256(batch.CompiledScript.Sha256)
-                || batch.CompiledScript.Utf16Length <= 0
+                || batch.CompiledScript.Utf16Length < 0
                 || batch.CompiledScript.LineCount < 1)
             {
                 return Result.Fail(

@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using AzureArchive.VideoTools.Core.Projects;
 using AzureArchive.VideoTools.Core.Results;
+using AzureArchive.VideoTools.Core.Mapping;
+using AzureArchive.VideoTools.Formats.Sidecar;
 
 namespace AzureArchive.VideoTools.Formats.Aap;
 
@@ -45,6 +47,16 @@ public sealed class AapProjectReader : IProjectReader
         try
         {
             string fullPath = Path.GetFullPath(path);
+            OfficialAapCompatibilityBinding? selectedProjection = null;
+            if (OfficialAapCompatibilityProjection.IsNativePath(fullPath))
+            {
+                var compatible = OfficialAapCompatibilityProjection.Resolve(fullPath,
+                    _options.MaxFileSizeBytes, _options.MaxJsonDepth);
+                if (!compatible.Success || compatible.Value == null)
+                    return Result<ProjectSnapshot>.Fail(compatible.Error);
+                selectedProjection = compatible.Value;
+                fullPath = selectedProjection.ProjectPath;
+            }
             if (!File.Exists(fullPath))
             {
                 return Result<ProjectSnapshot>.Fail($"AAP file does not exist: {fullPath}");
@@ -71,7 +83,34 @@ public sealed class AapProjectReader : IProjectReader
                 return Result<ProjectSnapshot>.Fail("AAP root must be a JSON object.");
             }
 
-            return ParseProject(fullPath, file, document.RootElement);
+            var projection = OfficialAapCompatibilityProjection.ValidateRead(fullPath,
+                document.RootElement, file.Bytes, maximumBytes: _options.MaxFileSizeBytes,
+                maximumJsonDepth: _options.MaxJsonDepth);
+            if (!projection.Success || projection.Value == null)
+                return Result<ProjectSnapshot>.Fail(projection.Error);
+            if (selectedProjection != null
+                && (!selectedProjection.ProjectionRevisionSha256.Equals(projection.Value.ProjectionRevisionSha256,
+                        StringComparison.OrdinalIgnoreCase)
+                    || !selectedProjection.NativeRevisionSha256.Equals(projection.Value.NativeRevisionSha256,
+                        StringComparison.OrdinalIgnoreCase)))
+                return Result<ProjectSnapshot>.Fail("reason=aap2-projection-changed-during-read");
+
+            Result<ProjectSnapshot> parsed = ParseProject(fullPath, file, document.RootElement);
+            Result stillCurrent = OfficialAapCompatibilityProjection.VerifyStillCurrent(projection.Value,
+                _options.MaxFileSizeBytes);
+            if (!stillCurrent.Success) return Result<ProjectSnapshot>.Fail(stillCurrent.Error);
+            if (!parsed.Success || parsed.Value == null
+                || !Path.GetExtension(fullPath).Equals(".aap", StringComparison.OrdinalIgnoreCase)
+                || !File.Exists(JsonCompilationMappingEvidenceStore.GetPath(fullPath)))
+                return parsed;
+            Result<CompilationMappingEvidence> mapping = new JsonCompilationMappingEvidenceStore().Read(fullPath);
+            return mapping.Success && mapping.Value != null
+                ? Result<ProjectSnapshot>.Ok(parsed.Value with { CompilationMapping = mapping.Value })
+                : Result<ProjectSnapshot>.Ok(parsed.Value with
+                {
+                    Diagnostics = parsed.Value.Diagnostics.Append(new ProjectDiagnostic(
+                        ProjectDiagnosticSeverity.Warning, "CompilerMappingEvidenceUnreadable", mapping.Error)).ToArray()
+                });
         }
         catch (JsonException ex)
         {

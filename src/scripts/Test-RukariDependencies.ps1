@@ -8,6 +8,7 @@ param(
 # Read metadata only. Do not load plugin assemblies or initialize their IL2CPP types.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'PackagingReadRetry.ps1')
 $core = Join-Path $GameRoot 'BepInEx\core'
 foreach ($dll in @('Mono.Cecil.dll','SemanticVersioning.dll','BepInEx.Core.dll')) {
     [void][Reflection.Assembly]::LoadFrom((Join-Path $core $dll))
@@ -54,7 +55,7 @@ foreach ($definition in $definitions) {
         $dllPath = Join-Path $repo ($definition.Project + "\bin\$Configuration\" + $definition.Project + '.dll')
         $manifest = Get-Content -LiteralPath (Join-Path $repo ($definition.Project + '\package\manifest.json')) -Raw | ConvertFrom-Json
     }
-    $assembly = [Mono.Cecil.AssemblyDefinition]::ReadAssembly($dllPath)
+    $assembly = Invoke-PackagingReadWithRetry { [Mono.Cecil.AssemblyDefinition]::ReadAssembly($dllPath) }
     try {
         $attributes = @($assembly.MainModule.Types | ForEach-Object CustomAttributes)
         $plugin = @($attributes | Where-Object { $_.AttributeType.FullName -eq 'BepInEx.BepInPlugin' })
@@ -104,7 +105,7 @@ foreach ($definition in $definitions) {
         }
         $records += [ordered]@{ Name=$definition.Name; PluginGuid=$guid; PluginVersion=$version;
             DllRequirement=$requirement; SelectedLib=$libVersion; Satisfied=$satisfied;
-            DLL=$dllPath; SHA256=(Get-FileHash -LiteralPath $dllPath).Hash }
+            DLL=$dllPath; SHA256=(Invoke-PackagingReadWithRetry { (Get-FileHash -LiteralPath $dllPath).Hash }) }
     } finally { $assembly.Dispose() }
 }
 $report = [ordered]@{ LoaderCoreSHA256=(Get-FileHash (Join-Path $core 'BepInEx.Core.dll')).Hash;
