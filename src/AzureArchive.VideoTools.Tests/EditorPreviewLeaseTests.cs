@@ -215,6 +215,41 @@ internal static class EditorPreviewLeaseTests
             staleWindow.Error);
     }
 
+    public static void SameSlotSegmentsKeepAuthoredOrderAndOneFootprintEntry()
+    {
+        EditorPreviewSelectionBinding selection = Selection(1, 2, 3, "same slot segments");
+        var authorized = Authorize(
+            selection,
+            new[]
+            {
+                "#char;3;move;dx=100;duration=600;easing=linear",
+                "#char;3;move;dy=50;duration=600;easing=linear"
+            },
+            tombstone: false);
+        AssertEx.True(authorized.Success, authorized.Error);
+        EditorPreviewLeaseAuthorization lease = AssertEx.NotNull(authorized.Value);
+        AssertEx.Equal(2, lease.Commands.Count);
+        AssertEx.Equal(0, lease.Commands[0].Order);
+        AssertEx.Equal(1, lease.Commands[1].Order);
+        AssertEx.Equal(
+            "#char;3;move;dx=100;duration=600;easing=linear",
+            lease.Commands[0].CanonicalDirective);
+        AssertEx.Equal(
+            "#char;3;move;dy=50;duration=600;easing=linear",
+            lease.Commands[1].CanonicalDirective);
+        AssertEx.Equal(lease.Commands[0].Resource, lease.Commands[1].Resource);
+        AssertEx.True(lease.Commands.All(command => command.DispatchImmediately));
+        // The footprint is the resource-level snapshot the cleanup planner keys by resource:
+        // one entry, unioned fields, and the immediate mode preserved.
+        AssertEx.Equal(1, lease.Footprint.Entries.Count);
+        AssertEx.Equal(
+            EditorPreviewResourceFields.CharacterPositionX | EditorPreviewResourceFields.CharacterPositionY,
+            lease.Footprint.Entries[0].Fields);
+        AssertEx.Equal(
+            EditorPreviewDispatchMode.Immediate,
+            lease.Footprint.Entries[0].DispatchMode);
+    }
+
     public static void EnforcesCanonicalSixResourceLimitAndExplicitTombstones()
     {
         EditorPreviewSelectionBinding selection = Selection(1, 2, 3, "six resources");
@@ -232,6 +267,10 @@ internal static class EditorPreviewLeaseTests
         AssertEx.True(valid.Success, valid.Error);
         AssertEx.Equal(6, AssertEx.NotNull(valid.Value).Commands.Count);
 
+        // 2026-10-13 contract change (docs/38 §9.3/§9.4): two directives on one resource
+        // are legal in the preview lease now, exactly as they are in playback authoring.
+        // They keep their authored order, and the footprint stays resource-unique because
+        // it is the resource-level snapshot the cleanup planner keys by resource.
         var duplicateSlot = Authorize(
             selection,
             new[]
@@ -240,7 +279,24 @@ internal static class EditorPreviewLeaseTests
                 "#charp;2;set;y=2"
             },
             tombstone: false);
-        AssertEx.False(duplicateSlot.Success);
+        AssertEx.True(duplicateSlot.Success, duplicateSlot.Error);
+        AssertEx.Equal(2, AssertEx.NotNull(duplicateSlot.Value).Commands.Count);
+        AssertEx.Equal(
+            "#char;2;set;x=1;duration=0;easing=linear",
+            duplicateSlot.Value!.Commands[0].CanonicalDirective);
+        AssertEx.Equal("#charp;2;set;y=2", duplicateSlot.Value.Commands[1].CanonicalDirective);
+        AssertEx.Equal(
+            duplicateSlot.Value.Commands[0].Resource,
+            duplicateSlot.Value.Commands[1].Resource);
+        AssertEx.Equal(1, duplicateSlot.Value.Footprint.Entries.Count);
+        // The immediate directive wins the mode, because the runtime only restores
+        // resources it applied immediately.
+        AssertEx.Equal(
+            EditorPreviewDispatchMode.Immediate,
+            duplicateSlot.Value.Footprint.Entries[0].DispatchMode);
+        AssertEx.Equal(
+            EditorPreviewResourceFields.CharacterPositionX | EditorPreviewResourceFields.CharacterPositionY,
+            duplicateSlot.Value.Footprint.Entries[0].Fields);
 
         var nonCanonical = Authorize(
             selection,
@@ -267,6 +323,62 @@ internal static class EditorPreviewLeaseTests
             selection,
             new[] { "#char;1;set;x=1;duration=0;easing=linear" },
             tombstone: true).Success);
+    }
+
+    /// <summary>
+    /// The camera's budget is about scopes, not about segments: a camera layer may hold several effects, and the
+    /// preview lease refusing that row is how a stacked camera came back as nothing at all (2026-10-13).
+    /// </summary>
+    public static void TheCameraBudgetCountsScopesAndNotSegments()
+    {
+        EditorPreviewSelectionBinding selection = Selection(1, 2, 3, "camera segments");
+        // The three segments a real session tried to stack, verbatim.
+        string[] stacked =
+        {
+            "#camera;set;x=26.96521;y=-53.930298;zoom=1.456;duration=600;easing=easeInOut",
+            "#camera;set;x=0;y=0;zoom=1.435;duration=600;easing=easeInOut",
+            "#camera;set;x=788.7306;y=417.95984;zoom=2.182;duration=600;easing=easeInOut"
+        };
+
+        Result<EditorPreviewLeaseAuthorization> authorized = Authorize(selection, stacked, tombstone: false);
+
+        AssertEx.True(authorized.Success, authorized.Error);
+        EditorPreviewLeaseAuthorization lease = AssertEx.NotNull(authorized.Value);
+        AssertEx.Equal(3, lease.Commands.Count, "All three segments are leased, in authored order.");
+        AssertEx.Equal(stacked[0], lease.Commands[0].CanonicalDirective);
+        AssertEx.Equal(stacked[2], lease.Commands[2].CanonicalDirective);
+        AssertEx.Equal(1, lease.Footprint.Entries.Count,
+            "Three segments of one scope are one resource, so the footprint stays resource-unique.");
+
+        // Two scopes at once, several segments each: still two resources, still one entry per scope.
+        var both = Authorize(
+            selection,
+            new[]
+            {
+                stacked[0],
+                "#camera;set;scope=background;zoom=1.5;duration=250;easing=easeOut",
+                stacked[1],
+                "#camera;set;scope=background;zoom=1.2;duration=250;easing=easeOut"
+            },
+            tombstone: false);
+        AssertEx.True(both.Success, both.Error);
+        AssertEx.Equal(4, AssertEx.NotNull(both.Value).Commands.Count);
+        AssertEx.Equal(2, both.Value!.Footprint.Entries.Count, "One entry per scope, not per segment.");
+
+        // The scene budget is unchanged and still bounds the row, however many segments one scope holds.
+        AssertEx.False(Authorize(
+            selection,
+            Enumerable.Range(0, EmbeddedAavtDirectiveExtractor.MaxCommandsPerScene + 1)
+                .Select(index => $"#camera;set;x={index};duration=0;easing=linear")
+                .ToArray(),
+            tombstone: false).Success);
+        AssertEx.True(Authorize(
+            selection,
+            Enumerable.Range(0, EmbeddedAavtDirectiveExtractor.MaxCommandsPerScene)
+                .Select(index => $"#camera;set;x={index};duration=0;easing=linear")
+                .ToArray(),
+            tombstone: false).Success,
+            "One row of camera segments up to the scene budget is a legal stack.");
     }
 
     public static void PlansFieldAndWholeCommandCleanupFromResourceUnion()

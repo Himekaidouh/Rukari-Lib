@@ -1,4 +1,5 @@
 using System.Globalization;
+using AzureArchive.VideoTools.Core.Commands;
 using AzureArchive.VideoTools.Core.Results;
 
 namespace AzureArchive.VideoTools.Core.Characters;
@@ -40,6 +41,7 @@ public sealed class CharacterPresetDirectiveParser : ICharacterPresetDirectivePa
         }
 
         CharacterPresetCommand command = Defaults(publicSlot, kind.Value);
+        SlotActionPlacement placement = SlotActionPlacement.None;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (int index = 3; index < parts.Length; index++)
         {
@@ -62,7 +64,17 @@ public sealed class CharacterPresetDirectiveParser : ICharacterPresetDirectivePa
                 return Result<CharacterPresetCommand>.Fail($"Property '{key}' is not valid for {kind.Value}.");
             }
 
-            if (key == "bezier")
+            if (key is "at" or "interrupt")
+            {
+                Result<SlotActionPlacement> applied = SlotActionPlacementParser.Apply(placement, key, value);
+                if (!applied.Success || applied.Value == null)
+                {
+                    return Result<CharacterPresetCommand>.Fail(applied.Error);
+                }
+
+                placement = applied.Value;
+            }
+            else if (key == "bezier")
             {
                 string[] coordinates = value.Split(',');
                 if (coordinates.Length != 4
@@ -132,9 +144,10 @@ public sealed class CharacterPresetDirectiveParser : ICharacterPresetDirectivePa
             }
         }
 
-        Result validation = CharacterPresetCommandValidator.Validate(command);
+        CharacterPresetCommand placed = command with { Placement = placement };
+        Result validation = CharacterPresetCommandValidator.Validate(placed);
         return validation.Success
-            ? Result<CharacterPresetCommand>.Ok(command)
+            ? Result<CharacterPresetCommand>.Ok(placed)
             : Result<CharacterPresetCommand>.Fail(validation.Error);
     }
 
@@ -143,6 +156,7 @@ public sealed class CharacterPresetDirectiveParser : ICharacterPresetDirectivePa
             && float.IsFinite(value) && value is >= 0f and <= 1f;
 
     private static bool IsAllowed(CharacterPresetKind kind, string key) => key == "bezier"
+        || SlotActionPlacementParser.IsPlacementKey(key)
         || (key == "axis" && kind == CharacterPresetKind.Spin)
         || (kind == CharacterPresetKind.Headbutt
             ? key is "back" or "forward" or "duration" or "direction"

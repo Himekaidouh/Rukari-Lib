@@ -69,6 +69,10 @@ public sealed class CharacterPresetCommandFamilyCompiler : ICommandFamilyCompile
             parts.Add($"bezier={bezier.ToDirectiveValue()}");
         }
 
+        // Presets have no easing= token, so the placement parameters close the
+        // canonical text. Nothing is emitted when the author wrote neither.
+        SlotActionPlacementParser.AppendCanonical(parts, command.Placement);
+
         return Result<CanonicalTimelineCommand>.Ok(new CanonicalTimelineCommand(
             CommandTypeId, CapabilityId, string.Join(';', parts), command.PublicSlot));
     }

@@ -53,13 +53,57 @@ public sealed record EditorCommandVoiceEdit(
     bool ReplacedExisting,
     bool AlreadyPresent);
 
+/// <summary>
+/// The result of replacing one whole resource layer: the layer's lines are now the given ones, in the given order,
+/// and every other line of the document is untouched (2026-10-13).
+///
+/// <para>
+/// This is a record of its own rather than an <see cref="EditorCommandEditPreview"/> because that one carries a
+/// single directive and a single slot. A layer may hold several effects, and the window that wrote them has to be
+/// able to see exactly what it now holds.
+/// </para>
+/// </summary>
+public sealed record EditorCommandLayerEdit(
+    string ExpectedRevisionSha256,
+    string ResultRevisionSha256,
+    string UpdatedText,
+    string ResourceKey,
+    IReadOnlyList<string> CanonicalPublicDirectives,
+    bool ReplacedExisting);
+
 public sealed class EditorCommandDocumentComposer
 {
     private readonly EmbeddedAavtDirectiveExtractor _extractor = new();
 
+    /// <summary>
+    /// The document as a one-command-per-resource editor sees it: a text that declares two directives for one
+    /// resource is refused. Every writer that replaces or removes a single resource line goes through this rule.
+    /// </summary>
     public Result<EditorCommandDocument> Read(
         string text,
-        bool acceptLegacyCharAlias = true)
+        bool acceptLegacyCharAlias = true) =>
+        ReadDocument(text, acceptLegacyCharAlias, allowMultipleResourcesPerResource: false);
+
+    /// <summary>
+    /// The same document read for display, and for edits that do not touch resource directives (2026-10-13).
+    ///
+    /// <para>
+    /// A resource with several directives is an ordinary row now — the overlay model's whole point is that a window
+    /// stacks effects inside its own layer — so a reader that refuses such a row cannot be the one a page uses to
+    /// show the author what is on the line. The strict <see cref="Read"/> keeps its guarantee for the writers that
+    /// still edit one command per resource; a writer that would have to choose between two lines of the resource it
+    /// is writing refuses them explicitly instead of picking one.
+    /// </para>
+    /// </summary>
+    public Result<EditorCommandDocument> ReadAllowingMultipleResources(
+        string text,
+        bool acceptLegacyCharAlias = true) =>
+        ReadDocument(text, acceptLegacyCharAlias, allowMultipleResourcesPerResource: true);
+
+    private Result<EditorCommandDocument> ReadDocument(
+        string text,
+        bool acceptLegacyCharAlias,
+        bool allowMultipleResourcesPerResource)
     {
         ArgumentNullException.ThrowIfNull(text);
 
@@ -71,6 +115,24 @@ public sealed class EditorCommandDocumentComposer
             return Result<EditorCommandDocument>.Fail(
                 "Existing additional-prompt document contains invalid AAVT directives: "
                 + string.Join(" | ", extracted.Errors));
+        }
+
+        // The extractor accepts several directives for one slot, because playback queues them in authored order and
+        // the layer editors write them on purpose. This document model stays one-command-per-resource for the writers
+        // that address a resource by key: two commands for one key would make "replace" and "remove" ambiguous, and
+        // they say so rather than silently changing only the first line.
+        if (!allowMultipleResourcesPerResource)
+        {
+            var documentKeys = new HashSet<string>(StringComparer.Ordinal);
+            foreach (EmbeddedAavtCommand command in extracted.Commands)
+            {
+                if (!documentKeys.Add(CommandResourceIdentity.KeyFor(command)))
+                {
+                    return Result<EditorCommandDocument>.Fail(
+                        $"Existing additional-prompt document declares more than one directive for "
+                        + $"public slot {command.PublicSlot}; the visual editor edits one command per resource.");
+                }
+            }
         }
 
         Result<IReadOnlyList<ScreenTextLine>> screenText =
@@ -102,9 +164,10 @@ public sealed class EditorCommandDocumentComposer
         ArgumentNullException.ThrowIfNull(expectedRevisionSha256);
         ArgumentNullException.ThrowIfNull(directive);
 
-        Result<EditorCommandDocument> current = Read(
+        Result<EditorCommandDocument> current = ReadDocument(
             sourceText,
-            acceptLegacyCharAlias);
+            acceptLegacyCharAlias,
+            allowMultipleResourcesPerResource: true);
         if (!current.Success || current.Value == null)
         {
             return Result<EditorCommandEditPreview>.Fail(current.Error);
@@ -143,14 +206,29 @@ public sealed class EditorCommandDocumentComposer
         }
 
         EmbeddedAavtCommand command = candidate.Commands[0];
+        string resourceKey = CommandResourceIdentity.KeyFor(command);
+        // The one rule this writer keeps: it replaces the one line of the resource it names. A layer that already
+        // holds several effects is written by its layer editor, and saying so is the only safe answer — replacing
+        // "the first one" would silently delete the rest of the author's stack (2026-10-13).
+        int existingLines = CountOfResource(current.Value.Commands, resourceKey);
+        if (existingLines > 1)
+        {
+            return Result<EditorCommandEditPreview>.Fail(
+                $"资源 {resourceKey} 在这一行里已经有 {existingLines} 段；"
+                + "一次一条指令的编辑器无法决定改哪一段，请在负责这一层的窗口里修改。");
+        }
+
         string canonicalPublicDirective = ToPublicDirective(command.CanonicalDirective);
         string updated = ReplaceOrAppend(
             sourceText,
             current.Value.Commands,
-            CommandResourceIdentity.KeyFor(command),
+            resourceKey,
             canonicalPublicDirective,
             out bool replacedExisting);
-        Result<EditorCommandDocument> verified = Read(updated, acceptLegacyCharAlias);
+        Result<EditorCommandDocument> verified = ReadDocument(
+            updated,
+            acceptLegacyCharAlias,
+            allowMultipleResourcesPerResource: true);
         if (!verified.Success || verified.Value == null)
         {
             return Result<EditorCommandEditPreview>.Fail(
@@ -191,7 +269,10 @@ public sealed class EditorCommandDocumentComposer
         EmbeddedAavtCommand? existing = _extractor.Extract(sourceText, acceptLegacyCharAlias)
             .Commands.FirstOrDefault(command => CommandResourceIdentity.KeyFor(command) == resourceKey);
         string updated = existing == null ? sourceText : RemoveLine(sourceText, existing.LineNumber);
-        Result<EditorCommandDocument> verified = Read(updated, acceptLegacyCharAlias);
+        Result<EditorCommandDocument> verified = ReadDocument(
+            updated,
+            acceptLegacyCharAlias,
+            allowMultipleResourcesPerResource: true);
         if (!verified.Success || verified.Value == null)
         {
             return Result<EditorCommandEditPreview>.Fail(
@@ -205,6 +286,238 @@ public sealed class EditorCommandDocumentComposer
             draft.CanonicalPublicDirective,
             target.PublicSlot,
             existing != null));
+    }
+
+    /// <summary>
+    /// Replaces every line of one resource layer with the given directives, in the given order; an empty list removes
+    /// the layer. Every other line of the document is left exactly as it was (2026-10-13).
+    ///
+    /// <para>
+    /// The overlay model needs this and nothing more. A window owns a layer and stacks effects inside it, so the
+    /// window writes its own resource and cannot reach another window's; the directives are therefore refused unless
+    /// they all belong to <paramref name="resourceKey"/>.
+    /// </para>
+    ///
+    /// <para>
+    /// It reads and verifies with the extractor rather than with <see cref="Read"/>: that document model refuses a
+    /// text which declares two directives for one resource, and a layer holding two effects is exactly the text this
+    /// method exists to produce. What <see cref="Read"/> gives elsewhere is enforced here by hand — invalid
+    /// documents are refused, the revision must match, every directive must be one supported resource line, and the
+    /// result is re-extracted and compared, in order, against both the layer that was asked for and the lines of
+    /// every other resource, so a merge that dropped or reordered somebody else's directive cannot be returned as a
+    /// success.
+    /// </para>
+    /// </summary>
+    public Result<EditorCommandLayerEdit> PreviewReplaceResource(
+        string sourceText,
+        string expectedRevisionSha256,
+        string resourceKey,
+        IReadOnlyList<string> directives,
+        bool acceptLegacyCharAlias = true)
+    {
+        ArgumentNullException.ThrowIfNull(sourceText);
+        ArgumentNullException.ThrowIfNull(expectedRevisionSha256);
+        ArgumentNullException.ThrowIfNull(resourceKey);
+        ArgumentNullException.ThrowIfNull(directives);
+
+        EmbeddedAavtExtraction current = _extractor.Extract(sourceText, acceptLegacyCharAlias);
+        if (current.Errors.Count != 0)
+        {
+            return Result<EditorCommandLayerEdit>.Fail(
+                "Existing additional-prompt document contains invalid AAVT directives: "
+                + string.Join(" | ", current.Errors));
+        }
+
+        string revision = Revision(sourceText);
+        if (!string.Equals(revision, expectedRevisionSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            return Result<EditorCommandLayerEdit>.Fail(
+                "Additional-prompt revision changed after the draft was created.");
+        }
+
+        var publicDirectives = new List<string>(directives.Count);
+        foreach (string directive in directives)
+        {
+            if (directive is null)
+                return Result<EditorCommandLayerEdit>.Fail("A layer directive cannot be null.");
+
+            string trimmed = directive.Trim();
+            if (trimmed.Length == 0 || trimmed.Contains('\r') || trimmed.Contains('\n'))
+            {
+                return Result<EditorCommandLayerEdit>.Fail(
+                    "A layer directive must be exactly one non-empty line.");
+            }
+
+            EmbeddedAavtExtraction candidate = _extractor.Extract(trimmed, acceptLegacyCharAlias);
+            if (candidate.Errors.Count != 0
+                || candidate.RemovedLineCount != 1
+                || candidate.Commands.Count != 1
+                || candidate.HasContinueDirective)
+            {
+                string detail = candidate.Errors.Count == 0
+                    ? "A layer directive must be exactly one supported AAVT resource directive."
+                    : string.Join(" | ", candidate.Errors);
+                return Result<EditorCommandLayerEdit>.Fail(detail);
+            }
+
+            EmbeddedAavtCommand command = candidate.Commands[0];
+            string key = CommandResourceIdentity.KeyFor(command);
+            if (!string.Equals(key, resourceKey, StringComparison.Ordinal))
+            {
+                // One layer, one writer: a window may not write an effect into somebody else's layer by accident.
+                return Result<EditorCommandLayerEdit>.Fail(
+                    $"Directive '{trimmed}' belongs to layer '{key}', not to '{resourceKey}'.");
+            }
+
+            publicDirectives.Add(ToPublicDirective(command.CanonicalDirective));
+        }
+
+        List<string> othersBefore = OtherLayersOf(current.Commands, resourceKey);
+        string updated = ReplaceLayerLines(
+            sourceText, current.Commands, resourceKey, publicDirectives, out bool replacedExisting);
+
+        EmbeddedAavtExtraction verified = _extractor.Extract(updated, acceptLegacyCharAlias);
+        if (verified.Errors.Count != 0)
+        {
+            return Result<EditorCommandLayerEdit>.Fail(
+                "Merged additional-prompt document did not validate: " + string.Join(" | ", verified.Errors));
+        }
+
+        List<string> written = LayerOf(verified.Commands, resourceKey);
+        if (!written.SequenceEqual(publicDirectives, StringComparer.Ordinal))
+        {
+            return Result<EditorCommandLayerEdit>.Fail(
+                "Merged additional-prompt document did not keep this layer's lines in order.");
+        }
+
+        if (!OtherLayersOf(verified.Commands, resourceKey).SequenceEqual(othersBefore, StringComparer.Ordinal))
+        {
+            return Result<EditorCommandLayerEdit>.Fail(
+                "Merged additional-prompt document changed another layer's lines.");
+        }
+
+        return Result<EditorCommandLayerEdit>.Ok(new EditorCommandLayerEdit(
+            revision,
+            Revision(updated),
+            updated,
+            resourceKey,
+            publicDirectives,
+            replacedExisting));
+    }
+
+    /// <summary>How many lines one resource already holds, for the refusal above and for a caller's own message.</summary>
+    public static int CountOfResource(IReadOnlyList<EmbeddedAavtCommand> commands, string resourceKey)
+    {
+        ArgumentNullException.ThrowIfNull(commands);
+        int count = 0;
+        foreach (EmbeddedAavtCommand command in commands)
+        {
+            if (string.Equals(CommandResourceIdentity.KeyFor(command), resourceKey, StringComparison.Ordinal))
+                count++;
+        }
+
+        return count;
+    }
+
+    /// <summary>The public form of one layer's directives, in authored order.</summary>
+    private static List<string> LayerOf(IReadOnlyList<EmbeddedAavtCommand> commands, string resourceKey)
+    {
+        var lines = new List<string>();
+        foreach (EmbeddedAavtCommand command in commands)
+        {
+            if (string.Equals(CommandResourceIdentity.KeyFor(command), resourceKey, StringComparison.Ordinal))
+                lines.Add(ToPublicDirective(command.CanonicalDirective));
+        }
+
+        return lines;
+    }
+
+    /// <summary>
+    /// Every other layer's directives, keyed by their resource, in authored order. Line numbers are deliberately not
+    /// part of it: writing a layer moves the lines below it, and a check that failed on that would fail every time.
+    /// </summary>
+    private static List<string> OtherLayersOf(IReadOnlyList<EmbeddedAavtCommand> commands, string resourceKey)
+    {
+        var lines = new List<string>();
+        foreach (EmbeddedAavtCommand command in commands)
+        {
+            string key = CommandResourceIdentity.KeyFor(command);
+            if (string.Equals(key, resourceKey, StringComparison.Ordinal)) continue;
+            lines.Add(key + " " + ToPublicDirective(command.CanonicalDirective));
+        }
+
+        return lines;
+    }
+
+    /// <summary>
+    /// Swaps the layer's lines for <paramref name="replacements"/> where the first of them stood, so the layer stays
+    /// together in the text and a reader sees the effects in the order they will play. Lines of other resources keep
+    /// their own bytes and their own line terminators.
+    /// </summary>
+    private static string ReplaceLayerLines(
+        string source,
+        IReadOnlyList<EmbeddedAavtCommand> existingCommands,
+        string resourceKey,
+        IReadOnlyList<string> replacements,
+        out bool replacedExisting)
+    {
+        var layerLines = new HashSet<int>();
+        foreach (EmbeddedAavtCommand command in existingCommands)
+        {
+            if (string.Equals(CommandResourceIdentity.KeyFor(command), resourceKey, StringComparison.Ordinal))
+                layerLines.Add(command.LineNumber);
+        }
+
+        replacedExisting = layerLines.Count != 0;
+        var output = new StringBuilder(source.Length + 64);
+        bool emitted = false;
+        int offset = 0;
+        int lineNumber = 1;
+        while (offset < source.Length)
+        {
+            int contentEnd = offset;
+            while (contentEnd < source.Length && source[contentEnd] != '\r' && source[contentEnd] != '\n')
+                contentEnd++;
+
+            int segmentEnd = contentEnd;
+            if (segmentEnd < source.Length && source[segmentEnd] == '\r') segmentEnd++;
+            if (segmentEnd < source.Length && source[segmentEnd] == '\n') segmentEnd++;
+
+            if (layerLines.Contains(lineNumber))
+            {
+                if (!emitted)
+                {
+                    emitted = true;
+                    for (int index = 0; index < replacements.Count; index++)
+                    {
+                        output.Append(replacements[index]);
+                        // The last replacement inherits the replaced line's own terminator; the ones before it get the
+                        // document's preferred newline, so a file that ended without one still ends without one.
+                        if (index == replacements.Count - 1)
+                            output.Append(source, contentEnd, segmentEnd - contentEnd);
+                        else
+                            output.Append(PreferredNewLine(source));
+                    }
+                }
+            }
+            else
+            {
+                output.Append(source, offset, segmentEnd - offset);
+            }
+
+            offset = segmentEnd;
+            lineNumber++;
+        }
+
+        if (replacedExisting) return output.ToString();
+        for (int index = 0; index < replacements.Count; index++)
+        {
+            if (output.Length != 0 && output[^1] != '\r' && output[^1] != '\n')
+                output.Append(PreferredNewLine(source));
+            output.Append(replacements[index]);
+        }
+
+        return output.ToString();
     }
 
     private static string RemoveLine(string source, int lineNumber)
@@ -244,7 +557,10 @@ public sealed class EditorCommandDocumentComposer
         ArgumentNullException.ThrowIfNull(sourceText);
         ArgumentNullException.ThrowIfNull(expectedRevisionSha256);
 
-        Result<EditorCommandDocument> current = Read(sourceText, acceptLegacyCharAlias);
+        Result<EditorCommandDocument> current = ReadDocument(
+            sourceText,
+            acceptLegacyCharAlias,
+            allowMultipleResourcesPerResource: true);
         if (!current.Success || current.Value == null)
         {
             return Result<EditorCommandVoiceEdit>.Fail(current.Error);
@@ -280,7 +596,10 @@ public sealed class EditorCommandDocumentComposer
         }
 
         string updated = ReplaceOrRemoveVoice(sourceText, replacement, out bool replacedExisting);
-        Result<EditorCommandDocument> verified = Read(updated, acceptLegacyCharAlias);
+        Result<EditorCommandDocument> verified = ReadDocument(
+            updated,
+            acceptLegacyCharAlias,
+            allowMultipleResourcesPerResource: true);
         if (!verified.Success || verified.Value == null)
         {
             return Result<EditorCommandVoiceEdit>.Fail(
@@ -317,9 +636,10 @@ public sealed class EditorCommandDocumentComposer
         ScreenTextDirective? directive,
         bool acceptLegacyCharAlias = true)
     {
-        Result<EditorCommandDocument> current = Read(
+        Result<EditorCommandDocument> current = ReadDocument(
             sourceText,
-            acceptLegacyCharAlias);
+            acceptLegacyCharAlias,
+            allowMultipleResourcesPerResource: true);
         if (!current.Success || current.Value == null)
         {
             return Result<EditorCommandScreenTextEdit>.Fail(current.Error);
@@ -357,7 +677,10 @@ public sealed class EditorCommandDocumentComposer
             replacement,
             out bool replacedExisting);
         bool alreadyPresent = string.Equals(updated, sourceText, StringComparison.Ordinal);
-        Result<EditorCommandDocument> verified = Read(updated, acceptLegacyCharAlias);
+        Result<EditorCommandDocument> verified = ReadDocument(
+            updated,
+            acceptLegacyCharAlias,
+            allowMultipleResourcesPerResource: true);
         if (!verified.Success || verified.Value == null)
         {
             return Result<EditorCommandScreenTextEdit>.Fail(
@@ -390,9 +713,10 @@ public sealed class EditorCommandDocumentComposer
         string expectedRevisionSha256,
         bool acceptLegacyCharAlias = true)
     {
-        Result<EditorCommandDocument> current = Read(
+        Result<EditorCommandDocument> current = ReadDocument(
             sourceText,
-            acceptLegacyCharAlias);
+            acceptLegacyCharAlias,
+            allowMultipleResourcesPerResource: true);
         if (!current.Success || current.Value == null)
         {
             return Result<EditorCommandClearScreenTextEdit>.Fail(current.Error);
@@ -417,7 +741,10 @@ public sealed class EditorCommandDocumentComposer
         }
 
         string updated = AppendStandaloneLine(sourceText, "#clearST");
-        Result<EditorCommandDocument> verified = Read(updated, acceptLegacyCharAlias);
+        Result<EditorCommandDocument> verified = ReadDocument(
+            updated,
+            acceptLegacyCharAlias,
+            allowMultipleResourcesPerResource: true);
         if (!verified.Success
             || verified.Value == null
             || !verified.Value.HasClearScreenTextDirective)
@@ -445,9 +772,10 @@ public sealed class EditorCommandDocumentComposer
         bool enabled,
         bool acceptLegacyCharAlias = true)
     {
-        Result<EditorCommandDocument> current = Read(
+        Result<EditorCommandDocument> current = ReadDocument(
             sourceText,
-            acceptLegacyCharAlias);
+            acceptLegacyCharAlias,
+            allowMultipleResourcesPerResource: true);
         if (current.Value == null)
         {
             throw new InvalidOperationException(current.Error);
@@ -475,7 +803,10 @@ public sealed class EditorCommandDocumentComposer
         string updated = enabled
             ? AppendContinueLine(sourceText)
             : RemoveContinueLines(sourceText);
-        Result<EditorCommandDocument> verified = Read(updated, acceptLegacyCharAlias);
+        Result<EditorCommandDocument> verified = ReadDocument(
+            updated,
+            acceptLegacyCharAlias,
+            allowMultipleResourcesPerResource: true);
         if (verified.Value == null
             || verified.Value.HasContinueDirective != enabled)
         {
@@ -743,7 +1074,12 @@ public sealed class EditorCommandDocumentComposer
         return output.ToString();
     }
 
-    private static string ToPublicDirective(string canonicalDirective)
+    /// <summary>
+    /// The public form of one canonical resource directive — the form an additional-prompt document holds. Any window
+    /// that reads canonical text (the camera the picture editor publishes, a plan's own segments) and writes it back
+    /// needs this, and it has to be the same conversion the merge uses or the two would disagree about one line.
+    /// </summary>
+    public static string ToPublicDirective(string canonicalDirective)
     {
         const string characterPrefix = "#char;";
         string pendingPrefix = SlotPendingCommandFamilyCompiler.CanonicalRootToken + ";";

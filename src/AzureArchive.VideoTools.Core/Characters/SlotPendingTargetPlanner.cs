@@ -27,6 +27,11 @@ public static class SlotPendingTargetPlanner
                 "Current character transform is invalid.");
         }
 
+        if (command.StartX.HasValue || command.StartY.HasValue)
+        {
+            return Result<CharacterTransformTarget>.Fail("Slot pending transforms do not support explicit movement starts.");
+        }
+
         if (command.Operation == CharacterTransformOperation.Reset)
         {
             return Result<CharacterTransformTarget>.Fail(

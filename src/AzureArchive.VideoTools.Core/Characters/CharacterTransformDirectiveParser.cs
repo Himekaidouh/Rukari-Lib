@@ -1,4 +1,5 @@
 using System.Globalization;
+using AzureArchive.VideoTools.Core.Commands;
 using AzureArchive.VideoTools.Core.Results;
 
 namespace AzureArchive.VideoTools.Core.Characters;
@@ -6,7 +7,7 @@ namespace AzureArchive.VideoTools.Core.Characters;
 public sealed class CharacterTransformDirectiveParser : ICharacterTransformDirectiveParser
 {
     private static readonly HashSet<string> CommonProperties = new(
-        new[] { "duration", "easing" },
+        new[] { "duration", "easing", SlotActionPlacementParser.AtKey, SlotActionPlacementParser.InterruptKey },
         StringComparer.OrdinalIgnoreCase);
 
     private readonly string _rootToken;
@@ -79,6 +80,8 @@ public sealed class CharacterTransformDirectiveParser : ICharacterTransformDirec
 
         Result<float?> x = ParseOptionalFloat(properties, "x");
         Result<float?> y = ParseOptionalFloat(properties, "y");
+        Result<float?> startX = ParseOptionalFloat(properties, "startX");
+        Result<float?> startY = ParseOptionalFloat(properties, "startY");
         Result<float?> deltaX = ParseOptionalFloat(properties, "dx");
         Result<float?> deltaY = ParseOptionalFloat(properties, "dy");
         Result<float?> rotation = ParseOptionalFloat(properties, "rotation");
@@ -88,10 +91,13 @@ public sealed class CharacterTransformDirectiveParser : ICharacterTransformDirec
         Result<bool?> flipX = ParseOptionalBool(properties, "flipX");
         Result<int> duration = ParseDuration(properties);
         Result<CharacterTransformEasing> easing = ParseEasing(properties);
+        Result<SlotActionPlacement> placement = SlotActionPlacementParser.Parse(properties);
 
         string? parseError = FirstError(
             x,
             y,
+            startX,
+            startY,
             deltaX,
             deltaY,
             rotation,
@@ -100,7 +106,8 @@ public sealed class CharacterTransformDirectiveParser : ICharacterTransformDirec
             deltaRotationX,
             flipX,
             duration,
-            easing);
+            easing,
+            placement);
         if (parseError != null)
         {
             return Result<CharacterTransformCommand>.Fail(parseError);
@@ -119,8 +126,12 @@ public sealed class CharacterTransformDirectiveParser : ICharacterTransformDirec
             duration.Value,
             easing.Value)
         {
+            StartX = startX.Value,
+            StartY = startY.Value,
             RotationXDegrees = rotationX.Value,
-            DeltaRotationXDegrees = deltaRotationX.Value
+            DeltaRotationXDegrees = deltaRotationX.Value,
+            // FirstError already proved placement.Success, so the value exists.
+            Placement = placement.Value!
         };
         Result validation = CharacterTransformCommandValidator.Validate(command);
         return validation.Success
@@ -147,6 +158,13 @@ public sealed class CharacterTransformDirectiveParser : ICharacterTransformDirec
         };
 
         allowed.UnionWith(operationProperties);
+        // Pending slots retain their existing instantaneous entry placement;
+        // explicit tween starts belong only to live transform commands.
+        if (allowTimingProperties && operation != CharacterTransformOperation.Reset)
+        {
+            allowed.Add("startX");
+            allowed.Add("startY");
+        }
         return allowed;
     }
 
@@ -245,6 +263,7 @@ public sealed class CharacterTransformDirectiveParser : ICharacterTransformDirec
                 Result<bool?> boolResult when !boolResult.Success => boolResult.Error,
                 Result<int> intResult when !intResult.Success => intResult.Error,
                 Result<CharacterTransformEasing> easingResult when !easingResult.Success => easingResult.Error,
+                Result<SlotActionPlacement> placementResult when !placementResult.Success => placementResult.Error,
                 _ => null
             };
             if (error != null)

@@ -21,7 +21,8 @@ public enum AdvanceWindowAdmission
     Standard = 0,
 
     /// <summary>Superseded, but it captured the compiled-script identity. Only
-    /// the authoritative editor lease may consume it, and only once per drain.</summary>
+    /// the authoritative editor lease or exact saved-playback row admission
+    /// may consume it. The enum name is retained for compatibility.</summary>
     SupersededLeaseOnly = 1,
 
     /// <summary>Not admissible at all; fail closed.</summary>
@@ -42,10 +43,10 @@ public enum AdvanceWindowAdmission
 /// </para>
 /// <para>
 /// The relaxation is deliberately narrow: a superseded window is admissible
-/// ONLY when it actually captured at least one message, and then only for the
-/// authoritative editor lease. The cached, embedded-batch and chain-only
-/// fallbacks keep requiring a completed window, so one cascade can never
-/// dispatch twice through them.
+/// ONLY when it actually captured at least one message. Preview consumption
+/// requires the authoritative editor lease; saved playback additionally has
+/// strict row-plus-identity admission with call-chain deduplication. Cached,
+/// embedded-batch and chain-only fallbacks still require a completed window.
 /// </para>
 /// </summary>
 public static class AdvanceWindowAdmissionPolicy

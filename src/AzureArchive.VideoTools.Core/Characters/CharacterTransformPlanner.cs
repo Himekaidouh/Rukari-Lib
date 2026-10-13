@@ -34,18 +34,25 @@ public sealed class CharacterTransformPlanner : ICharacterTransformPlanner
         bool positionChanged;
         bool rotationChanged;
         bool isReset = command.Operation == CharacterTransformOperation.Reset;
+        CharacterVector3? initialPosition = command.StartX.HasValue || command.StartY.HasValue
+            ? new CharacterVector3(command.StartX ?? current.Position.X,
+                command.StartY ?? current.Position.Y, current.Position.Z)
+            : null;
+        CharacterTransformState movementStart = initialPosition.HasValue
+            ? current with { Position = initialPosition.Value }
+            : current;
 
         switch (command.Operation)
         {
             case CharacterTransformOperation.Set:
-                targetState = PlanSet(command, current, baseline);
-                positionChanged = command.X.HasValue || command.Y.HasValue;
+                targetState = PlanSet(command, movementStart, baseline);
+                positionChanged = initialPosition.HasValue || command.X.HasValue || command.Y.HasValue;
                 rotationChanged = command.RotationDegrees.HasValue
                     || command.RotationXDegrees.HasValue || command.FlipX.HasValue;
                 break;
             case CharacterTransformOperation.Move:
-                targetState = PlanMove(command, current);
-                positionChanged = command.DeltaX.HasValue || command.DeltaY.HasValue;
+                targetState = PlanMove(command, movementStart);
+                positionChanged = initialPosition.HasValue || command.DeltaX.HasValue || command.DeltaY.HasValue;
                 rotationChanged = command.DeltaRotationDegrees.HasValue || command.DeltaRotationXDegrees.HasValue;
                 break;
             case CharacterTransformOperation.Reset:
@@ -57,13 +64,18 @@ public sealed class CharacterTransformPlanner : ICharacterTransformPlanner
                 return Result<CharacterTransformTarget>.Fail("Unknown character transform operation.");
         }
 
+        if (!targetState.Position.IsFinite || !targetState.LocalEulerAngles.IsFinite)
+        {
+            return Result<CharacterTransformTarget>.Fail("Computed character transform is invalid.");
+        }
+
         return Result<CharacterTransformTarget>.Ok(new CharacterTransformTarget(
             targetState,
             positionChanged,
             rotationChanged,
             command.DurationMilliseconds,
             command.Easing,
-            isReset));
+            isReset) { InitialPosition = initialPosition });
     }
 
     public Result<CharacterTransformTarget> PlanReplayRestore(
@@ -93,8 +105,8 @@ public sealed class CharacterTransformPlanner : ICharacterTransformPlanner
         }
 
         bool resetAll = command.Operation == CharacterTransformOperation.Reset;
-        bool restoreX = resetAll || command.X.HasValue || command.DeltaX.HasValue;
-        bool restoreY = resetAll || command.Y.HasValue || command.DeltaY.HasValue;
+        bool restoreX = resetAll || command.X.HasValue || command.DeltaX.HasValue || command.StartX.HasValue;
+        bool restoreY = resetAll || command.Y.HasValue || command.DeltaY.HasValue || command.StartY.HasValue;
         bool restoreRotationX = resetAll || command.RotationXDegrees.HasValue || command.DeltaRotationXDegrees.HasValue;
         bool restoreRotationY = resetAll || command.FlipX.HasValue;
         bool restoreRotationZ = resetAll

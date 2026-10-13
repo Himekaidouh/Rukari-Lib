@@ -53,7 +53,7 @@ public sealed class ArchiveSnapshotCache
         CacheKey key;
         try
         {
-            key = CacheKey.Create(path, stamps);
+            key = CacheKey.Create(path, stamps, includeProjectCompanion: true);
         }
         catch (Exception ex)
         {
@@ -135,12 +135,35 @@ public sealed class ArchiveSnapshotCache
 
     private sealed record CacheKey(string FullPath, DateTime LastWriteTimeUtc, long Length)
     {
-        public static CacheKey Create(string path, DataRootStampSet? stamps)
+        private FileStamp? ProjectCompanion { get; init; }
+
+        public static CacheKey Create(string path, DataRootStampSet? stamps, bool includeProjectCompanion = false)
         {
             string fullPath = Path.GetFullPath(path);
+            FileStamp? companion = null;
+            if (includeProjectCompanion && Path.GetExtension(fullPath).Equals(".aap", StringComparison.OrdinalIgnoreCase))
+            {
+                string nativePath = Path.ChangeExtension(fullPath, ".aap2");
+                if (stamps != null && stamps.TryGet(nativePath, out FileStamp nativeStamp)) companion = nativeStamp;
+                else
+                {
+                    var native = new FileInfo(nativePath);
+                    if (native.Exists) companion = new FileStamp(native.Length, native.LastWriteTimeUtc);
+                }
+            }
+            else if (includeProjectCompanion && OfficialAapCompatibilityProjection.IsNativePath(fullPath))
+            {
+                string projectionPath = Path.ChangeExtension(fullPath, ".aap");
+                if (stamps != null && stamps.TryGet(projectionPath, out FileStamp projectionStamp)) companion = projectionStamp;
+                else
+                {
+                    var projection = new FileInfo(projectionPath);
+                    if (projection.Exists) companion = new FileStamp(projection.Length, projection.LastWriteTimeUtc);
+                }
+            }
             if (stamps != null && stamps.TryGet(fullPath, out FileStamp stamp))
             {
-                return new CacheKey(fullPath, stamp.LastWriteTimeUtc, stamp.Length);
+                return new CacheKey(fullPath, stamp.LastWriteTimeUtc, stamp.Length) { ProjectCompanion = companion };
             }
 
             FileInfo info = new(fullPath);
@@ -149,12 +172,12 @@ public sealed class ArchiveSnapshotCache
                 throw new FileNotFoundException("Archive file was not found.", fullPath);
             }
 
-            return new CacheKey(fullPath, info.LastWriteTimeUtc, info.Length);
+            return new CacheKey(fullPath, info.LastWriteTimeUtc, info.Length) { ProjectCompanion = companion };
         }
 
         public bool Matches(CacheKey other) =>
             LastWriteTimeUtc == other.LastWriteTimeUtc
-            && Length == other.Length;
+            && Length == other.Length && ProjectCompanion == other.ProjectCompanion;
     }
 
     private sealed record ProjectEntry(CacheKey Key, ProjectSnapshot Snapshot);

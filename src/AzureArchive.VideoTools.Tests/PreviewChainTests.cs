@@ -11,6 +11,26 @@ internal static class PreviewChainTests
     private const string Selection = "cccccccc-0000-0000-0000-000000000003";
     private const string NodeD = "dddddddd-0000-0000-0000-000000000004";
 
+    public static void ExplicitInitialPositionFoldsTheEndPointForFollowingScenes()
+    {
+        string first = "#char;3;set;startX=-900;startY=50;x=400;duration=600";
+        string second = "#char;3;move;startX=100;dx=200;duration=600";
+        var project = Graph().Add(ScriptNode(NodeA, null,
+            Scene(NodeA, 0, slot3Occupant: "mika", directive: first),
+            Scene(NodeA, 1, slot3Occupant: "mika", directive: second),
+            Scene(NodeA, 2, slot3Occupant: "mika"))).Build(out var lookup);
+        lookup.Add(Key(NodeA, 0), 3, first);
+        lookup.Add(Key(NodeA, 1), 3, second);
+        var resolver = new PreviewChainResolver(project);
+        PreviewChainSlotResolution one = AssertEx.NotNull(resolver.Resolve(Key(NodeA, 1), new[] { 3 }, lookup.Lookup).Value).Slots.Single();
+        AssertEx.Equal(400f, one.State.X.AbsoluteValue);
+        AssertEx.Equal(50f, one.State.Y.AbsoluteValue);
+        PreviewChainSlotResolution two = AssertEx.NotNull(resolver.Resolve(Key(NodeA, 2), new[] { 3 }, lookup.Lookup).Value).Slots.Single();
+        AssertEx.Equal(300f, two.State.X.AbsoluteValue);
+        AssertEx.Equal(50f, two.State.Y.AbsoluteValue);
+        AssertEx.Equal(2, two.State.FoldedCommandCount);
+    }
+
     public static void SameNodeChainFoldsThroughCommandlessScenes()
     {
         var project = Graph()

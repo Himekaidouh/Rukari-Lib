@@ -68,15 +68,17 @@ internal static class SlotPendingTests
         EmbeddedAavtExtraction extraction = extractor.Extract(
             "#aavt;char;3;move;dx=100\n#aavt;charPending;3;set;x=200");
 
-        AssertEx.Equal(1, extraction.Commands.Count);
-        AssertEx.True(extraction.Commands.Single().CanonicalDirective.StartsWith(
+        // 2026-10-13 contract change (user decision): a character transform and a
+        // charPending command on one slot are legal and keep their authored order.
+        // The fixture name still describes the superseded contract.
+        AssertEx.Equal(2, extraction.Commands.Count);
+        AssertEx.True(extraction.Commands[0].CanonicalDirective.StartsWith(
             "#char;",
             StringComparison.Ordinal));
-        AssertEx.Equal(1, extraction.Errors.Count);
-        AssertEx.True(
-            extraction.Errors[0].Contains("already has an AAVT character directive",
-                StringComparison.Ordinal),
-            extraction.Errors[0]);
+        AssertEx.True(extraction.Commands[1].CanonicalDirective.StartsWith(
+            "#charp;",
+            StringComparison.Ordinal));
+        AssertEx.Equal(0, extraction.Errors.Count);
     }
 
     public static void EmbeddedCompilerEmitsPendingFamilyProjection()

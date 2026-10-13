@@ -65,8 +65,18 @@ public sealed class EmbeddedProjectCommandCompiler
                     acceptLegacyCharAlias);
                 if (extracted.Errors.Count != 0)
                 {
+                    // 2026-10-13: one mistyped token in one card takes the whole
+                    // project's playback index down, so the failure has to name the
+                    // card well enough to find it without a copy of the project: the
+                    // node, the dialogue row the card hangs on, and the line number
+                    // inside that card. The raw offending line stays out of this
+                    // string on purpose — it is the author's own additional-prompt
+                    // text and this failure travels with the compiled evidence
+                    // (EmbeddedDiagnosticsTests pins that absence).
                     return Result<EmbeddedProjectCommandCompilation>.Fail(
-                        $"reason=embedded-command-invalid; scene={scene.Key.NodeGuid}:{scene.Key.SceneIndex}; "
+                        $"reason=embedded-command-invalid; node={Locator(node.Name, 24)}; "
+                        + $"scene={scene.Key.NodeGuid}:{scene.Key.SceneIndex}; "
+                        + $"dialogue={Locator(scene.DialogueText, 32)}; "
                         + string.Join(" | ", extracted.Errors));
                 }
 
@@ -214,6 +224,7 @@ public sealed class EmbeddedProjectCommandCompiler
             bool uniquelyMapped = sceneMapping.Status is
                     ScenePlaybackMappingStatus.UniqueDialogueTextMatch
                     or ScenePlaybackMappingStatus.AnchoredNodeSequenceMatch
+                    or ScenePlaybackMappingStatus.ObservedCompilerRecordMatch
                 && sceneMapping.PlaybackRecordIndex.HasValue;
             if (!uniquelyMapped)
             {
@@ -255,6 +266,32 @@ public sealed class EmbeddedProjectCommandCompiler
 
     private static string Location(SceneKey scene) =>
         $"{scene.NodeGuid}:{scene.SceneIndex}";
+
+    /// <summary>
+    /// Renders one author-facing locator field. Control characters collapse to spaces
+    /// and long text is cut, so one failure stays one readable log record.
+    /// </summary>
+    private static string Locator(string? text, int limit)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "<empty>";
+        }
+
+        var builder = new StringBuilder(Math.Min(text.Length, limit) + 3);
+        foreach (char character in text)
+        {
+            if (builder.Length >= limit)
+            {
+                builder.Append("...");
+                break;
+            }
+
+            builder.Append(char.IsControl(character) ? ' ' : character);
+        }
+
+        return builder.ToString();
+    }
 
     internal static string DeterministicGuid(string input)
     {

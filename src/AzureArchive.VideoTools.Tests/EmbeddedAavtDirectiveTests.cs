@@ -70,8 +70,13 @@ internal static class EmbeddedAavtDirectiveTests
 
         AssertEx.Equal(string.Empty, result.SanitizedText);
         AssertEx.Equal(3, result.RemovedLineCount);
-        AssertEx.Equal(2, result.Errors.Count);
-        AssertEx.Equal(1, result.Commands.Count);
+        // 2026-10-13 contract change (user decision): the malformed camera line still
+        // errors, but the two same-slot character commands are now legal and keep their
+        // authored order. The fixture name still describes the superseded contract.
+        AssertEx.Equal(1, result.Errors.Count);
+        AssertEx.Equal(2, result.Commands.Count);
+        AssertEx.True(result.Commands[0].CanonicalDirective.StartsWith("#char;3;move", StringComparison.Ordinal));
+        AssertEx.True(result.Commands[1].CanonicalDirective.StartsWith("#char;3;set", StringComparison.Ordinal));
     }
 
     public static void ExtractsContinueMarkerWithoutSlotCost()

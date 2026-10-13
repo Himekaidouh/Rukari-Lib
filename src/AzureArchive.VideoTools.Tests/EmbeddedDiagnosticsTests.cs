@@ -93,6 +93,12 @@ internal static class EmbeddedDiagnosticsTests
         AssertEx.True(
             result.Error.Contains(SyntheticAap.ScriptNodeGuid + ":0"),
             result.Error);
+        // 2026-10-13: one bad card takes the whole project's index down, so the
+        // author must be able to find it from the failure alone — node name plus
+        // the dialogue row the card hangs on.
+        AssertEx.True(result.Error.Contains("node=Main;"), result.Error);
+        AssertEx.True(result.Error.Contains("dialogue=A;"), result.Error);
+        // The raw additional-prompt line stays out of the compiled evidence.
         AssertEx.False(result.Error.Contains("camera;set"), result.Error);
     }
 

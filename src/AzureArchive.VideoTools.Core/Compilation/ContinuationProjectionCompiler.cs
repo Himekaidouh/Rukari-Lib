@@ -381,7 +381,8 @@ public sealed class ContinuationProjectionCompiler : IContinuationProjectionComp
             if (!mappingByLocation.TryGetValue(location, out ScenePlaybackMapping? sceneMapping)
                 || sceneMapping.Status is not (
                     ScenePlaybackMappingStatus.UniqueDialogueTextMatch
-                    or ScenePlaybackMappingStatus.AnchoredNodeSequenceMatch)
+                    or ScenePlaybackMappingStatus.AnchoredNodeSequenceMatch
+                    or ScenePlaybackMappingStatus.ObservedCompilerRecordMatch)
                 || !sceneMapping.PlaybackRecordIndex.HasValue)
             {
                 return ChainFailure(

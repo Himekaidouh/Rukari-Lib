@@ -71,7 +71,6 @@ public sealed class PlaybackSceneDispatchGate
         var spineCompiler = new SpineOverlayCommandFamilyCompiler();
         var presetCompiler = new CharacterPresetCommandFamilyCompiler();
         var commandIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var slots = new HashSet<string>(StringComparer.Ordinal);
         var commands = new PlaybackCommandInstruction[batch.Commands.Count];
         for (int index = 0; index < batch.Commands.Count; index++)
         {
@@ -128,15 +127,18 @@ public sealed class PlaybackSceneDispatchGate
                         : transformCompiler;
             Result<CanonicalTimelineCommand> canonical =
                 family.Canonicalize(command.CanonicalDirective);
+            // 2026-10-13: a repeated slot key is no longer rejected here either. The
+            // compiled batch keeps the authored order and the queue decides when each
+            // segment of the same slot lands; only a non-canonical directive still
+            // fails this command.
             if (!canonical.Success || canonical.Value == null
                 || !string.Equals(
                     canonical.Value.Directive,
                     command.CanonicalDirective,
-                    StringComparison.Ordinal)
-                || !slots.Add(CommandResourceIdentity.KeyFor(canonical.Value)))
+                    StringComparison.Ordinal))
             {
                 return Result<ValidatedBatch>.Fail(
-                    $"Scene dispatch command {index} is non-canonical or conflicts with another slot.");
+                    $"Scene dispatch command {index} is non-canonical.");
             }
 
             commands[index] = command with { };

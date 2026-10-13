@@ -23,9 +23,13 @@ internal static class CharacterPresetPipelineTests
         AssertEx.Equal("character:3", CommandResourceIdentity.KeyFor(result.Commands[1]));
         AssertEx.Equal("spine:3:20", CommandResourceIdentity.KeyFor(result.Commands[2]));
 
+        // 2026-10-13 contract change (user decision): a second directive for the same
+        // slot is legal and keeps its authored order instead of failing the whole
+        // projection. The fixture name still describes the superseded contract.
         EmbeddedAavtExtraction duplicate = extractor.Extract(source + "\n#aavt;fx;3;spin");
-        AssertEx.Equal(1, duplicate.Errors.Count);
-        AssertEx.True(duplicate.Errors[0].Contains("preset", StringComparison.Ordinal));
+        AssertEx.Equal(0, duplicate.Errors.Count);
+        AssertEx.Equal(4, duplicate.Commands.Count);
+        AssertEx.Equal("preset:3", CommandResourceIdentity.KeyFor(duplicate.Commands[3]));
         foreach (string invalid in new[] { "#aavt;fx;3;clear", "#aavt;fx;3;sway;frequency=NaN", "#aavt;fx-ish;3;sway" })
         {
             EmbeddedAavtExtraction rejected = extractor.Extract(invalid);
@@ -112,8 +116,18 @@ internal static class CharacterPresetPipelineTests
         AssertEx.True(allRemoved.Resources.All(resource => resource.CommandRemoved));
         AssertEx.False(new EditorPreviewLeaseGate().TryAuthorize(
             new EditorPreviewLeaseCandidate(selection, Array.Empty<string>(), false), live).Success);
-        AssertEx.False(new EditorPreviewLeaseGate().TryAuthorize(
-            new EditorPreviewLeaseCandidate(selection, new[] { directives[1], directives[1] }, false), live).Success);
+        // 2026-10-13 contract change (docs/38 §9.3/§9.4): the same preset may be named
+        // twice for one slot. Both plans survive in authored order and the footprint keeps
+        // a single entry for the preset resource.
+        EditorPreviewLeaseAuthorization repeatedPreset = AssertEx.NotNull(
+            new EditorPreviewLeaseGate().TryAuthorize(
+                new EditorPreviewLeaseCandidate(selection, new[] { directives[1], directives[1] }, false),
+                live).Value);
+        AssertEx.Equal(2, repeatedPreset.Commands.Count);
+        AssertEx.Equal(
+            EditorPreviewResourceKind.CharacterPreset,
+            repeatedPreset.Commands[1].Resource.Kind);
+        AssertEx.Equal(1, repeatedPreset.Footprint.Entries.Count);
         AssertEx.False(new EditorPreviewLeaseGate().TryAuthorize(candidate,
             live with { RuntimeContext = PlayerRuntimeContextSnapshot.FromPreviewMode(false) }).Success);
 
@@ -253,13 +267,19 @@ internal static class CharacterPresetPipelineTests
                 compilation.Projection with { Batches = new[] { malformed } }).Success);
             AssertEx.False(new PlaybackSceneDispatchGate().TryAuthorize(1, malformed).Success);
         }
+        // 2026-10-13 contract change (user decision): a second preset command for one
+        // slot is legal and keeps its authored order, so neither the binder nor the
+        // dispatch gate rejects it any more. The fixture name still describes the
+        // superseded contract.
         PlaybackCommandBatch duplicate = batch with { Commands = new[]
         {
             fx, fx with { Order = 1, CommandId = Guid.NewGuid().ToString("D"), CanonicalDirective = Extract("#aavt;fx;3;spin").Single() }
         } };
-        AssertEx.False(new PlaybackCommandBinder().Bind(playback,
+        AssertEx.True(new PlaybackCommandBinder().Bind(playback,
             compilation.Projection with { Batches = new[] { duplicate } }).Success);
-        AssertEx.False(new PlaybackSceneDispatchGate().TryAuthorize(1, duplicate).Success);
+        var authorized = new PlaybackSceneDispatchGate().TryAuthorize(1, duplicate);
+        AssertEx.True(authorized.Success, authorized.Error);
+        AssertEx.Equal(2, AssertEx.NotNull(authorized.Value).Commands.Count);
 
         var workspace = new ModWorkspaceManifest(ModWorkspaceManifest.CurrentSchemaVersion,
             compilation.Timeline.WorkspaceId, "1.2.0", "1.2.0", new ModWorkspaceSourceBinding(

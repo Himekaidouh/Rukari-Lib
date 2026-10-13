@@ -315,7 +315,8 @@ public sealed class CommandTimelineCompiler : ICommandTimelineCompiler
             if (!mappings.TryGetValue(location, out ScenePlaybackMapping? sceneMapping)
                 || sceneMapping.Status is not (
                     ScenePlaybackMappingStatus.UniqueDialogueTextMatch
-                    or ScenePlaybackMappingStatus.AnchoredNodeSequenceMatch)
+                    or ScenePlaybackMappingStatus.AnchoredNodeSequenceMatch
+                    or ScenePlaybackMappingStatus.ObservedCompilerRecordMatch)
                 || !sceneMapping.PlaybackRecordIndex.HasValue)
             {
                 return Result<IReadOnlyList<PlaybackCommandBatch>>.Fail(
@@ -331,12 +332,6 @@ public sealed class CommandTimelineCompiler : ICommandTimelineCompiler
 
             PlaybackRecordSnapshot record = playback.Records[recordIndex];
             CompiledScriptIdentity identity = input.PlaybackIdentities[recordIndex];
-            if (identity.Utf16Length == 0)
-            {
-                return Result<IReadOnlyList<PlaybackCommandBatch>>.Fail(
-                    $"Enabled commands cannot target empty compiled script at playback record {recordIndex}.");
-            }
-
             // 2026-09-18: a non-unique compiled-script identity is no longer a
             // compile-time failure. Cards whose dialogue is identical — empty
             // camera-only cards above all — compile to the same script, and the
@@ -346,7 +341,6 @@ public sealed class CommandTimelineCompiler : ICommandTimelineCompiler
             // used to disable command dispatch for the WHOLE archive; an
             // unresolvable duplicate now fails closed per window instead.
 
-            var occupiedSlots = new HashSet<string>(StringComparer.Ordinal);
             var compiled = new List<PlaybackCommandInstruction>();
             SceneSnapshot projectScene = input.ProjectScenes[location];
             for (int commandIndex = 0; commandIndex < enabled.Length; commandIndex++)
@@ -361,11 +355,12 @@ public sealed class CommandTimelineCompiler : ICommandTimelineCompiler
                         $"Command {source.CommandId} failed canonicalization: {canonical.Error}");
                 }
 
-                if (!occupiedSlots.Add(CommandResourceIdentity.KeyFor(canonical.Value)))
-                {
-                    return Result<IReadOnlyList<PlaybackCommandBatch>>.Fail(
-                        $"Scene {location} contains more than one enabled command for public slot {canonical.Value.PublicSlot}.");
-                }
+                // 2026-10-13: more than one enabled command for the same public slot is
+                // no longer a compile-time failure. Two `set` actions on one character
+                // are a normal authoring shape — the second one used to reject the WHOLE
+                // archive, so the author saw every command in the project disappear.
+                // The batch keeps the authored order and SlotActionQueuePlanner decides
+                // when each segment lands.
 
                 if (WritesPosition(canonical.Value)
                     && projectScene.Characters.Any(character =>
@@ -430,6 +425,8 @@ public sealed class CommandTimelineCompiler : ICommandTimelineCompiler
         return command.Operation == CharacterTransformOperation.Reset
             || command.X.HasValue
             || command.Y.HasValue
+            || command.StartX.HasValue
+            || command.StartY.HasValue
             || command.DeltaX.HasValue
             || command.DeltaY.HasValue;
     }

@@ -209,15 +209,17 @@ public sealed class PlaybackCommandBinder : IPlaybackCommandBinder
 
                 Result<CanonicalTimelineCommand> canonical =
                     family.Canonicalize(command.CanonicalDirective);
+                // 2026-10-13: a repeated slot key in one batch is accepted here too.
+                // The batch keeps the authored order; only a non-canonical directive
+                // still fails this command.
                 if (!canonical.Success || canonical.Value == null
                     || !string.Equals(
                         canonical.Value.Directive,
                         command.CanonicalDirective,
-                        StringComparison.Ordinal)
-                    || !occupiedSlots.Add(CommandResourceIdentity.KeyFor(canonical.Value)))
+                        StringComparison.Ordinal))
                 {
                     return Result.Fail(
-                        $"Command {command.CommandId} is non-canonical or conflicts with another slot command.");
+                        $"Command {command.CommandId} is non-canonical.");
                 }
             }
 
@@ -402,6 +404,42 @@ public sealed class PlaybackCommandBinder : IPlaybackCommandBinder
                 null,
                 null,
                 records.AsReadOnly()));
+        }
+
+        public Result<PlaybackCommandObservation> ObserveCommandBatchAtRow(
+            int playbackRowIndex)
+        {
+            if (playbackRowIndex < 0 || playbackRowIndex >= RecordCount)
+            {
+                return Result<PlaybackCommandObservation>.Fail(
+                    "playback-row-unavailable-or-out-of-range");
+            }
+
+            if (!_batchesByRecord.TryGetValue(
+                    playbackRowIndex,
+                    out PlaybackCommandBatch? batch)
+                || batch == null)
+            {
+                // An empty managed window is not proof that this row carries
+                // commands.  Keep ordinary rows as a safe no-op.
+                return Result<PlaybackCommandObservation>.Ok(new PlaybackCommandObservation(
+                    PlaybackCommandObservationStatus.NotFound,
+                    playbackRowIndex,
+                    _fingerprints[playbackRowIndex],
+                    null,
+                    new[] { playbackRowIndex }));
+            }
+
+            // The projection binder verified that the batch's record index,
+            // fingerprint and compiled identity all belong to this exact row.
+            // Returning that trusted identity lets the formal dispatcher claim
+            // and schedule the batch without inventing a Unity message.
+            return Result<PlaybackCommandObservation>.Ok(new PlaybackCommandObservation(
+                PlaybackCommandObservationStatus.CommandBatch,
+                playbackRowIndex,
+                _fingerprints[playbackRowIndex],
+                batch,
+                new[] { playbackRowIndex }));
         }
 
         private PlaybackCommandObservation Describe(int recordIndex, List<int> records) => new(

@@ -1,3 +1,4 @@
+using AzureArchive.VideoTools.Core.Commands;
 using AzureArchive.VideoTools.Core.Results;
 
 namespace AzureArchive.VideoTools.Core.Characters;
@@ -43,6 +44,9 @@ public sealed record CharacterPresetCommand(
 
     /// <summary>Spin axis. Y preserves all existing directives and constructors.</summary>
     public CharacterPresetSpinAxis SpinAxis { get; init; } = CharacterPresetSpinAxis.Y;
+
+    /// <summary>Authored queue placement (<c>at=</c> / <c>interrupt=</c>).</summary>
+    public SlotActionPlacement Placement { get; init; } = SlotActionPlacement.None;
 }
 
 /// <summary>

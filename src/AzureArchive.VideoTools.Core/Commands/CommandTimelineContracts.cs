@@ -118,6 +118,16 @@ public interface IPlaybackCommandIndex
 
     Result<PlaybackCommandObservation> Observe(
         ObservedCompiledSceneIdentity identity);
+
+    /// <summary>
+    /// Resolves a command batch by the saved playback record index alone.
+    /// This is intentionally narrower than <see cref="Observe"/>: it is only
+    /// used for a formal advance window in which Unity exposed no managed
+    /// message at all.  The binder has already validated the record fingerprint
+    /// and compiled-script identity, so an ordinary or unknown row must remain
+    /// a no-op rather than being treated as a command.
+    /// </summary>
+    Result<PlaybackCommandObservation> ObserveCommandBatchAtRow(int playbackRowIndex);
 }
 
 public interface IPlaybackCommandBinder

@@ -24,6 +24,8 @@ public sealed record VisualCharacterDraftRequest(
     CharacterTransformEasing Easing)
 {
     public float? RotationXDegrees { get; init; }
+    public float? StartX { get; init; }
+    public float? StartY { get; init; }
 }
 
 public sealed class VisualCharacterDraftBuilder
@@ -74,6 +76,8 @@ public sealed class VisualCharacterDraftBuilder
             command.DurationMilliseconds,
             command.Easing)
         {
+            StartX = command.StartX,
+            StartY = command.StartY,
             RotationXDegrees = command.Operation == CharacterTransformOperation.Move
                 ? command.DeltaRotationXDegrees : command.RotationXDegrees
         });
@@ -95,9 +99,14 @@ public sealed class VisualCharacterDraftBuilder
                 $"Duration must be between 0 and {CharacterTransformCommandValidator.MaximumDurationMilliseconds} milliseconds.");
         }
 
-        if (!AllFinite(request.X, request.Y, request.RotationDegrees, request.RotationXDegrees))
+        if (!AllFinite(request.X, request.Y, request.StartX, request.StartY, request.RotationDegrees, request.RotationXDegrees))
         {
             return Result<string>.Fail("Character transform values must be finite numbers.");
+        }
+
+        if (!request.Occupied && (request.StartX.HasValue || request.StartY.HasValue))
+        {
+            return Result<string>.Fail("An empty slot uses instantaneous entry placement, without explicit movement starts.");
         }
 
         if (!request.Occupied && request.Operation == VisualCharacterDraftOperation.Reset)
@@ -125,6 +134,8 @@ public sealed class VisualCharacterDraftBuilder
             request.Occupied ? request.DurationMilliseconds : 0,
             request.Occupied ? request.Easing : CharacterTransformEasing.Linear)
         {
+            StartX = request.StartX,
+            StartY = request.StartY,
             RotationXDegrees = operation == CharacterTransformOperation.Set ? request.RotationXDegrees : null,
             DeltaRotationXDegrees = operation == CharacterTransformOperation.Move ? request.RotationXDegrees : null
         };
@@ -168,6 +179,8 @@ public sealed class VisualCharacterDraftBuilder
 
         if (request.Occupied)
         {
+            AddFloat(parts, "startX", request.StartX);
+            AddFloat(parts, "startY", request.StartY);
             parts.Add($"duration={request.DurationMilliseconds.ToString(CultureInfo.InvariantCulture)}");
             parts.Add($"easing={EasingName(request.Easing)}");
         }

@@ -458,6 +458,8 @@ public sealed class PreviewChainResolver
             return false;
         }
 
+        if (command.StartX.HasValue) x = PreviewChainAxisState.Absolute(command.StartX.Value);
+        if (command.StartY.HasValue) y = PreviewChainAxisState.Absolute(command.StartY.Value);
         switch (command.Operation)
         {
             case CharacterTransformOperation.Reset:
@@ -550,6 +552,8 @@ public sealed class PreviewChainResolver
             return false;
         }
 
+        if (command.StartX.HasValue) x = PreviewChainAxisState.Absolute(command.StartX.Value);
+        if (command.StartY.HasValue) y = PreviewChainAxisState.Absolute(command.StartY.Value);
         switch (command.Operation)
         {
             case CharacterTransformOperation.Reset:

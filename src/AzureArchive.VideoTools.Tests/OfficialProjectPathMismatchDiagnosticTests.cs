@@ -27,8 +27,8 @@ internal static class OfficialProjectPathMismatchDiagnosticTests
             AssertEx.True(resolved.Error.Contains($"projectLayoutRecognized={item.Recognized}", StringComparison.Ordinal), resolved.Error);
             AssertEx.True(resolved.Error.Contains($"rootMatches={item.RootMatches}", StringComparison.Ordinal), resolved.Error);
             AssertEx.True(resolved.Error.Contains($"nameMatches={item.NameMatches}", StringComparison.Ordinal), resolved.Error);
-            AssertEx.True(resolved.Error.Contains($"projectFilePath='{item.Project}'", StringComparison.Ordinal), resolved.Error);
-            AssertEx.True(resolved.Error.Contains($"resourceDirectory='{resource}'", StringComparison.Ordinal), resolved.Error);
+            AssertEx.True(resolved.Error.Contains("projectExtension='.aap'", StringComparison.Ordinal), resolved.Error);
+            AssertEx.False(resolved.Error.Contains(files.Root, StringComparison.Ordinal), resolved.Error);
         }
     }
 }

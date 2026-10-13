@@ -15,6 +15,29 @@ internal static class ScopedEffectsIntegrationTests
     private const string OtherLines = "#aavt;char;3;set;rotation=5\r\n#bgshake";
     private const string BothScopes = "#wait;125\r\n" + OverallLine + BackgroundLine + OtherLines;
 
+    public static void InitialPositionLeaseOwnsAndRestoresEveryStartingAxis()
+    {
+        var gate = new EditorPreviewLeaseGate();
+        EditorPreviewLeaseAuthorization start = Authorize(gate, 1, 10,
+            Extract("#aavt;char;3;set;startX=-900;startY=50;x=400;duration=600"));
+        AssertEx.Equal(1, start.Commands.Count);
+        AssertEx.Equal(EditorPreviewResourceFields.CharacterPositionX | EditorPreviewResourceFields.CharacterPositionY,
+            start.Commands.Single().Fields);
+        EditorPreviewLeaseAuthorization edited = Authorize(gate, 2, 11,
+            Extract("#aavt;char;3;set;x=500;duration=600"));
+        EditorPreviewResourceTransition cleanup = AssertEx.NotNull(new EditorPreviewResourceCleanupPlanner()
+            .Plan(start.Footprint, edited.Footprint).Value).Resources.Single();
+        AssertEx.Equal(EditorPreviewResourceFields.CharacterPositionY, cleanup.RemovedFields);
+        AssertEx.True(cleanup.RestorePreviousImmediate);
+        EditorPreviewLeaseAuthorization onlyStart = Authorize(new(), 1, 10,
+            Extract("#aavt;char;3;set;startY=70;duration=0"));
+        AssertEx.Equal(EditorPreviewResourceFields.CharacterPositionY, onlyStart.Commands.Single().Fields);
+        EditorPreviewLeaseAuthorization relative = Authorize(new(), 1, 10,
+            Extract("#aavt;char;3;move;startY=70;dx=100;duration=600"));
+        AssertEx.Equal(EditorPreviewResourceFields.CharacterPositionX | EditorPreviewResourceFields.CharacterPositionY,
+            relative.Commands.Single().Fields);
+    }
+
     public static void ComposerScopeUpsertsPreserveEachOtherAndOfficialText()
     {
         var composer = new EditorCommandDocumentComposer();
@@ -73,18 +96,46 @@ internal static class ScopedEffectsIntegrationTests
                 : "#aavt;camera;set;scope=background;zoom=1.2";
             string second = $"#aavt;camera;set;scope={scope};zoom=1.5";
             string invalid = first + "\n" + second;
-            AssertEx.True(extractor.Extract(invalid).Errors.Count > 0, "Two commands of one scope must conflict.");
+            // 2026-10-13 contract change (user decision, docs/38 §9.3/§9.4): two camera
+            // commands of one scope are legal now and keep their authored order, so neither
+            // the extractor nor the preview lease conflicts any more. The composer below
+            // keeps its own one-command-per-resource rule, but only for the resource a draft
+            // names: the layer editors write several lines of their own resource, and a
+            // writer of somebody else's resource must not be blocked by them (docs/45).
+            AssertEx.Equal(0, extractor.Extract(invalid).Errors.Count);
+            AssertEx.Equal(2, extractor.Extract(invalid).Commands.Count);
             AssertEx.False(composer.Read(invalid).Success);
             AssertEx.False(composer.PreviewUpsert(invalid, EditorCommandDocumentComposer.Revision(invalid),
-                "#aavt;char;3;set;rotationX=20").Success);
+                second).Success, "The layer with two lines is not a one-command-per-resource draft.");
+            EditorCommandEditPreview otherResource = AssertEx.NotNull(
+                composer.PreviewUpsert(invalid, EditorCommandDocumentComposer.Revision(invalid),
+                    "#aavt;char;3;set;rotationX=20").Value);
+            string[] after = Extract(otherResource.UpdatedText);
+            AssertEx.Equal(3, after.Length, "Writing another resource adds its line and keeps everything else.");
+            AssertEx.Equal(2, after.Count(directive => directive.StartsWith("#camera;", StringComparison.Ordinal)),
+                "Both of the layer's lines are still there.");
             string[] duplicateCanonical =
             {
                 AssertEx.NotNull(compiler.Canonicalize(first.Replace("#aavt;camera", "#camera", StringComparison.Ordinal)).Value).Directive,
                 AssertEx.NotNull(compiler.Canonicalize(second.Replace("#aavt;camera", "#camera", StringComparison.Ordinal)).Value).Directive
             };
             EditorPreviewSelectionBinding selection = Selection(1);
-            AssertEx.False(new EditorPreviewLeaseGate().TryAuthorizeWindow(
-                new(selection, duplicateCanonical, false, 9), Live(selection, 10)).Success);
+            var duplicateLease = new EditorPreviewLeaseGate().TryAuthorizeWindow(
+                new(selection, duplicateCanonical, false, 9), Live(selection, 10));
+            AssertEx.True(duplicateLease.Success, duplicateLease.Error);
+            AssertEx.Equal(2, AssertEx.NotNull(duplicateLease.Value).Commands.Count);
+            // One scope is one resource, so the two commands share a key and the footprint
+            // keeps exactly one entry for it.
+            AssertEx.Equal(
+                duplicateLease.Value!.Commands[0].Resource,
+                duplicateLease.Value.Commands[1].Resource);
+            AssertEx.Equal(1, duplicateLease.Value.Footprint.Entries.Count);
+            AssertEx.Equal(
+                duplicateLease.Value.Commands[0].CanonicalDirective,
+                duplicateCanonical[0]);
+            AssertEx.Equal(
+                duplicateLease.Value.Commands[1].CanonicalDirective,
+                duplicateCanonical[1]);
         }
         AssertEx.Equal(0, extractor.Extract(OverallLine + BackgroundLine).Errors.Count,
             "Different scopes remain separate resources despite sharing the camera command family.");

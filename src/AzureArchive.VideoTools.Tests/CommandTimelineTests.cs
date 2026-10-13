@@ -1,3 +1,4 @@
+using AzureArchive.VideoTools.Core.Characters;
 using AzureArchive.VideoTools.Core.Commands;
 using AzureArchive.VideoTools.Core.Mapping;
 using AzureArchive.VideoTools.Core.Playback;
@@ -10,6 +11,36 @@ namespace AzureArchive.VideoTools.Tests;
 
 internal static class CommandTimelineTests
 {
+    public static void SavedProjectionKeepsInitialPositionAndRejectsOfficialTransitionConflict()
+    {
+        using var files = new TemporaryAapDirectory();
+        ProjectSnapshot project = ReadProject(files, "explicit-start.aap", "A");
+        PlaybackArchiveSnapshot playback = Playback(project, new[] { "A" }, new[] { "compiled A" });
+        ModWorkspaceManifest workspace = Workspace(project, playback);
+        var result = new CommandTimelineCompiler().Compile(project, playback, workspace,
+            Timeline(project, workspace, new CommandTimelineEntry(project.ScriptNodes.Single().Scenes.Single().Key,
+                new[] { Command("#char;3;set;startX=-900;startY=50;x=400;y=200;duration=600") })));
+        AssertEx.True(result.Success, result.Error);
+        string text = AssertEx.NotNull(result.Value).Batches.Single().Commands.Single().CanonicalDirective;
+        CharacterTransformCommand parsed = AssertEx.NotNull(new CharacterTransformDirectiveParser().Parse(text).Value);
+        AssertEx.Equal<float?>(-900, parsed.StartX);
+        AssertEx.Equal<float?>(50, parsed.StartY);
+        AssertEx.Equal<float?>(400, parsed.X);
+        AssertEx.Equal(600, parsed.DurationMilliseconds);
+
+        string path = files.Write("explicit-start-conflict.aap", SyntheticAap.Project(new[]
+            { SyntheticAap.SceneWithCharacterTransition("A", 3, 3, 4) }));
+        ProjectSnapshot conflictProject = AssertEx.NotNull(new AapProjectReader().Read(path).Value);
+        PlaybackArchiveSnapshot conflictPlayback = Playback(conflictProject, new[] { "A" }, new[] { "compiled A" });
+        ModWorkspaceManifest conflictWorkspace = Workspace(conflictProject, conflictPlayback);
+        var conflict = new CommandTimelineCompiler().Compile(conflictProject, conflictPlayback, conflictWorkspace,
+            Timeline(conflictProject, conflictWorkspace,
+                new CommandTimelineEntry(conflictProject.ScriptNodes.Single().Scenes.Single().Key,
+                    new[] { Command("#char;3;set;startX=-900;duration=0") })));
+        AssertEx.False(conflict.Success);
+        AssertEx.True(conflict.Error.Contains("official position transition", StringComparison.Ordinal), conflict.Error);
+    }
+
     public static void CanonicalizesCharacterTransformDirective()
     {
         var compiler = new CharacterTransformCommandFamilyCompiler();
@@ -119,10 +150,20 @@ internal static class CommandTimelineTests
             workspace,
             timeline);
 
-        AssertEx.False(result.Success);
+        // 2026-10-13 contract change (user decision): two enabled commands for one
+        // public slot compile into one batch in authored order; the queue sequences
+        // them. The fixture name still describes the superseded contract.
+        AssertEx.True(result.Success, result.Error);
+        PlaybackCommandBatch batch = AssertEx.NotNull(result.Value).Batches.Single();
+        AssertEx.Equal(2, batch.Commands.Count);
+        AssertEx.Equal(0, batch.Commands[0].Order);
+        AssertEx.Equal(1, batch.Commands[1].Order);
         AssertEx.True(
-            result.Error.Contains("more than one enabled command", StringComparison.Ordinal),
-            result.Error);
+            batch.Commands[0].CanonicalDirective.StartsWith("#char;3;move", StringComparison.Ordinal),
+            batch.Commands[0].CanonicalDirective);
+        AssertEx.True(
+            batch.Commands[1].CanonicalDirective.StartsWith("#char;3;set", StringComparison.Ordinal),
+            batch.Commands[1].CanonicalDirective);
     }
 
     public static void RejectsPositionCommandDuringOfficialPositionTransition()

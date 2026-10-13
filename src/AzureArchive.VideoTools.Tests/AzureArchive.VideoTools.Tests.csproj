@@ -12,6 +12,10 @@
 
   <ItemGroup>
     <Compile Include="..\AzureArchive.VideoTools\Runtime\PlayerAdvanceObservationWindow.cs" Link="Runtime\PlayerAdvanceObservationWindow.cs" />
+    <!-- Linked for the same reason: the slot queue is pure timing and must be
+         covered offline. A slot plan proves when a segment is placed, never when
+         it is handed back, so the queue itself has to be testable here. -->
+    <Compile Include="..\AzureArchive.VideoTools\Runtime\SlotActionQueueRuntime.cs" Link="Runtime\SlotActionQueueRuntime.cs" />
     <ProjectReference Include="..\AzureArchive.VideoTools.Core\AzureArchive.VideoTools.Core.csproj" />
     <ProjectReference Include="..\AzureArchive.VideoTools.Formats\AzureArchive.VideoTools.Formats.csproj" />
   </ItemGroup>

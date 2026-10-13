@@ -107,6 +107,8 @@ public sealed record ProjectSnapshot(
     IReadOnlyList<StoryNodeSnapshot> Nodes,
     IReadOnlyList<ProjectDiagnostic> Diagnostics)
 {
+    public AzureArchive.VideoTools.Core.Mapping.CompilationMappingEvidence? CompilationMapping { get; init; }
+
     public IEnumerable<StoryNodeSnapshot> ScriptNodes =>
         Nodes.Where(node => node.Kind == StoryNodeKind.Script);
 }

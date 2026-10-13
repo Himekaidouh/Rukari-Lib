@@ -187,6 +187,36 @@ internal static class SharedDirectiveCompilationTests
                 DirectiveCompilationBoundary.Continuous, 101, true));
     }
 
+    public static void WrapperBoundaryOffersTheNestedCaptureIdentityForAliasing()
+    {
+        var tracker = new AavtCompilationCaptureTracker();
+        // Nested boundaries of one compile share a CompilationId: the inner
+        // continuous boundary owns the AAVT lines, and the outer wrapper reports
+        // its own final official text afterwards.
+        EmbeddedDirectiveCompilationCapture inner = tracker.Capture(
+            41, "#aavt;char;3;set;x=10\r\n#voice;intro.ogg\r\n正文", "#voice;intro.ogg\r\n正文", true);
+        AssertEx.True(inner.Extraction.HasEmbeddedDirectives);
+        AssertEx.Equal(CommandIdentity.CompiledScript("#voice;intro.ogg\r\n正文"), inner.Identity);
+        AssertEx.Equal(string.Empty, inner.PreviousAavtIdentitySha256);
+
+        EmbeddedDirectiveCompilationCapture wrapper = tracker.Capture(
+            41, "#voice;intro.ogg\r\n正文", "正文", true);
+        AssertEx.False(wrapper.Extraction.HasEmbeddedDirectives);
+        AssertEx.False(wrapper.AavtSeenEarlierInCompilation);
+        AssertEx.Equal(CommandIdentity.CompiledScript("正文"), wrapper.Identity);
+        AssertEx.Equal(inner.Identity.Sha256, wrapper.PreviousAavtIdentitySha256);
+
+        var aliases = new EditorPreviewIdentityAliasMap();
+        AssertEx.True(aliases.Add(wrapper.Identity, wrapper.PreviousAavtIdentitySha256));
+        AssertEx.Equal(inner.Identity, aliases.Resolve(wrapper.Identity, new[] { inner.Identity }));
+
+        // A new top-level compile cannot inherit the previous row's identity.
+        EmbeddedDirectiveCompilationCapture next = tracker.Capture(
+            42, "#aavt;char;3;set;x=20\r\n正文", "正文", true);
+        AssertEx.Equal(string.Empty, next.PreviousAavtIdentitySha256);
+        AssertEx.True(next.Extraction.HasEmbeddedDirectives);
+    }
+
     public static void MixedFlCapturesReplaceOwnCanonicalCommandsAndPermitDeletion()
     {
         using var service = new EmbeddedDirectiveService(static () => true, static () => true, null);

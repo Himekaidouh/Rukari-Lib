@@ -273,12 +273,7 @@ public sealed class EditorPreviewLeaseGate
 
         string sceneIdentity = StableSceneIdentity(expected.Scene);
         EditorPreviewCommandPlan[] commands = commandsResult.Value.ToArray();
-        EditorPreviewResourceFootprintEntry[] entries = commands
-            .Select(command => new EditorPreviewResourceFootprintEntry(
-                command.Resource,
-                command.Fields,
-                command.DispatchMode))
-            .ToArray();
+        EditorPreviewResourceFootprintEntry[] entries = AggregateFootprintEntries(commands);
         var footprint = new EditorPreviewResourceFootprint(
             sceneIdentity,
             Array.AsReadOnly(entries));
@@ -407,10 +402,9 @@ public sealed class EditorPreviewLeaseGate
         var cameraCompiler = new SceneCameraCommandFamilyCompiler();
         var spineCompiler = new SpineOverlayCommandFamilyCompiler();
         var presetCompiler = new CharacterPresetCommandFamilyCompiler();
-        var resources = new HashSet<EditorPreviewResourceKey>();
         var commands = new EditorPreviewCommandPlan[directives.Count];
         int characterResourceCount = 0;
-        int cameraResourceCount = 0;
+        var cameraResources = new HashSet<EditorPreviewResourceKey>();
         int spineResourceCount = 0;
         int presetResourceCount = 0;
         for (int index = 0; index < directives.Count; index++)
@@ -498,15 +492,22 @@ public sealed class EditorPreviewLeaseGate
                         : EditorPreviewResourceKind.CharacterSlot,
                 normalized.PublicSlot,
                 spineTrack);
-            if (!resources.Add(resource))
-            {
-                return Result<IReadOnlyList<EditorPreviewCommandPlan>>.Fail(
-                    $"Editor preview directive {index} conflicts with another command resource.");
-            }
-
+            // 2026-10-13 contract change (docs/38 §9.3/§9.4): more than one directive may
+            // target the same resource in one scene. The authored order IS the queue
+            // order, so both plans are kept.
+            //
+            // The per-kind budget below is a RESOURCE budget for the camera, and a
+            // per-directive one for the other kinds. The camera layer editor stacks
+            // several effects inside one scope on purpose — that is what the layer is —
+            // and a scope is what the limit is about ("two independent camera scope
+            // resources"); counting its segments refused every three-effect camera row
+            // outright, which is how a stacked camera preview came back as
+            // EDITOR_PREVIEW_LEASE_REJECTED and left the scene where it was
+            // (docs/45 §7.8). The remaining kinds keep counting directives until their
+            // own layers can hold several effects.
             if (isCamera)
             {
-                cameraResourceCount++;
+                cameraResources.Add(resource);
             }
             else if (isSpine)
             {
@@ -541,7 +542,7 @@ public sealed class EditorPreviewLeaseGate
 
         if (presetResourceCount > 5
             || characterResourceCount > 5
-            || cameraResourceCount > 2
+            || cameraResources.Count > 2
             || spineResourceCount > SpineOverlayTracks.Last - SpineOverlayTracks.First + 1)
         {
             return Result<IReadOnlyList<EditorPreviewCommandPlan>>.Fail(
@@ -552,6 +553,49 @@ public sealed class EditorPreviewLeaseGate
 
         return Result<IReadOnlyList<EditorPreviewCommandPlan>>.Ok(
             Array.AsReadOnly(commands));
+    }
+
+    /// <summary>
+    /// One footprint entry per resource, in first-seen order.
+    /// <para>
+    /// The ordered command list may name the same resource more than once (2026-10-13
+    /// contract change, docs/38 §9.3/§9.4). The footprint is NOT the command list: it is
+    /// the resource-level snapshot the cleanup/re-apply planner validates and keys by
+    /// resource, so it stays resource-unique. The fields the directives touch are
+    /// unioned — every kind's fields live inside that kind's own group, so a union stays
+    /// a valid shape for <see cref="ValidateFootprint"/> — and a resource that is applied
+    /// immediately stays Immediate even when a later deferred directive also names it,
+    /// because the runtime only restores resources it applied immediately.
+    /// </para>
+    /// </summary>
+    private static EditorPreviewResourceFootprintEntry[] AggregateFootprintEntries(
+        IReadOnlyList<EditorPreviewCommandPlan> commands)
+    {
+        var order = new List<EditorPreviewResourceKey>();
+        var merged = new Dictionary<EditorPreviewResourceKey, EditorPreviewResourceFootprintEntry>();
+        foreach (EditorPreviewCommandPlan command in commands)
+        {
+            if (merged.TryGetValue(command.Resource, out EditorPreviewResourceFootprintEntry? existing))
+            {
+                merged[command.Resource] = existing with
+                {
+                    Fields = existing.Fields | command.Fields,
+                    DispatchMode = existing.DispatchMode == EditorPreviewDispatchMode.Immediate
+                        || command.DispatchMode == EditorPreviewDispatchMode.Immediate
+                            ? EditorPreviewDispatchMode.Immediate
+                            : existing.DispatchMode
+                };
+                continue;
+            }
+
+            merged[command.Resource] = new EditorPreviewResourceFootprintEntry(
+                command.Resource,
+                command.Fields,
+                command.DispatchMode);
+            order.Add(command.Resource);
+        }
+
+        return order.Select(key => merged[key]).ToArray();
     }
 
     private static Result<EditorPreviewResourceFields> FieldsFor(
@@ -642,8 +686,8 @@ public sealed class EditorPreviewLeaseGate
         EditorPreviewResourceFields characterFields = parsedCharacter.Operation switch
         {
             CharacterTransformOperation.Set =>
-                (parsedCharacter.X.HasValue ? EditorPreviewResourceFields.CharacterPositionX : 0)
-                | (parsedCharacter.Y.HasValue ? EditorPreviewResourceFields.CharacterPositionY : 0)
+                (parsedCharacter.X.HasValue || parsedCharacter.StartX.HasValue ? EditorPreviewResourceFields.CharacterPositionX : 0)
+                | (parsedCharacter.Y.HasValue || parsedCharacter.StartY.HasValue ? EditorPreviewResourceFields.CharacterPositionY : 0)
                 | (parsedCharacter.RotationDegrees.HasValue
                     ? EditorPreviewResourceFields.CharacterScreenRotation
                     : 0)
@@ -653,10 +697,10 @@ public sealed class EditorPreviewLeaseGate
                     ? EditorPreviewResourceFields.CharacterHorizontalFlip
                     : 0),
             CharacterTransformOperation.Move =>
-                (parsedCharacter.DeltaX.HasValue
+                (parsedCharacter.DeltaX.HasValue || parsedCharacter.StartX.HasValue
                     ? EditorPreviewResourceFields.CharacterPositionX
                     : 0)
-                | (parsedCharacter.DeltaY.HasValue
+                | (parsedCharacter.DeltaY.HasValue || parsedCharacter.StartY.HasValue
                     ? EditorPreviewResourceFields.CharacterPositionY
                     : 0)
                 | (parsedCharacter.DeltaRotationDegrees.HasValue

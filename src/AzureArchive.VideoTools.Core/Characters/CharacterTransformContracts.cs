@@ -1,3 +1,4 @@
+using AzureArchive.VideoTools.Core.Commands;
 using AzureArchive.VideoTools.Core.Results;
 
 namespace AzureArchive.VideoTools.Core.Characters;
@@ -42,11 +43,18 @@ public sealed record CharacterTransformCommand(
     int DurationMilliseconds,
     CharacterTransformEasing Easing)
 {
+    /// <summary>Optional absolute starting X/Y, applied immediately before this command's movement.</summary>
+    public float? StartX { get; init; }
+    public float? StartY { get; init; }
+
     /// <summary>Local X-axis pitch. The original RotationDegrees remains screen-space Z tilt.</summary>
     public float? RotationXDegrees { get; init; }
 
     /// <summary>Relative local X-axis pitch, independent of horizontal facing.</summary>
     public float? DeltaRotationXDegrees { get; init; }
+
+    /// <summary>Authored queue placement (<c>at=</c> / <c>interrupt=</c>).</summary>
+    public SlotActionPlacement Placement { get; init; } = SlotActionPlacement.None;
 }
 
 /// <summary>
@@ -72,7 +80,11 @@ public sealed record CharacterTransformTarget(
     bool RotationChanged,
     int DurationMilliseconds,
     CharacterTransformEasing Easing,
-    bool IsReset);
+    bool IsReset)
+{
+    /// <summary>When present, snap here before starting the position tween. Z is preserved.</summary>
+    public CharacterVector3? InitialPosition { get; init; }
+}
 
 public interface ICharacterTransformDirectiveParser
 {

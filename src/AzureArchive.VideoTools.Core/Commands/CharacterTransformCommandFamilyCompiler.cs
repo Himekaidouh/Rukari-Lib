@@ -64,8 +64,13 @@ public sealed class CharacterTransformCommandFamilyCompiler : ICommandFamilyComp
                     "Character transform operation is unsupported.");
         }
 
+        AddFloat(parts, "startX", command.StartX);
+        AddFloat(parts, "startY", command.StartY);
         parts.Add($"duration={command.DurationMilliseconds.ToString(CultureInfo.InvariantCulture)}");
         parts.Add($"easing={Easing(command.Easing)}");
+        // Only an authored placement is emitted, so every existing canonical
+        // directive stays byte-for-byte identical.
+        SlotActionPlacementParser.AppendCanonical(parts, command.Placement);
 
         return Result<CanonicalTimelineCommand>.Ok(new CanonicalTimelineCommand(
             CommandTypeId,

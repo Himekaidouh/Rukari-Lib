@@ -81,7 +81,8 @@ public sealed record OfficialProjectStorageBinding(
 }
 
 /// <summary>
-/// Recognizes only AA's existing direct projects/*.aap and projects/name or saves/name
+/// Recognizes AA's direct projects/*.aap or verified *.aap2 compatibility projections,
+/// and projects/name or saves/name
 /// resource layouts. Does not search ancestors, remember other projects or write game files.
 /// Native getters are deliberately absent; filesystem verification stays on the managed reader side.
 /// </summary>
@@ -134,8 +135,7 @@ public static class OfficialProjectStoragePaths
                             + $"; revision={paths.Revision}; projectLayoutRecognized={recognized}"
                             + $"; rootMatches={recognized && Same(root, projectRoot)}"
                             + $"; nameMatches={recognized && Same(name, projectName)}"
-                            + $"; projectFilePath='{DiagnosticPath(paths.ProjectFilePath)}'"
-                            + $"; resourceDirectory='{DiagnosticPath(paths.ResourceDirectory)}'");
+                            + $"; projectExtension='{Path.GetExtension(paths.ProjectFilePath)}'");
                 }
             }
             else if (paths.ProjectFilePath.Length != 0)
@@ -173,6 +173,15 @@ public static class OfficialProjectStoragePaths
                 return Fail("official-project-file-unavailable");
             if (playback && !File.Exists(aas))
                 return Fail("official-playback-file-unavailable");
+            if (!playback && paths.ProjectFilePath.Length != 0
+                && OfficialAapCompatibilityProjection.IsNativePath(paths.ProjectFilePath))
+            {
+                var projection = OfficialAapCompatibilityProjection.Resolve(paths.ProjectFilePath);
+                if (!projection.Success || projection.Value == null)
+                    return Result<OfficialProjectStorageBinding>.Fail(projection.Error);
+                if (!Same(aap, projection.Value.ProjectPath)) return Fail("aap2-projection-path-mismatch");
+                aap = projection.Value.ProjectPath;
+            }
             return Result<OfficialProjectStorageBinding>.Ok(new(paths.Revision, root, aap, aas, source));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
@@ -185,7 +194,8 @@ public static class OfficialProjectStoragePaths
     private static bool TryProjectLayout(string value, out string root, out string name)
     {
         root = name = string.Empty;
-        if (!TryAbsolute(value, out string full) || !Same(Path.GetExtension(full), ".aap")) return false;
+        if (!TryAbsolute(value, out string full)
+            || (!Same(Path.GetExtension(full), ".aap") && !OfficialAapCompatibilityProjection.IsNativePath(full))) return false;
         string? branch = Path.GetDirectoryName(full);
         if (branch == null || !Same(Path.GetFileName(branch), "projects")) return false;
         string? candidateRoot = Path.GetDirectoryName(branch);
@@ -221,16 +231,6 @@ public static class OfficialProjectStoragePaths
     }
 
     private static bool Same(string left, string right) => string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
-
-    // Keep path evidence on one bounded log line. It is diagnostic only and never
-    // relaxes the requirement that both official getters identify the same project.
-    private static string DiagnosticPath(string value)
-    {
-        const int maximumCharacters = 512;
-        string singleLine = value.Replace("\r", "\\r").Replace("\n", "\\n")
-            .Replace("\t", "\\t").Replace("'", "\\'");
-        return singleLine.Length <= maximumCharacters ? singleLine : singleLine[..maximumCharacters] + "...";
-    }
 
     private static Result<OfficialProjectStorageBinding> Fail(string reason) =>
         Result<OfficialProjectStorageBinding>.Fail("reason=" + reason);

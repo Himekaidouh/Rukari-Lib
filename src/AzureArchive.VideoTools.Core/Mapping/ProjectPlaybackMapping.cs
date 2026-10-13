@@ -9,7 +9,8 @@ public enum ScenePlaybackMappingStatus
     Unmapped = 0,
     UniqueDialogueTextMatch = 1,
     AnchoredNodeSequenceMatch = 2,
-    Ambiguous = 3
+    Ambiguous = 3,
+    ObservedCompilerRecordMatch = 4
 }
 
 public enum ProjectPlaybackMappingIssueSeverity
@@ -39,7 +40,8 @@ public sealed record ProjectPlaybackMappingReport(
 {
     public int UniqueMappingCount => Scenes.Count(
         scene => scene.Status is ScenePlaybackMappingStatus.UniqueDialogueTextMatch
-            or ScenePlaybackMappingStatus.AnchoredNodeSequenceMatch);
+            or ScenePlaybackMappingStatus.AnchoredNodeSequenceMatch
+            or ScenePlaybackMappingStatus.ObservedCompilerRecordMatch);
 }
 
 public interface IProjectPlaybackMapper
@@ -137,6 +139,28 @@ public sealed class ConservativeProjectPlaybackMapper : IProjectPlaybackMapper
             proposedStatuses,
             candidatesByScene);
 
+        string? evidenceError = null;
+        if (project.CompilationMapping is { } evidence)
+        {
+            Result validation = CompilationMappingEvidenceValidator.Validate(evidence, project, playback);
+            if (validation.Success)
+            {
+                var entries = evidence.Entries.ToDictionary(
+                    entry => $"{entry.Scene.NodeGuid}:{entry.Scene.SceneIndex}",
+                    StringComparer.OrdinalIgnoreCase);
+                for (int index = 0; index < scenes.Length; index++)
+                {
+                    SceneKey key = scenes[index].Scene.Key;
+                    if (!entries.TryGetValue($"{key.NodeGuid}:{key.SceneIndex}", out CompilationMappingEntry? entry))
+                        continue;
+                    // A captured export owns its mapping. Conflicting heuristic proposals cannot override it.
+                    proposedIndices[index] = entry.PlaybackRecordIndex;
+                    proposedStatuses[index] = ScenePlaybackMappingStatus.ObservedCompilerRecordMatch;
+                }
+            }
+            else evidenceError = validation.Error;
+        }
+
         int[] proposalClaimants = new int[records.Length];
         foreach (int recordIndex in proposedIndices.Where(index => index.HasValue)
                      .Select(index => index!.Value))
@@ -185,6 +209,10 @@ public sealed class ConservativeProjectPlaybackMapper : IProjectPlaybackMapper
             playback,
             mappings,
             unclaimed);
+        if (evidenceError != null)
+            issues = issues.Append(new ProjectPlaybackMappingIssue(
+                ProjectPlaybackMappingIssueSeverity.Warning,
+                "CompilerMappingEvidenceRejected", evidenceError)).ToArray();
 
         return Result<ProjectPlaybackMappingReport>.Ok(new ProjectPlaybackMappingReport(
             project.Source,
@@ -218,25 +246,30 @@ public sealed class ConservativeProjectPlaybackMapper : IProjectPlaybackMapper
                 continue;
             }
 
+            // 2026-10-13: the anchor is verified per record instead of per node.
+            // Requiring every row of the node to align let one extra record
+            // anywhere in the pair (a blank node's row, a synthetic continue
+            // record) invalidate the anchor for all of the node's rows. An
+            // empty-text row then lost its only candidate, and once such a row
+            // carried an enabled command the whole archive compile failed, so
+            // playback dispatched nothing at all. A row is still accepted only
+            // when its own target record carries exactly its own dialogue text,
+            // and an empty-text row still needs the unique offset this node
+            // supplied.
             int offset = offsets[0];
-            bool entireNodeMatches = nodeGroup.All(item =>
-            {
-                int expectedIndex = offset + item.Scene.Scene.Key.SceneIndex;
-                return expectedIndex >= 0
-                    && expectedIndex < records.Count
-                    && string.Equals(
-                        item.Scene.Scene.DialogueText,
-                        records[expectedIndex].TextJp,
-                        StringComparison.Ordinal);
-            });
-            if (!entireNodeMatches)
-            {
-                continue;
-            }
-
             foreach ((SourceScene scene, int flatIndex) in nodeGroup)
             {
                 int recordIndex = offset + scene.Scene.Key.SceneIndex;
+                if (recordIndex < 0
+                    || recordIndex >= records.Count
+                    || !string.Equals(
+                        scene.Scene.DialogueText,
+                        records[recordIndex].TextJp,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
                 if (!candidatesByScene[flatIndex].Contains(recordIndex))
                 {
                     candidatesByScene[flatIndex].Add(recordIndex);

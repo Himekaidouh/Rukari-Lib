@@ -1,5 +1,6 @@
 using System.Globalization;
 using AzureArchive.VideoTools.Core.Characters;
+using AzureArchive.VideoTools.Core.Commands;
 using AzureArchive.VideoTools.Core.Results;
 
 namespace AzureArchive.VideoTools.Core.Cameras;
@@ -7,7 +8,7 @@ namespace AzureArchive.VideoTools.Core.Cameras;
 public sealed class SceneCameraDirectiveParser : ISceneCameraDirectiveParser
 {
     private static readonly HashSet<string> CommonProperties = new(
-        new[] { "duration", "easing", "scope" },
+        new[] { "duration", "easing", "scope", SlotActionPlacementParser.AtKey, SlotActionPlacementParser.InterruptKey },
         StringComparer.OrdinalIgnoreCase);
 
     public Result<SceneCameraCommand> Parse(string directive)
@@ -67,8 +68,9 @@ public sealed class SceneCameraDirectiveParser : ISceneCameraDirectiveParser
         Result<int> duration = ParseDuration(properties);
         Result<CharacterTransformEasing> easing = ParseEasing(properties);
         Result<SceneCameraScope> scope = ParseScope(properties);
+        Result<SlotActionPlacement> placement = SlotActionPlacementParser.Parse(properties);
 
-        string? error = FirstError(x, y, deltaX, deltaY, zoom, deltaZoom, duration, easing, scope);
+        string? error = FirstError(x, y, deltaX, deltaY, zoom, deltaZoom, duration, easing, scope, placement);
         if (error != null)
         {
             return Result<SceneCameraCommand>.Fail(error);
@@ -83,7 +85,12 @@ public sealed class SceneCameraDirectiveParser : ISceneCameraDirectiveParser
             zoom.Value,
             deltaZoom.Value,
             duration.Value,
-            easing.Value) { Scope = scope.Value };
+            easing.Value)
+        {
+            Scope = scope.Value,
+            // FirstError already proved placement.Success, so the value exists.
+            Placement = placement.Value!
+        };
         Result validation = SceneCameraCommandValidator.Validate(command);
         return validation.Success
             ? Result<SceneCameraCommand>.Ok(command)
@@ -191,6 +198,7 @@ public sealed class SceneCameraDirectiveParser : ISceneCameraDirectiveParser
                 Result<int> intResult when !intResult.Success => intResult.Error,
                 Result<CharacterTransformEasing> easingResult when !easingResult.Success => easingResult.Error,
                 Result<SceneCameraScope> scopeResult when !scopeResult.Success => scopeResult.Error,
+                Result<SlotActionPlacement> placementResult when !placementResult.Success => placementResult.Error,
                 _ => null
             };
             if (error != null)

@@ -210,15 +210,20 @@ public sealed class ObservedSceneIdentityResolver :
 
         if (candidates.Count > 1)
         {
-            return Result<ObservedSceneIdentityResolution>.Ok(new ObservedSceneIdentityResolution(
-                ObservedSceneIdentityStatus.AmbiguousPlaybackScript,
-                null,
-                null,
-                candidates.AsReadOnly(),
-                false,
-                false,
-                false,
-                Array.Empty<ProjectPlaybackMappingIssue>()));
+            // Only callers with an actual playback row may disambiguate. Editor observations
+            // keep the default -1 and remain ambiguous even when the archive has mapping evidence.
+            if (identity.PlaybackRowIndex >= 0 && candidates.Contains(identity.PlaybackRowIndex))
+                candidates = new List<int> { identity.PlaybackRowIndex };
+            else
+                return Result<ObservedSceneIdentityResolution>.Ok(new ObservedSceneIdentityResolution(
+                    ObservedSceneIdentityStatus.AmbiguousPlaybackScript,
+                    null,
+                    null,
+                    candidates.AsReadOnly(),
+                    false,
+                    false,
+                    false,
+                    Array.Empty<ProjectPlaybackMappingIssue>()));
         }
 
         int recordIndex = candidates[0];

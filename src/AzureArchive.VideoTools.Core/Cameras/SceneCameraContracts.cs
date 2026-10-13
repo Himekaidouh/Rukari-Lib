@@ -1,4 +1,5 @@
 using AzureArchive.VideoTools.Core.Characters;
+using AzureArchive.VideoTools.Core.Commands;
 using AzureArchive.VideoTools.Core.Results;
 
 namespace AzureArchive.VideoTools.Core.Cameras;
@@ -29,6 +30,9 @@ public sealed record SceneCameraCommand(
 {
     // Keep the original positional constructor and deconstruction ABI.
     public SceneCameraScope Scope { get; init; } = SceneCameraScope.Overall;
+
+    /// <summary>Authored queue placement (<c>at=</c> / <c>interrupt=</c>).</summary>
+    public SlotActionPlacement Placement { get; init; } = SlotActionPlacement.None;
 }
 
 public readonly record struct SceneCameraState(float X, float Y, float Zoom)

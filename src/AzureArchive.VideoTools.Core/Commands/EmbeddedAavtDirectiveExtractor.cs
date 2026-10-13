@@ -45,7 +45,7 @@ public sealed record EmbeddedAavtExtraction(
 public sealed class EmbeddedAavtDirectiveExtractor
 {
     /// <summary>
-    /// Five character slots, five transient preset resources, two camera scope resources, and up to ten spine overlays — one per reserved
+    /// Five character slots, five transient presets, two camera scopes, and up to ten spine overlays — one per reserved
     /// track, so a card can drive several parts of one character at once.
     /// <para>
     /// A spine overlay is a resource of its own, keyed by the character slot <em>and</em> the track
@@ -133,7 +133,7 @@ public sealed class EmbeddedAavtDirectiveExtractor
         {
             errors.Add(
                 "A scene may contain at most five AAVT character directives, five transient presets, ten spine overlay "
-                + "directives and two independent camera scope directives.");
+                + "directives and two independent camera scopes.");
         }
 
         return new EmbeddedAavtExtraction(
@@ -232,21 +232,25 @@ public sealed class EmbeddedAavtDirectiveExtractor
             return;
         }
 
-        if (!occupiedResources.Add(CommandResourceIdentity.KeyFor(canonical.Value)))
+        // 2026-10-13: a second AAVT line for the same slot in one card is no longer an
+        // error for the slot families the queue schedules. `set` then `move`, or two
+        // `set`s, is a normal authoring shape; rejecting it here turned the whole
+        // embedded projection into `embedded-command-invalid`, so every command in the
+        // project disappeared from playback. The commands keep their line order and
+        // SlotActionQueuePlanner decides when each segment of that slot lands.
+        //
+        // The spine overlay is the one family that stays exclusive per track: the queue
+        // deliberately does not schedule spine tracks, so two plays on ONE track would
+        // silently overwrite each other instead of running in order.
+        if (string.Equals(
+                canonical.Value.CommandType,
+                SpineOverlayCommandFamilyCompiler.CommandTypeId,
+                StringComparison.Ordinal)
+            && !occupiedResources.Add(CommandResourceIdentity.KeyFor(canonical.Value)))
         {
             errors.Add(
-                string.Equals(
-                    canonical.Value.CommandType,
-                    SpineOverlayCommandFamilyCompiler.CommandTypeId,
-                    StringComparison.Ordinal)
-                    ? $"Line {lineNumber}: slot {canonical.Value.PublicSlot} already has an AAVT "
-                        + "spine overlay directive in this scene."
-                    : canonical.Value.CommandType == CharacterPresetCommandFamilyCompiler.CommandTypeId
-                        ? $"Line {lineNumber}: slot {canonical.Value.PublicSlot} already has an AAVT preset directive in this scene."
-                    : canonical.Value.CommandType == SceneCameraCommandFamilyCompiler.CommandTypeId
-                        ? $"Line {lineNumber}: this scene already has an AAVT camera directive for this scope."
-                        : $"Line {lineNumber}: slot {canonical.Value.PublicSlot} already has an AAVT "
-                            + "character directive in this scene.");
+                $"Line {lineNumber}: slot {canonical.Value.PublicSlot} already has an AAVT "
+                + "spine overlay directive on this track in this scene.");
             return;
         }
 

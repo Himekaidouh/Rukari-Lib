@@ -1,3 +1,4 @@
+using AzureArchive.VideoTools.Core.Commands;
 using Rukari.Lib.Editor;
 using Rukari.Lib;
 using Rukari.Lib.Tools;
@@ -13,10 +14,13 @@ internal static class MoreEffectsToolPage
         Stop();
         var tools = ModServices.Current?.GetService<IToolboxService>();
         if (tools?.Success != true || tools.Value == null) return;
-        // A hosted page: the shared panel draws the frame, the title, the close button and every input region, and
-        // this mod only fills the content rectangle with the editor's own controls. The page used to be a snapshot
-        // with one "打开画面编辑器" button, and the editor then built a second, competing panel of its own.
-        var result = tools.Value.RegisterHostedPage(
+        RegisterPages(tools.Value);
+    }
+
+    internal static void RegisterPages(IToolboxService tools)
+    {
+        // The editor stays in the drawer: it is tied to the selected line and to the story canvas beside it.
+        var result = tools.RegisterHostedPage(
             Plugin.Guid,
             "rukari.moreeffects.editor",
             "更多的画面效果",
@@ -28,12 +32,33 @@ internal static class MoreEffectsToolPage
         }
         else Plugin.Logger.LogWarning($"Visual editor tool page was not registered: {result.Error}");
 
-        // Only the editor and the preset group are public leaves. The group owns choosing an effect
-        // and returning from its parameters inside the same shared sheet.
-        var presets = tools.Value.RegisterHostedPage(Plugin.Guid,
-            "rukari.moreeffects.presets", "预设效果", new CharacterPresetGroupContent(), iconId: "wave");
-        if (presets.Success && presets.Value != null) Leases.Add(presets.Value);
-        else Plugin.Logger.LogWarning($"Character preset group was not registered: {presets.Error}");
+        // The preset page draws in its own movable window when the library publishes one, so it can stay on screen
+        // beside the editor instead of replacing it. Registration happens at load time, so a library without a
+        // window host — or one whose window could not be built — simply keeps the drawer page it has always had.
+        IDisposable? presets = RegisterToolPage(tools, Plugin.Guid + ".presets", "rukari.moreeffects.presets",
+            "预设效果", static () => new CharacterPresetGroupContent(), "wave");
+        if (presets is not null) Leases.Add(presets);
+    }
+
+    /// <summary>
+    /// One tool page of this mod: a standalone window when the installed library offers one, and the shared drawer
+    /// sheet otherwise. Both paths take the same content type, so nothing about the page itself changes, and a
+    /// library that cannot build the window says so at registration time rather than when the user clicks.
+    /// </summary>
+    private static IDisposable? RegisterToolPage(IToolboxService tools, string ownerId, string pageId,
+        string title, Func<IToolPanelContent> create, string iconId)
+    {
+        var windows = ModServices.Current?.GetService<IToolWindowService>();
+        if (windows?.Success == true && windows.Value is not null)
+        {
+            var window = windows.Value.RegisterWindow(ownerId, pageId, title, create(), iconId);
+            if (window.Success && window.Value is not null) return window.Value;
+            Plugin.Logger.LogWarning($"Tool window {pageId} was not registered: {window.Error}");
+        }
+        var page = tools.RegisterHostedPage(ownerId, pageId, title, create(), iconId);
+        if (page.Success) return page.Value;
+        Plugin.Logger.LogWarning($"Tool page {pageId} was not registered: {page.Error}");
+        return null;
     }
 
     internal static void Stop()

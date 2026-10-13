@@ -126,9 +126,18 @@ internal static class SceneCameraTests
             extracted.Commands[0].CanonicalDirective);
         AssertEx.Equal(0, extracted.Commands[0].PublicSlot);
 
+        // 2026-10-13 contract change (user decision): two camera commands of one scope
+        // are legal and keep their authored order; the queue runs them in sequence.
         EmbeddedAavtExtraction duplicate = extractor.Extract(
             "#aavt;camera;set;zoom=1.5\n#aavt;camera;move;dx=100");
-        AssertEx.Equal(1, duplicate.Errors.Count);
+        AssertEx.Equal(0, duplicate.Errors.Count);
+        AssertEx.Equal(2, duplicate.Commands.Count);
+        AssertEx.Equal(
+            "#camera;set;zoom=1.5;duration=0;easing=linear",
+            duplicate.Commands[0].CanonicalDirective);
+        AssertEx.Equal(
+            "#camera;move;dx=100;duration=0;easing=linear",
+            duplicate.Commands[1].CanonicalDirective);
     }
 
     public static void DispatchGateAllowsFiveSlotsAndOneCamera()

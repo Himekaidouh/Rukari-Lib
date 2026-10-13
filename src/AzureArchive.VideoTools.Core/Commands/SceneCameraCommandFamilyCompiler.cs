@@ -63,6 +63,7 @@ public sealed class SceneCameraCommandFamilyCompiler : ICommandFamilyCompiler
 
         parts.Add($"duration={command.DurationMilliseconds.ToString(CultureInfo.InvariantCulture)}");
         parts.Add($"easing={Easing(command.Easing)}");
+        SlotActionPlacementParser.AppendCanonical(parts, command.Placement);
         return Result<CanonicalTimelineCommand>.Ok(new(
             CommandTypeId,
             CapabilityId,

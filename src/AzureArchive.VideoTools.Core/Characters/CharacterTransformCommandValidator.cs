@@ -31,6 +31,8 @@ public static class CharacterTransformCommandValidator
         if (!AllFinite(
                 command.X,
                 command.Y,
+                command.StartX,
+                command.StartY,
                 command.DeltaX,
                 command.DeltaY,
                 command.RotationDegrees,
@@ -72,6 +74,8 @@ public static class CharacterTransformCommandValidator
 
         if (!command.X.HasValue
             && !command.Y.HasValue
+            && !command.StartX.HasValue
+            && !command.StartY.HasValue
             && !command.RotationDegrees.HasValue
             && !command.RotationXDegrees.HasValue
             && !command.FlipX.HasValue)
@@ -84,6 +88,11 @@ public static class CharacterTransformCommandValidator
 
     private static Result ValidateMove(CharacterTransformCommand command)
     {
+        if ((command.StartX.HasValue || command.StartY.HasValue)
+            && !command.DeltaX.HasValue && !command.DeltaY.HasValue)
+        {
+            return Result.Fail("A relative move with an explicit start must contain dx or dy.");
+        }
         if (command.X.HasValue
             || command.Y.HasValue
             || command.RotationDegrees.HasValue
@@ -108,6 +117,8 @@ public static class CharacterTransformCommandValidator
     {
         if (command.X.HasValue
             || command.Y.HasValue
+            || command.StartX.HasValue
+            || command.StartY.HasValue
             || command.DeltaX.HasValue
             || command.DeltaY.HasValue
             || command.RotationDegrees.HasValue
