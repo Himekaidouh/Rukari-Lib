@@ -39,6 +39,8 @@ internal sealed record PlayerCommandObservationOptions(
     bool ContinueDialogueEnabled,
     bool PreviewCameraChainEnabled)
 {
+    public bool ActionTimelineEnabled { get; init; } = true;
+
     public static PlayerCommandObservationOptions Bind(ConfigFile config)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -161,6 +163,10 @@ internal sealed record PlayerCommandObservationOptions(
             dialogueFlowProbeEnabled.Value,
             dialogueFlowProbeContentEnabled.Value,
             continueDialogueEnabled.Value,
-            previewCameraChainEnabled.Value);
+            previewCameraChainEnabled.Value)
+        {
+            ActionTimelineEnabled = config.Bind("PlayerCommandObservation", "ActionTimelineEnabled", true,
+                "Join finite AAVT actions to the official dialogue animation list. Parallel actions wait for the longest duration; until-next-dialogue loops never block. Restart required.").Value
+        };
     }
 }

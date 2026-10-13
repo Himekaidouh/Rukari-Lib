@@ -39,12 +39,25 @@ internal static class PlayerCommandObservationRuntime
         "AAVT：已保存但尚未构建，播放指令暂不生效；构建后自动恢复。";
     private static readonly ConcurrentQueue<long> PrefixOnlyEvents = new();
     private static readonly Queue<DeferredCommandBatch> DeferredBatches = new();
+    // Slot timeline: the second and later action of one slot waits for its start
+    // time instead of overwriting the first one in the same frame. Keyed by the
+    // advance window sequence, which both the enqueue point and the hold's release
+    // path carry; the retained authorization is what lets a later segment land
+    // without asking the dispatch gate for a second window.
+    private static readonly SlotActionQueueRuntime SegmentQueue = new();
+    private static readonly Dictionary<long, PendingSegmentContext> SegmentContexts = new();
+    // Editor previews queue their continuation segments in the SAME queue, under their
+    // own window sequence, but keep a preview-shaped context: a preview segment lands
+    // through the preview applier and must revalidate the lease it was authorized by,
+    // because the author can click another row before it comes due.
+    private static readonly Dictionary<long, PendingPreviewSegmentContext> PreviewSegmentContexts = new();
     private static readonly Queue<DeferredEditorPreview> DeferredEditorPreviews = new();
     private static readonly Queue<PendingEmbeddedPreview> PendingEmbeddedPreviews = new();
     private static readonly IPlaybackCommandWindowObserver WindowObserver =
         new PlaybackCommandWindowObserver();
     private static readonly CharacterTransformDirectiveParser CharacterParser = new();
     private static readonly EditorPreviewLeaseGate EditorPreviewGate = new();
+    private static readonly PlaybackAdvanceDispatchGate PlaybackAdvanceGate = new();
     private static PlayerCommandObservationOptions? _options;
     private static Task<ObservationIndexLoadResult>? _indexLoadTask;
     private static IPlaybackCommandIndex? _index;
@@ -122,6 +135,75 @@ internal static class PlayerCommandObservationRuntime
     private static ActiveEditorPreview? _activeEditorPreview;
     private static PlayerRuntimeMode _lastObservedPlayerMode = PlayerRuntimeMode.Unavailable;
     private static long _lastPresetSelectionGeneration;
+    // A cold saved index may finish after the first real advance. Retain only
+    // the window that still owns an official action hold, never arbitrary old rows.
+    private static ClosedAdvanceWindow? _pendingTimelineWindow;
+
+    internal static bool ActionTimelineEnabled => _options is
+        { Stage: PlayerCommandObservationStage.SceneCommandDispatch, SceneCommandDispatchEnabled: true, ActionTimelineEnabled: true }
+        && _embeddedEditorCommandsRuntimeReady;
+
+    internal static ActionTimelinePlan? GetTimelinePlan(string script, int row, bool preview)
+    {
+        IReadOnlyList<string>? directives = null;
+        if (preview)
+        {
+            if (EmbeddedEditorDirectiveCache.TryMatch(new[] { script }, out var cached, out _, out _)
+                && cached is { IsValid: true }) directives = cached.CanonicalDirectives;
+            else return new(false, 0);
+        }
+        else
+        {
+            if (_index == null || !ActiveProjectPairSource.IsStorageRevisionCurrent(_indexStorageRevision)) return null;
+            // 2026-10-13: the row read from the live player is the fallback when
+            // the scenario script cannot be read at all (the official ScriptKr
+            // getter throws a native NullReferenceException when called a second
+            // time from this postfix). The row-only policy is the same fail-closed
+            // rule the dispatcher already uses for windows that carry no managed
+            // identity: it arms only when that exact row holds one batch.
+            var matched = script.Length == 0 && row >= 0
+                ? PlaybackAdvanceDispatchPolicy.ObserveEmptyFormalRow(_index, row)
+                : PlaybackAdvanceDispatchPolicy.ObserveExactRow(_index, new[] { script }, row);
+            if (!matched.Success || matched.Value?.Batch == null) return new(false, 0);
+            directives = matched.Value.Batch.Commands.Select(command => command.CanonicalDirective).ToArray();
+        }
+        // The hold must cover the whole slot queue, not just the longest single
+        // action: two queued 600 ms segments on one slot finish at 1200 ms. Taking
+        // the maximum with ParallelDuration can only ever extend the hold, so a
+        // non-queueable duration (the spine overlay stays outside this gate) is
+        // never shortened by queueing.
+        var duration = ActionTimelineTiming.ParallelDuration(directives);
+        if (!duration.Success)
+        {
+            return new(false, 0);
+        }
+
+        return new(directives.Count > 0, PlannedSecondsOf(directives));
+    }
+
+    /// <summary>
+    /// The planned length of one row, in seconds: the longest single action extended by the
+    /// slot queue's own end. 2026-10-13: both the arm-time plan and the delivery-time hold
+    /// use this one rule, because a row armed before its index existed has no plan yet — and
+    /// without the delivery-time call a gap offset collapsed, so a camera segment of 300 ms
+    /// with <c>at=1500</c> released at +303 ms and jumped to the tail endpoint instead of
+    /// pausing.
+    /// </summary>
+    private static double PlannedSecondsOf(IReadOnlyList<string> canonicalDirectives)
+    {
+        Result<double> duration = ActionTimelineTiming.ParallelDuration(canonicalDirectives);
+        if (!duration.Success)
+        {
+            return 0d;
+        }
+
+        double seconds = duration.Value;
+        Result<SlotActionQueuePlan> queued =
+            SlotActionQueuePlanner.PlanDirectives(canonicalDirectives);
+        return queued.Success && queued.Value != null
+            ? Math.Max(seconds, queued.Value.TotalMs / 1000d)
+            : seconds;
+    }
 
     internal static void StopCharacterPresets(string reason) =>
         Plugin.Host.CharacterPresetsInternal.StopAll(reason);
@@ -223,6 +305,8 @@ internal static class PlayerCommandObservationRuntime
         {
             PlayerManagedUnityLogObservationProbe.Install();
         }
+        if (_options.Stage == PlayerCommandObservationStage.SceneCommandDispatch)
+            PlayerActionTimelineRuntime.Install();
 
         Plugin.Logger.LogWarning(
             $"Player command observation candidate enabled: stage={_options.Stage}; "
@@ -540,10 +624,18 @@ internal static class PlayerCommandObservationRuntime
             _updateStage = "pending-embedded-previews";
             ManagedUnityLogSelectionProbe.PumpOnMainThread();
             ConsumeIndexReloadRequest(options.Stage, update);
+            // 2026-10-13: a hold the next row's arm replaced is closed here — after any
+            // reload has had its say about which queues still exist, and before this frame
+            // dispatches anything (preview or playback). Its remaining queued segments then
+            // land as the end state the new row inherits, instead of drifting into the new
+            // row's timeline and overwriting it.
+            _updateStage = "superseded-flush";
+            PlayerActionTimelineRuntime.FlushSuperseded();
             DrainPendingEmbeddedPreviews(options.Stage, update);
             DrainPrefixOnlyEvents(options.Stage);
             _updateStage = "index-load";
             StartOrConsumeIndexLoad(options, update);
+            DrainPendingTimelineWindow(options.Stage, update);
             StartOrConsumeChainSourceLoad(options);
             _updateStage = "live-chain";
             RefreshLiveChainSource(options);
@@ -616,8 +708,12 @@ internal static class PlayerCommandObservationRuntime
                 options.Stage,
                 update,
                 ManagedDispatchPhase.LateUpdate);
+            // Before the action hold's own tick: a segment that came due in this
+            // frame must extend the hold before the hold can finish the row.
+            DrainQueuedSegments(options.Stage);
             Plugin.Host.CharacterPresetsInternal.LateUpdate();
             Plugin.Host.ScopedSceneCameraCommandsInternal.UpdateOnMainThread();
+            PlayerActionTimelineRuntime.TickAfterRendering();
             ContinueDialogueRuntime.UpdateTick();
         }
         catch (Exception ex)
@@ -649,6 +745,15 @@ internal static class PlayerCommandObservationRuntime
         DeferredBatches.Clear();
         DeferredEditorPreviews.Clear();
         PendingEmbeddedPreviews.Clear();
+        // 2026-10-13: the pending timeline window deliberately survives a reload.
+        // It is the only receipt that lets a row entered before the index existed
+        // still receive its commands, and the row it belongs to is normally still
+        // current. Dropping it here is what made the first played row of a session
+        // lose every command in silence: the auto project discovery binds the pair
+        // ON that row and requests this very reload, so the hold was released two
+        // milliseconds after it was set. DrainPendingTimelineWindow re-validates
+        // owner, row, call chain, storage revision and index presence before it
+        // dispatches or drops the window, and now reports which one it did.
         _index = null;
         _indexStorageRevision = -1;
         _indexLoadTask = null;
@@ -673,6 +778,9 @@ internal static class PlayerCommandObservationRuntime
         _chainOnlyEnqueuedGenerationId = 0;
         _lastAuthorizedLeaseUpdate = -1;
         _lastAuthorizedLeaseGeneration = -1;
+        // A reload discards the index the queued segments were planned against, so
+        // their retained authorizations are stale too.
+        ClearQueuedSegments();
         ApiResult<bool> pendingsCleared =
             Plugin.Api.CharacterCommands.ClearSlotPendings();
         PlayerCommandObservationLog.Append(
@@ -978,8 +1086,7 @@ internal static class PlayerCommandObservationRuntime
     private static void StartOrConsumeChainSourceLoad(
         PlayerCommandObservationOptions options)
     {
-        if (options.Stage != PlayerCommandObservationStage.SceneCommandDispatch
-            || !options.PreviewChainEnabled)
+        if (options.Stage != PlayerCommandObservationStage.SceneCommandDispatch)
         {
             return;
         }
@@ -1049,7 +1156,7 @@ internal static class PlayerCommandObservationRuntime
     /// </summary>
     private static void RefreshLiveChainSource(PlayerCommandObservationOptions options)
     {
-        if (!options.PreviewChainEnabled || !options.LiveEditorChainEnabled)
+        if (!options.LiveEditorChainEnabled)
         {
             return;
         }
@@ -1178,6 +1285,65 @@ internal static class PlayerCommandObservationRuntime
             new PreviewCameraChainResolver(project)));
     }
 
+    private static void DrainPendingTimelineWindow(PlayerCommandObservationStage stage, long update)
+    {
+        if (_pendingTimelineWindow is not { } pending) return;
+        // 2026-10-13: this is the only thing that can still deliver a row whose
+        // commands arrived before the index did, so both of its outcomes are
+        // reported. It used to drop the retained window in complete silence, which
+        // is how the first played row of a session lost every command unremarked.
+        if (PendingTimelineDropReason(pending) is { } dropped)
+        {
+            PlayerActionTimelineRuntime.ReleaseUnclaimed(pending.Sequence);
+            _pendingTimelineWindow = null;
+            PlayerCommandObservationLog.Append(
+                $"{Stamp()} pending-timeline dropped; sequence={pending.Sequence}; "
+                + $"reason={dropped}; writes=false");
+            return;
+        }
+        if (_index == null)
+        {
+            if (_lastFailedIndexLoadSignature != null)
+            {
+                PlayerActionTimelineRuntime.ReleaseUnclaimed(pending.Sequence);
+                _pendingTimelineWindow = null;
+                PlayerCommandObservationLog.Append(
+                    $"{Stamp()} pending-timeline dropped; sequence={pending.Sequence}; "
+                    + "reason=index-load-failed; writes=false");
+            }
+            return;
+        }
+        _pendingTimelineWindow = null;
+        var lines = new List<string>();
+        ObserveWindow(stage, update, pending, Plugin.Api.PlayerContext.ReadOnMainThread(), lines);
+        ReleaseUnqueuedTimeline(pending.Sequence);
+        lines.Insert(
+            0,
+            $"{Stamp()} pending-timeline resumed; sequence={pending.Sequence}; stage={stage}");
+        if (lines.Count != 0) PlayerCommandObservationLog.Append(lines);
+    }
+
+    /// <summary>
+    /// Names why a retained window can no longer be delivered, or null when it still
+    /// can. The wording matches the runtime's own <c>owner-or-row-changed</c> release.
+    /// </summary>
+    private static string? PendingTimelineDropReason(ClosedAdvanceWindow pending)
+    {
+        if (pending.CallChainState?.Aborted == true) return "call-chain-aborted";
+        if (!pending.BelongsToStorage(ActiveProjectPairSource.StorageRevision)) return "storage-changed";
+        if (!PlayerActionTimelineRuntime.CanResume(pending.Sequence)) return "owner-or-row-changed";
+        return null;
+    }
+
+    private static void ReleaseUnqueuedTimeline(long sequence)
+    {
+        if (_pendingTimelineWindow?.Sequence == sequence
+            || DeferredBatches.Any(batch => batch.WindowSequence == sequence)
+            || DeferredEditorPreviews.Any(preview => preview.WindowSequence == sequence)
+            || PendingEmbeddedPreviews.Any(preview => preview.WindowSequence == sequence)) return;
+        PlayerActionTimelineRuntime.ReleaseUnclaimed(sequence);
+    }
+
     private static void DrainClosedWindows(
         PlayerCommandObservationStage stage,
         long update)
@@ -1218,6 +1384,7 @@ internal static class PlayerCommandObservationRuntime
             }
 
             ObserveWindow(stage, update, window, contextResult, lines);
+            ReleaseUnqueuedTimeline(window.Sequence);
         }
 
         if (lines.Count != 0)
@@ -1383,7 +1550,8 @@ internal static class PlayerCommandObservationRuntime
             $"{Stamp()} advance-window sequence={window.Sequence}; close={window.CloseReason}; "
             + $"managedUnityStrings={window.ManagedUnityMessages.Count}; "
             + $"rejectedStrings={window.RejectedMessageCount}; overflow={window.CaptureOverflowed}; "
-            + $"playbackRow={window.PlaybackRowIndex}; rowReadBefore={window.PlaybackRowReadBefore}");
+            + $"playbackRow={window.PlaybackRowIndex}; rowReadBefore={window.PlaybackRowReadBefore}; "
+            + $"callChain={window.CallChainId}");
         TrackObservedWindowSequence(window);
 
         if (stage is PlayerCommandObservationStage.PlaybackContextProbe
@@ -1419,9 +1587,30 @@ internal static class PlayerCommandObservationRuntime
 
         if (admission == AdvanceWindowAdmission.Reject)
         {
+            // 2026-10-13: the conflict reason has to name which capture rule refused
+            // the second parsed input, or the log cannot tell a different compiled
+            // script from a different playback row. The admission decision, and with
+            // it the accept/reject outcome, is untouched. A conflict with no recorded
+            // branch keeps reporting the original string.
+            string rejectReason = !window.EmbeddedCommandConflict
+                ? "invalid-window"
+                : window.EmbeddedCommandConflictBranch.Length == 0
+                    ? "conflicting-embedded-command-captures"
+                    : $"conflicting-embedded-command-captures:{window.EmbeddedCommandConflictBranch}";
             lines.Add(
                 $"{Stamp()} observation sequence={window.Sequence}; status=FAIL_CLOSED; "
-                + $"reason={(window.EmbeddedCommandConflict ? "conflicting-embedded-command-captures" : "invalid-window")}");
+                + $"reason={rejectReason}");
+            if (window.EmbeddedCommandConflictDetail.Length != 0)
+            {
+                // The window builds the field list (it cannot do I/O: the file is linked
+                // standalone into the test host) and this line lands it, with the branch,
+                // both identities and both rows, next to the rejection it explains.
+                lines.Add(
+                    $"{Stamp()} advance-window-conflict sequence={window.Sequence}; "
+                    + $"{window.EmbeddedCommandConflictDetail}; "
+                    + "action=REFUSE_SECOND_PARSED_INPUT; dispatch=unchanged");
+            }
+
             return;
         }
 
@@ -1431,18 +1620,6 @@ internal static class PlayerCommandObservationRuntime
                 "Player.AdvanceObservationWindow",
                 "zero-argument Prefix/Postfix window reached managed Update");
             return;
-        }
-
-        // A valid playback boundary ends temporary effects even if this row has
-        // no directives, no visible dialogue, or no saved command index. This
-        // grants cleanup only; it does not authorize any new command execution.
-        if (stage == PlayerCommandObservationStage.SceneCommandDispatch
-            && admission == AdvanceWindowAdmission.Standard
-            && contextResult is { Success: true, Value.Mode: PlayerRuntimeMode.Playback })
-        {
-            Plugin.Host.CharacterPresetsInternal.ObservePlaybackDialogueBoundary(
-                window.Sequence, window.PlaybackRowReadBefore, window.PlaybackRowIndex,
-                window.ManagedUnityMessages.Count);
         }
 
         // An unsaved editor lease is authoritative for this exact selection,
@@ -1459,12 +1636,23 @@ internal static class PlayerCommandObservationRuntime
             return;
         }
 
+        // Saved playback has no editor lease. An overlapping empty-dialogue
+        // window can still carry the exact compiled identity for its captured
+        // row. Overlaps require that exact row; completed windows retain their
+        // existing identity matching. Both use only the saved index and consume
+        // sibling captures once per admitted call chain.
+        if (TryHandleFormalPlaybackWindow(
+                stage, update, window, contextResult, admission, lines))
+        {
+            return;
+        }
+
         if (admission == AdvanceWindowAdmission.SupersededLeaseOnly)
         {
-            // A superseded window that carried an identity the authoritative
-            // lease did not claim stays a no-op: the cached, embedded-batch,
-            // chain-only and project-index fallbacks keep requiring a completed
-            // window, so one cascade can never dispatch twice through them.
+            // A superseded window not claimed by an authoritative preview
+            // lease or exact saved-playback row remains a no-op. The cached,
+            // embedded-batch, chain-only and preview project-index fallbacks
+            // still require a completed window.
             lines.Add(
                 $"{Stamp()} observation sequence={window.Sequence}; status=FAIL_CLOSED; "
                 + "reason=superseded-window-without-lease-claim; action=NO_OP");
@@ -1603,6 +1791,115 @@ internal static class PlayerCommandObservationRuntime
             lines,
             "SIDECAR_OR_PROJECT",
             contextResult?.Value?.PreviewMode == true);
+    }
+
+    private static bool TryHandleFormalPlaybackWindow(
+        PlayerCommandObservationStage stage,
+        long update,
+        ClosedAdvanceWindow window,
+        ApiResult<PlayerRuntimeContextSnapshot>? contextResult,
+        AdvanceWindowAdmission admission,
+        ICollection<string> lines)
+    {
+        if (stage != PlayerCommandObservationStage.SceneCommandDispatch
+            || contextResult is not { Success: true, Value.Mode: PlayerRuntimeMode.Playback })
+        {
+            return false;
+        }
+
+        TryDiscoverPairFromPlaybackWindow(contextResult, window, lines);
+        string observationSource = admission == AdvanceWindowAdmission.SupersededLeaseOnly
+            ? "SAVED_PLAYBACK_EXACT_ROW" : "SAVED_PLAYBACK_COMPLETED";
+        IPlaybackCommandIndex? index = _index;
+        if (index == null)
+        {
+            if (PlayerActionTimelineRuntime.CanResume(window.Sequence))
+            {
+                _pendingTimelineWindow = window;
+                lines.Add($"{Stamp()} observation sequence={window.Sequence}; status=INDEX_PENDING_ACTION_HOLD; action=DEFER_CURRENT_ROW");
+                return true;
+            }
+            ObserveFormalPlaybackBoundary(window, admission, callChainClaim: null);
+            lines.Add($"{Stamp()} observation sequence={window.Sequence}; status=NO_INDEX; action=NO_OP");
+            return true;
+        }
+
+        bool hasNoManagedIdentity = window.ManagedUnityMessages.Count == 0;
+        Result<PlaybackAdvanceObservation> observed = hasNoManagedIdentity
+            ? PlaybackAdvanceDispatchPolicy.ObserveEmptyFormalRow(index, window.PlaybackRowIndex)
+            : admission == AdvanceWindowAdmission.SupersededLeaseOnly
+                ? PlaybackAdvanceDispatchPolicy.ObserveExactRow(index, window.ManagedUnityMessages, window.PlaybackRowIndex)
+                : PlaybackAdvanceDispatchPolicy.ObserveCompleted(index, window.ManagedUnityMessages, window.PlaybackRowIndex);
+        if (!observed.Success || observed.Value == null)
+        {
+            ObserveFormalPlaybackBoundary(window, admission, callChainClaim: null);
+            lines.Add($"{Stamp()} observation sequence={window.Sequence}; status=FAIL_CLOSED; "
+                + $"reason={Escape(observed.Error)}; action=NO_OP; source={observationSource}");
+            return true;
+        }
+
+        PlaybackAdvanceObservation match = observed.Value;
+        if (hasNoManagedIdentity)
+        {
+            lines.Add($"{Stamp()} observation sequence={window.Sequence}; "
+                + $"status={(match.Status == PlaybackCommandWindowObservationStatus.CommandBatch
+                    ? "EMPTY_FORMAL_ROW_FALLBACK" : match.Status.ToString())}; "
+                + $"row={window.PlaybackRowIndex}; action={(match.Batch == null ? "NO_OP" : StageAction(stage))}; "
+                + "source=SAVED_PLAYBACK_RECORD_INDEX");
+        }
+        if (match.Status is not (PlaybackCommandWindowObservationStatus.CommandBatch
+                or PlaybackCommandWindowObservationStatus.OrdinaryRecord))
+        {
+            ObserveFormalPlaybackBoundary(window, admission, callChainClaim: null);
+            lines.Add($"{Stamp()} observation sequence={window.Sequence}; status={match.Status}; "
+                + $"row={window.PlaybackRowIndex}; action=NO_OP; source={observationSource}");
+            return true;
+        }
+
+        Result<bool> claimed = PlaybackAdvanceGate.TryClaim(
+            window.CallChainId, window.StorageRevision, index, match);
+        if (!claimed.Success || !claimed.Value)
+        {
+            lines.Add($"{Stamp()} observation sequence={window.Sequence}; "
+                + $"status={(claimed.Success ? "PLAYBACK_CALL_CHAIN_DUPLICATE" : "FAIL_CLOSED")}; "
+                + $"reason={Escape(claimed.Success ? "same-row-already-consumed-in-call-chain" : claimed.Error)}; "
+                + $"callChain={window.CallChainId}; row={window.PlaybackRowIndex}; action=NO_OP");
+            return true;
+        }
+
+        // Claim before cleanup: a completed sibling for the same row must not
+        // move the preset watermark past an overlapping sibling queued earlier.
+        ObserveFormalPlaybackBoundary(window, admission, callChainClaim: true);
+
+        lines.Add($"{Stamp()} observation sequence={window.Sequence}; status={match.Status}; "
+            + $"row={window.PlaybackRowIndex}; callChain={window.CallChainId}; "
+            + $"action={(match.Batch == null ? "NO_OP" : StageAction(stage))}; source={observationSource}");
+        if (match.Status == PlaybackCommandWindowObservationStatus.CommandBatch && match.Batch != null)
+        {
+            HandleObservedBatch(stage, update, window.Sequence, match.Batch, lines,
+                admission == AdvanceWindowAdmission.SupersededLeaseOnly
+                    ? "SIDECAR_OR_PROJECT_OVERLAP" : "SIDECAR_OR_PROJECT",
+                previewMode: false);
+        }
+        // Ordinary rows have no managed command batch to dispatch.
+
+        return true;
+    }
+
+    private static void ObserveFormalPlaybackBoundary(
+        ClosedAdvanceWindow window,
+        AdvanceWindowAdmission admission,
+        bool? callChainClaim)
+    {
+        if (!PlaybackAdvanceDispatchPolicy.ShouldObserveBoundary(
+                admission == AdvanceWindowAdmission.Standard, callChainClaim))
+        {
+            return;
+        }
+
+        Plugin.Host.CharacterPresetsInternal.ObservePlaybackDialogueBoundary(
+            window.Sequence, window.PlaybackRowReadBefore, window.PlaybackRowIndex,
+            window.ManagedUnityMessages.Count);
     }
 
     private static bool TryHandleEditorPreviewLease(
@@ -2076,7 +2373,8 @@ internal static class PlayerCommandObservationRuntime
                 batch,
                 chain,
                 applyResolvedChain,
-                chainGenerationId));
+                chainGenerationId,
+                previewMode ? PlayerRuntimeMode.EditorPreview : PlayerRuntimeMode.Playback));
             string eventName = stage switch
             {
                 PlayerCommandObservationStage.QueueNoOp => "QUEUED_NO_OP",
@@ -2788,7 +3086,7 @@ internal static class PlayerCommandObservationRuntime
                     RuntimeEditorPreviewResourceKind.Character,
                     publicSlot)
             };
-            if (kind == EditorPreviewCommandKind.Camera)
+            if (kind is EditorPreviewCommandKind.Camera)
             {
                 if (!resourceSet.Add(resource))
                 {
@@ -2871,6 +3169,7 @@ internal static class PlayerCommandObservationRuntime
                 lines.Add(
                     $"{Stamp()} editor-preview-dispatch status=DROP; sequence={queued.WindowSequence}; "
                     + $"reason={Escape(context.Success ? drift : context.Error)}; writes=false");
+                PlayerActionTimelineRuntime.ReleaseUnclaimed(queued.WindowSequence);
                 continue;
             }
 
@@ -2885,15 +3184,32 @@ internal static class PlayerCommandObservationRuntime
 
     private static void DispatchEditorPreview(
         DeferredEditorPreview queued,
-        ICollection<string> lines)
+        ICollection<string> lines,
+        PendingPreviewSegmentContext? continuation = null)
     {
         EmbeddedEditorPreviewLease lease = queued.Lease;
-        // Authority was revalidated immediately before entering this method.
-        // Replaying the same selection starts from the current unmodified pose.
-        Plugin.Host.CharacterPresetsInternal.ObserveDialogueBoundary(
-            queued.WindowSequence, "authoritative-preview-dialogue");
-        Plugin.Host.CharacterPresetsInternal.StopAll("authoritative-preview-replay");
-        ActiveEditorPreview? previous = _activeEditorPreview;
+        bool isContinuation = continuation != null;
+        using var delivery = PlayerActionTimelineRuntime.BeginDelivery(
+            queued.WindowSequence,
+            PlannedSecondsOf(queued.Commands
+                .Select(command => command.CanonicalDirective)
+                .ToArray()));
+        if (!isContinuation)
+        {
+            // Authority was revalidated immediately before entering this method.
+            // Replaying the same selection starts from the current unmodified pose.
+            // A continuation segment belongs to that same replay and must NOT reset the
+            // pose the first segment is still animating from.
+            Plugin.Host.CharacterPresetsInternal.ObserveDialogueBoundary(
+                queued.WindowSequence, "authoritative-preview-dialogue");
+            Plugin.Host.CharacterPresetsInternal.StopAll("authoritative-preview-replay");
+        }
+
+        // A continuation never re-runs the previous-preview cleanup, the chain apply or
+        // the inherited camera start: it is the same preview, still in progress. Keeping
+        // the body below byte-identical is what makes the first segment's behaviour
+        // exactly the behaviour it had before the queue existed.
+        ActiveEditorPreview? previous = isContinuation ? null : _activeEditorPreview;
         bool sameScene = previous != null
             && string.Equals(
                 previous.SceneIdentity,
@@ -2930,9 +3246,11 @@ internal static class PlayerCommandObservationRuntime
             _activeEditorPreview = null;
         }
 
-        PreviewChainResolution? chain = TryResolveEditorPreviewChain(lease, queued.Commands, lines);
+        PreviewChainResolution? chain = isContinuation
+            ? continuation!.Chain
+            : TryResolveEditorPreviewChain(lease, queued.Commands, lines);
         var chainApply = PreviewChainApplyResult.Empty;
-        if (chain != null)
+        if (chain != null && !isContinuation)
         {
             chainApply = ApplyPreviewChainSlots(
                 queued.WindowSequence,
@@ -2953,6 +3271,20 @@ internal static class PlayerCommandObservationRuntime
         }
 
         var activeResources = new HashSet<EditorPreviewResource>();
+        if (isContinuation
+            && _activeEditorPreview != null
+            && string.Equals(
+                _activeEditorPreview.SceneIdentity,
+                lease.StableSceneIdentity,
+                StringComparison.Ordinal))
+        {
+            // The preview already owns these resources; the continuation adds to them so
+            // a later cleanup releases everything this card touched.
+            foreach (EditorPreviewResource resource in _activeEditorPreview.Resources)
+            {
+                activeResources.Add(resource);
+            }
+        }
         if (chain != null)
         {
             foreach (PreviewChainSlotResolution slot in chain.Slots)
@@ -2984,7 +3316,10 @@ internal static class PlayerCommandObservationRuntime
         // Reproduce the playback composition BEFORE this scene's own commands so
         // a relative camera command plans from the same base it would in
         // playback. A scene with no ancestor camera command stays untouched.
-        IReadOnlyList<int> inheritedCameraSlots = TryApplyInheritedCameraStart(lease, lines, out bool cameraResidual);
+        bool cameraResidual = false;
+        IReadOnlyList<int> inheritedCameraSlots = isContinuation
+            ? Array.Empty<int>()
+            : TryApplyInheritedCameraStart(lease, lines, out cameraResidual);
         foreach (int inheritedCameraSlot in inheritedCameraSlots)
         {
             activeResources.Add(new EditorPreviewResource(
@@ -2998,7 +3333,24 @@ internal static class PlayerCommandObservationRuntime
             return;
         }
 
-        for (int index = 0; index < queued.Commands.Count; index++)
+        IReadOnlyList<int> indices;
+        if (isContinuation)
+        {
+            indices = new[] { continuation!.Index };
+        }
+        else
+        {
+            // A new preview supersedes whatever tail the previous one still owed: the
+            // author moved on, and a superseded scene's endpoint must not be written
+            // into the live slots this click just rebuilt.
+            DropPendingPreviewSegments(queued.WindowSequence, "superseded-by-new-preview", lines);
+            // One decision, shared with playback (SlotActionQueueDeferral): the first
+            // action of each slot lands in this frame, later actions wait for their own
+            // slot timeline. A preview that queues nothing keeps the old behaviour.
+            indices = EnqueueDeferredPreviewSegments(queued, chain, lines);
+        }
+
+        foreach (int index in indices)
         {
             EditorPreviewCommand command = queued.Commands[index];
             if (command.Kind == EditorPreviewCommandKind.SlotPending)
@@ -3012,10 +3364,17 @@ internal static class PlayerCommandObservationRuntime
 
             if (command.Kind == EditorPreviewCommandKind.Camera)
             {
-                ApiResult<SceneCameraExecutionSnapshot> camera =
-                    Plugin.Api.SceneCamera.ExecuteOnMainThread(
-                        lease.StableSceneIdentity,
-                        command.CanonicalDirective);
+                // 2026-10-13: the first camera command of this preview batch captures the
+                // scope's entry; a later command on the SAME scope keeps the live state so
+                // a relative move continues the segment before it.
+                bool cameraContinuation = HasEarlierPreviewCameraCommandOnSlot(
+                    queued,
+                    index,
+                    command.PublicSlot);
+                ApiResult<SceneCameraExecutionSnapshot> camera = ExecuteCameraCommand(
+                    lease.StableSceneIdentity,
+                    command.CanonicalDirective,
+                    cameraContinuation);
                 if (!camera.Success || camera.Value == null)
                 {
                     if (MayHaveResidualMutation(camera.Error))
@@ -3040,8 +3399,11 @@ internal static class PlayerCommandObservationRuntime
                 // Mirrors the playback SCENE_CAMERA_DISPATCHED fields so the
                 // preview path can be accepted with the same criteria
                 // (NOTES_SceneCamera.md: prior/entry state, replay restore, and
-                // the fact that only Back+Spine were written).
+                // the transforms this command actually writes, which now follow
+                // the command's scope instead of a constant).
                 SceneCameraExecutionSnapshot cameraExecution = camera.Value;
+                if (cameraExecution.PositionChanged || cameraExecution.ZoomChanged)
+                    PlayerActionTimelineRuntime.AddCamera(queued.WindowSequence, cameraExecution.Command.DurationMilliseconds / 1000d);
                 lines.Add(
                     $"{Stamp()} editor-preview-camera status=DISPATCHED; "
                     + $"sequence={queued.WindowSequence}; order={command.Order}; "
@@ -3057,7 +3419,9 @@ internal static class PlayerCommandObservationRuntime
                     + $"beforeZoom={cameraExecution.Before.Zoom:R}; "
                     + $"targetX={cameraExecution.Target.X:R}; targetY={cameraExecution.Target.Y:R}; "
                     + $"targetZoom={cameraExecution.Target.Zoom:R}; "
-                    + "layers=Back+Spine; frontUIWritten=false");
+                    + $"scope={cameraExecution.Command.Scope}; "
+                    + $"resourceSlot={SceneCameraCommandFamilyCompiler.ResourceSlotFor(cameraExecution.Command.Scope)}; "
+                    + $"layers={CameraLayers(cameraExecution.Command.Scope)}; frontUIWritten=false");
                 continue;
             }
 
@@ -3067,6 +3431,7 @@ internal static class PlayerCommandObservationRuntime
                     lease.StableSceneIdentity, command.CanonicalDirective, queued.WindowSequence);
                 if (preset.Success)
                 {
+                    PlayerActionTimelineRuntime.AddPreset(queued.WindowSequence, command.CanonicalDirective);
                     activeResources.Add(new EditorPreviewResource(
                         RuntimeEditorPreviewResourceKind.CharacterPreset, command.PublicSlot));
                 }
@@ -3142,11 +3507,18 @@ internal static class PlayerCommandObservationRuntime
                 continue;
             }
 
+            // Same rule as playback (2026-10-13): the first command of this preview batch
+            // captures the scene baseline, so a later command for the same character
+            // resource must keep the live state instead of restoring it.
+            bool previewContinuation = command.Kind is EditorPreviewCommandKind.Character
+                    or EditorPreviewCommandKind.SlotPending
+                && HasEarlierPreviewCharacterCommandOnSlot(queued, index, command.PublicSlot);
             var request = new CharacterTransformDispatchRequest(
                 lease.StableSceneIdentity,
                 command.CanonicalDirective,
                 CharacterCommandSource.PlaybackSidecar,
-                OriginIdentity: OriginIdentityFor(chain, command.PublicSlot));
+                OriginIdentity: OriginIdentityFor(chain, command.PublicSlot),
+                RestoreSceneBaseline: !previewContinuation);
             ApiResult<CharacterTransformDispatchSnapshot> dispatched =
                 Plugin.Api.CharacterCommands.DispatchOnMainThread(request);
             if (!dispatched.Success || dispatched.Value == null)
@@ -3171,6 +3543,14 @@ internal static class PlayerCommandObservationRuntime
                 command.PublicSlot));
 
             CharacterTransformExecutionSnapshot execution = dispatched.Value.Execution;
+            PlayerActionTimelineRuntime.AddCharacter(queued.WindowSequence, execution);
+            if (previewContinuation)
+            {
+                lines.Add(
+                    $"{Stamp()} replay-restore-suppressed sequence={queued.WindowSequence}; "
+                    + $"preview=true; order={command.Order}; slot={command.PublicSlot}; "
+                    + "reason=continuation-segment; action=KEEP_LIVE_STATE");
+            }
             lines.Add(
                 $"{Stamp()} editor-preview-character status=DISPATCHED; "
                 + $"sequence={queued.WindowSequence}; order={command.Order}; "
@@ -3186,11 +3566,142 @@ internal static class PlayerCommandObservationRuntime
                 .OrderBy(resource => resource.Kind)
                 .ThenBy(resource => resource.PublicSlot)
                 .ToArray()));
+        if (!isContinuation)
+        {
+            lines.Add(
+                $"{Stamp()} editor-preview-dispatch status=COMPLETE; "
+                + $"sequence={queued.WindowSequence}; commands={queued.Commands.Count}; "
+                + $"activeResources={activeResources.Count}; tombstone={lease.IsTombstone}; "
+                + "archiveWrites=false; mappingRequired=false");
+        }
+    }
+
+    /// <summary>
+    /// Lands one due editor-preview continuation segment. The lease is revalidated with
+    /// the same check the dispatch point runs, because the author can click another row
+    /// before the segment comes due; a superseded preview drops its remaining tail
+    /// instead of writing that scene's target into the live slots.
+    /// </summary>
+    private static void ApplyQueuedPreviewSegment(
+        PendingPreviewSegmentContext preview,
+        SlotActionQueuedSegment segment,
+        ICollection<string> lines)
+    {
         lines.Add(
-            $"{Stamp()} editor-preview-dispatch status=COMPLETE; "
-            + $"sequence={queued.WindowSequence}; commands={queued.Commands.Count}; "
-            + $"activeResources={activeResources.Count}; tombstone={lease.IsTombstone}; "
-            + "archiveWrites=false; mappingRequired=false");
+            $"{Stamp()} queue-segment-due sequence={segment.Sequence}; preview=true; "
+            + $"slot={segment.Segment.SlotKey}; index={segment.Segment.DirectiveIndex}; "
+            + $"startMs={segment.Segment.StartMs:R}; durationMs={segment.Segment.DurationMs:R}; "
+            + $"kind={segment.Segment.Kind}; action=APPLY_AUTHORIZED_COMMAND");
+
+        ApiResult<PlayerRuntimeContextSnapshot> context =
+            Plugin.Api.PlayerContext.ReadOnMainThread();
+        ApiResult<EditorSceneSnapshot> currentScene = Plugin.Api.Editor.GetSelectedScene();
+        string drift = string.Empty;
+        if (!context.Success
+            || context.Value == null
+            || !EmbeddedEditorPreviewLeaseCache.IsCurrent(
+                preview.Queued.Lease,
+                context.Value,
+                Plugin.Api.SceneIdentity.Current,
+                currentScene,
+                out drift))
+        {
+            int dropped = SegmentQueue.FastForwardRemaining(segment.Sequence).Count;
+            PreviewSegmentContexts.Remove(segment.Sequence);
+            lines.Add(
+                $"{Stamp()} queue-segment-dropped sequence={segment.Sequence}; preview=true; "
+                + $"index={segment.Segment.DirectiveIndex}; remaining={dropped}; "
+                + $"reason={Escape(context.Success ? drift : context.Error)}; writes=false");
+            return;
+        }
+
+        DispatchEditorPreview(
+            preview.Queued,
+            lines,
+            preview with { Index = segment.Segment.DirectiveIndex });
+    }
+
+    /// <summary>
+    /// The editor preview's half of the shared deferral decision. The first action of
+    /// each slot lands in this frame; later actions wait for their slot timeline exactly
+    /// as they do in playback. A preview that needs no queue reports the same plan the
+    /// playback path would and dispatches everything in frame.
+    /// </summary>
+    private static IReadOnlyList<int> EnqueueDeferredPreviewSegments(
+        DeferredEditorPreview queued,
+        PreviewChainResolution? chain,
+        ICollection<string> lines)
+    {
+        string[] directives = queued.Commands
+            .Select(command => command.CanonicalDirective)
+            .ToArray();
+        SlotActionDeferralDecision decision = SlotActionQueueDeferral.Decide(directives);
+        if (decision.Error.Length != 0)
+        {
+            lines.Add(
+                $"{Stamp()} queue-plan-failed sequence={queued.WindowSequence}; preview=true; "
+                + $"reason={Escape(decision.Error)}; action=DISPATCH_ALL_IN_FRAME");
+            return decision.SameFrameIndices;
+        }
+
+        if (decision.Plan != null)
+        {
+            foreach (string diagnostic in decision.Plan.Diagnostics)
+            {
+                lines.Add(
+                    $"{Stamp()} {diagnostic}; sequence={queued.WindowSequence}; preview=true");
+            }
+        }
+
+        if (!decision.HasDeferredSegments || decision.Plan == null)
+        {
+            return decision.SameFrameIndices;
+        }
+
+        SegmentQueue.Enqueue(queued.WindowSequence, decision.Plan, PlayerActionTimelineRuntime.Now());
+        PreviewSegmentContexts[queued.WindowSequence] = new PendingPreviewSegmentContext(queued, chain);
+        foreach (SlotActionSegment segment in decision.Plan.Segments)
+        {
+            lines.Add(
+                $"{Stamp()} queue-segment sequence={queued.WindowSequence}; preview=true; "
+                + $"slot={segment.SlotKey}; index={segment.DirectiveIndex}; "
+                + $"startMs={segment.StartMs:R}; durationMs={segment.DurationMs:R}; "
+                + $"kind={segment.Kind}; placement={SlotActionPlacementParser.Describe(segment.Placement)}; "
+                + $"action={(decision.DeferredIndices.Contains(segment.DirectiveIndex) ? "DEFER_TO_SLOT_QUEUE" : "SAME_FRAME")}");
+        }
+
+        return decision.SameFrameIndices;
+    }
+
+    /// <summary>
+    /// Drops every preview tail except <paramref name="keepSequence"/>. The queued
+    /// segments are removed without applying their end states: a preview the author has
+    /// already left must never write its scene's target into the live slots, which is
+    /// the rule the whole preview path follows.
+    /// </summary>
+    private static void DropPendingPreviewSegments(
+        long keepSequence,
+        string reason,
+        ICollection<string> lines)
+    {
+        if (PreviewSegmentContexts.Count == 0)
+        {
+            return;
+        }
+
+        foreach (long sequence in PreviewSegmentContexts.Keys.ToArray())
+        {
+            if (sequence == keepSequence)
+            {
+                continue;
+            }
+
+            int dropped = SegmentQueue.FastForwardRemaining(sequence).Count;
+            PreviewSegmentContexts.Remove(sequence);
+            lines.Add(
+                $"{Stamp()} queue-preview-superseded sequence={sequence}; segments={dropped}; "
+                + $"reason={Escape(reason)}; writes=false");
+        }
     }
 
     private static PreviewChainResolution? TryResolveEditorPreviewChain(
@@ -3625,6 +4136,16 @@ internal static class PlayerCommandObservationRuntime
 
             if (stage == PlayerCommandObservationStage.SceneCommandDispatch)
             {
+                var dispatchContext = Plugin.Api.PlayerContext.ReadOnMainThread();
+                if (!dispatchContext.Success
+                    || !ManagedDispatchContextPolicy.CanDispatch(queued.OriginMode, dispatchContext.Value))
+                {
+                    PlayerActionTimelineRuntime.ReleaseUnclaimed(queued.WindowSequence);
+                    lines.Add($"{Stamp()} SCENE_DISPATCH_DROPPED sequence={queued.WindowSequence}; "
+                        + $"reason=origin-mode-changed; originMode={queued.OriginMode}; "
+                        + $"currentMode={dispatchContext.Value?.Mode}; dispatcherCalled=false");
+                    continue;
+                }
                 DispatchSceneCommands(queued, lines);
                 continue;
             }
@@ -3711,6 +4232,11 @@ internal static class PlayerCommandObservationRuntime
         DeferredCommandBatch queued,
         ICollection<string> lines)
     {
+        using var delivery = PlayerActionTimelineRuntime.BeginDelivery(
+            queued.WindowSequence,
+            PlannedSecondsOf(queued.Batch.Commands
+                .Select(command => command.CanonicalDirective)
+                .ToArray()));
         PlaybackSceneDispatchGate? gate = _sceneDispatchGate;
         if (gate == null)
         {
@@ -3755,7 +4281,28 @@ internal static class PlayerCommandObservationRuntime
             }
         }
 
-        for (int index = 0; index < authorization.Commands.Count; index++)
+        // The authored order of one row's commands is the slot timeline. Segments
+        // whose start time has not arrived are held back and dispatched by the
+        // managed tick instead of landing in this frame; the first action of each
+        // slot keeps today's same-frame dispatch, so a single-action row is
+        // byte-for-byte equivalent to the previous behaviour.
+        IReadOnlyList<int> sameFrame = EnqueueDeferredSegments(authorization, queued, lines);
+        ApplySceneCommands(authorization, queued.Chain, sameFrame, lines);
+    }
+
+    /// <summary>
+    /// Applies exactly the authorized commands named by <paramref name="indices"/>.
+    /// A queued continuation segment calls this with its own single index and the
+    /// authorization its window already obtained: the scene dispatch gate refuses a
+    /// second window sequence, so a later segment must never go back to the gate.
+    /// </summary>
+    private static void ApplySceneCommands(
+        PlaybackSceneDispatchAuthorization authorization,
+        PreviewChainResolution? chain,
+        IReadOnlyList<int> indices,
+        ICollection<string> lines)
+    {
+        foreach (int index in indices)
         {
             PlaybackCommandInstruction command = authorization.Commands[index];
             if (string.Equals(command.CommandType, CharacterPresetCommandFamilyCompiler.CommandTypeId,
@@ -3763,6 +4310,8 @@ internal static class PlayerCommandObservationRuntime
             {
                 ApiResult<bool> preset = Plugin.Host.CharacterPresetsInternal.Begin(
                     authorization.SceneIdentity, command.CanonicalDirective, authorization.WindowSequence);
+                if (preset.Success)
+                    PlayerActionTimelineRuntime.AddPreset(authorization.WindowSequence, command.CanonicalDirective);
                 lines.Add($"{Stamp()} CHARACTER_PRESET_{(preset.Success ? "DISPATCHED" : "FAILED")} "
                     + $"sequence={authorization.WindowSequence}; record={authorization.PlaybackRecordIndex}; "
                     + $"commandId={command.CommandId}; order={command.Order}; "
@@ -3805,10 +4354,18 @@ internal static class PlayerCommandObservationRuntime
                     SceneCameraCommandFamilyCompiler.CommandTypeId,
                     StringComparison.Ordinal))
             {
-                ApiResult<SceneCameraExecutionSnapshot> camera =
-                    Plugin.Api.SceneCamera.ExecuteOnMainThread(
-                        authorization.SceneIdentity,
-                        command.CanonicalDirective);
+                // 2026-10-13: same rule as the character axes below. The scene entry
+                // belongs to the first camera command of this scope, so a later command on
+                // the SAME scope must build on its live result: `dx` is relative, and
+                // restoring the entry made the second segment replace the first instead of
+                // continuing it (measured: dx=200 then dx=60 ended at 60 rather than 260).
+                int cameraScopeSlot = CameraScopeSlotOf(command);
+                bool cameraContinuation = cameraScopeSlot >= 0
+                    && HasEarlierCameraInstructionOnScope(authorization, index, cameraScopeSlot);
+                ApiResult<SceneCameraExecutionSnapshot> camera = ExecuteCameraCommand(
+                    authorization.SceneIdentity,
+                    command.CanonicalDirective,
+                    cameraContinuation);
                 if (!camera.Success || camera.Value == null)
                 {
                     lines.Add(
@@ -3831,6 +4388,8 @@ internal static class PlayerCommandObservationRuntime
                 }
 
                 SceneCameraExecutionSnapshot cameraExecution = camera.Value;
+                if (cameraExecution.PositionChanged || cameraExecution.ZoomChanged)
+                    PlayerActionTimelineRuntime.AddCamera(authorization.WindowSequence, cameraExecution.Command.DurationMilliseconds / 1000d);
                 lines.Add(
                     $"{Stamp()} SCENE_CAMERA_DISPATCHED sequence={authorization.WindowSequence}; "
                     + $"record={authorization.PlaybackRecordIndex}; commandId={command.CommandId}; "
@@ -3843,7 +4402,9 @@ internal static class PlayerCommandObservationRuntime
                     + $"beforeX={cameraExecution.Before.X:R}; beforeY={cameraExecution.Before.Y:R}; "
                     + $"beforeZoom={cameraExecution.Before.Zoom:R}; targetX={cameraExecution.Target.X:R}; "
                     + $"targetY={cameraExecution.Target.Y:R}; targetZoom={cameraExecution.Target.Zoom:R}; "
-                    + "layers=Back+Spine; frontUIWritten=false; retry=false");
+                    + $"scope={cameraExecution.Command.Scope}; "
+                    + $"resourceSlot={SceneCameraCommandFamilyCompiler.ResourceSlotFor(cameraExecution.Command.Scope)}; "
+                    + $"layers={CameraLayers(cameraExecution.Command.Scope)}; frontUIWritten=false; retry=false");
                 continue;
             }
 
@@ -3915,13 +4476,22 @@ internal static class PlayerCommandObservationRuntime
                 continue;
             }
 
+            // 2026-10-13: the first command of a card captures the scene baseline; a later
+            // command for the same character resource must NOT restore it, or the previous
+            // segment's animation is undone and its own tween runs zero distance
+            // (beforeX == targetX). Loaded segments land here through the same loop as the
+            // same-frame first segment, so one decision covers both.
+            int characterSlot = CharacterAxesSlotOf(command);
+            bool continuationSegment = characterSlot > 0
+                && HasEarlierCharacterInstructionOnSlot(authorization, index, characterSlot);
             var request = new CharacterTransformDispatchRequest(
                 authorization.SceneIdentity,
                 command.CanonicalDirective,
                 CharacterCommandSource.PlaybackSidecar,
                 OriginIdentity: OriginIdentityFor(
-                    queued.Chain,
-                    command.CanonicalDirective));
+                    chain,
+                    command.CanonicalDirective),
+                RestoreSceneBaseline: !continuationSegment);
             ApiResult<CharacterTransformDispatchSnapshot> dispatched =
                 Plugin.Api.CharacterCommands.DispatchOnMainThread(request);
             if (!dispatched.Success || dispatched.Value == null)
@@ -3947,6 +4517,15 @@ internal static class PlayerCommandObservationRuntime
 
             CharacterTransformDispatchSnapshot dispatch = dispatched.Value;
             CharacterTransformExecutionSnapshot execution = dispatch.Execution;
+            PlayerActionTimelineRuntime.AddCharacter(authorization.WindowSequence, execution);
+            if (continuationSegment)
+            {
+                lines.Add(
+                    $"{Stamp()} replay-restore-suppressed sequence={authorization.WindowSequence}; "
+                    + $"record={authorization.PlaybackRecordIndex}; commandId={command.CommandId}; "
+                    + $"order={command.Order}; slot={execution.Command.PublicSlot}; "
+                    + "reason=continuation-segment; action=KEEP_LIVE_STATE");
+            }
             lines.Add(
                 $"{Stamp()} SCENE_COMMAND_DISPATCHED sequence={authorization.WindowSequence}; "
                 + $"record={authorization.PlaybackRecordIndex}; commandId={command.CommandId}; "
@@ -3960,6 +4539,397 @@ internal static class PlayerCommandObservationRuntime
                 + $"beforeZ={execution.Before.LocalEulerAngles.Z:R}; "
                 + $"targetZ={execution.Target.LocalEulerAngles.Z:R}; retry=false");
         }
+    }
+
+    /// <summary>
+    /// True when an earlier command of this same preview batch already wrote the
+    /// character's own axes on this slot: the scene baseline belongs to that command, so
+    /// this continuation must keep the live state instead of restoring the baseline.
+    /// </summary>
+    private static bool HasEarlierPreviewCharacterCommandOnSlot(
+        DeferredEditorPreview queued,
+        int index,
+        int publicSlot)
+    {
+        for (int earlier = 0; earlier < index; earlier++)
+        {
+            EditorPreviewCommand previous = queued.Commands[earlier];
+            if (previous.PublicSlot == publicSlot
+                && previous.Kind is EditorPreviewCommandKind.Character
+                    or EditorPreviewCommandKind.SlotPending)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The public slot an instruction writes on the character's own axes, or -1 when the
+    /// instruction owns another resource (camera, preset, spine, unknown). These are
+    /// exactly the families that share the <c>character:N</c> resource key and reach the
+    /// character replay path.
+    /// </summary>
+    private static int CharacterAxesSlotOf(PlaybackCommandInstruction command)
+    {
+        if (string.Equals(
+                command.CommandType,
+                SlotPendingCommandFamilyCompiler.CommandTypeId,
+                StringComparison.Ordinal))
+        {
+            Result<CharacterTransformCommand> pending =
+                new SlotPendingCommandFamilyCompiler().ParseCanonical(command.CanonicalDirective);
+            return pending.Success && pending.Value != null ? pending.Value.PublicSlot : -1;
+        }
+
+        if (!string.Equals(
+                command.CommandType,
+                CharacterTransformCommandFamilyCompiler.CommandTypeId,
+                StringComparison.Ordinal))
+        {
+            return -1;
+        }
+
+        Result<CharacterTransformCommand> parsed =
+            new CharacterTransformDirectiveParser().Parse(command.CanonicalDirective);
+        return parsed.Success && parsed.Value != null ? parsed.Value.PublicSlot : -1;
+    }
+
+    /// <summary>
+    /// True when an earlier instruction of this same authorization already wrote the
+    /// character's own axes on this slot: the scene baseline belongs to that command, so
+    /// this one must build on its live result instead of restoring the baseline.
+    /// </summary>
+    private static bool HasEarlierCharacterInstructionOnSlot(
+        PlaybackSceneDispatchAuthorization authorization,
+        int index,
+        int publicSlot)
+    {
+        for (int earlier = 0; earlier < index; earlier++)
+        {
+            if (CharacterAxesSlotOf(authorization.Commands[earlier]) == publicSlot)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The resource slot a camera instruction writes — one per scope — or -1 when the
+    /// instruction owns another resource. Mirrors <see cref="CharacterAxesSlotOf"/>.
+    /// </summary>
+    private static int CameraScopeSlotOf(PlaybackCommandInstruction command)
+    {
+        if (!string.Equals(
+                command.CommandType,
+                SceneCameraCommandFamilyCompiler.CommandTypeId,
+                StringComparison.Ordinal))
+        {
+            return -1;
+        }
+
+        Result<SceneCameraCommand> parsed =
+            new SceneCameraDirectiveParser().Parse(command.CanonicalDirective);
+        return parsed.Success && parsed.Value != null
+            ? SceneCameraCommandFamilyCompiler.ResourceSlotFor(parsed.Value.Scope)
+            : -1;
+    }
+
+    /// <summary>
+    /// True when an earlier instruction of this same authorization already wrote this
+    /// camera scope: that command owns the scene entry, so this one must build on its live
+    /// result or a relative move would restart from the row baseline.
+    /// </summary>
+    private static bool HasEarlierCameraInstructionOnScope(
+        PlaybackSceneDispatchAuthorization authorization,
+        int index,
+        int cameraScopeSlot)
+    {
+        for (int earlier = 0; earlier < index; earlier++)
+        {
+            if (CameraScopeSlotOf(authorization.Commands[earlier]) == cameraScopeSlot)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when an earlier command of this same preview batch already wrote this camera
+    /// scope (same rule as <see cref="HasEarlierPreviewCharacterCommandOnSlot"/>).
+    /// </summary>
+    private static bool HasEarlierPreviewCameraCommandOnSlot(
+        DeferredEditorPreview queued,
+        int index,
+        int resourceSlot)
+    {
+        for (int earlier = 0; earlier < index; earlier++)
+        {
+            EditorPreviewCommand previous = queued.Commands[earlier];
+            if (previous.Kind == EditorPreviewCommandKind.Camera
+                && previous.PublicSlot == resourceSlot)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Dispatches one scene camera command. A continuation segment asks the service for the
+    /// live state as its start instead of replaying the scope's scene entry, so relative
+    /// moves accumulate along the row's track.
+    /// </summary>
+    private static ApiResult<SceneCameraExecutionSnapshot> ExecuteCameraCommand(
+        string sceneIdentity,
+        string canonicalDirective,
+        bool continuation)
+    {
+        if (continuation
+            && Plugin.Api.SceneCamera is ISceneCameraContinuationService continuationService)
+        {
+            return continuationService.ExecuteContinuationOnMainThread(
+                sceneIdentity,
+                canonicalDirective);
+        }
+
+        return Plugin.Api.SceneCamera.ExecuteOnMainThread(sceneIdentity, canonicalDirective);
+    }
+
+    /// <summary>
+    /// Plans the row's slot timeline and hands every segment whose start time has
+    /// not arrived to the queue. Returns the command indices to dispatch in this
+    /// frame: every index when no slot carries more than one action, which is the
+    /// case that must stay byte-for-byte equivalent to the previous behaviour.
+    /// </summary>
+    private static IReadOnlyList<int> EnqueueDeferredSegments(
+        PlaybackSceneDispatchAuthorization authorization,
+        DeferredCommandBatch queued,
+        ICollection<string> lines)
+    {
+        int count = authorization.Commands.Count;
+        string[] directives = authorization.Commands
+            .Select(command => command.CanonicalDirective)
+            .ToArray();
+        SlotActionDeferralDecision decision = SlotActionQueueDeferral.Decide(directives);
+        if (decision.Error.Length != 0)
+        {
+            // Fail open on the previous behaviour: every command lands in this frame,
+            // exactly as it did before the slot queue existed.
+            lines.Add(
+                $"{Stamp()} queue-plan-failed sequence={authorization.WindowSequence}; "
+                + $"record={authorization.PlaybackRecordIndex}; reason={Escape(decision.Error)}; "
+                + "action=DISPATCH_ALL_IN_FRAME");
+            return decision.SameFrameIndices;
+        }
+
+        if (decision.Plan != null)
+        {
+            foreach (string diagnostic in decision.Plan.Diagnostics)
+            {
+                lines.Add(
+                    $"{Stamp()} {diagnostic}; sequence={authorization.WindowSequence}; "
+                    + $"record={authorization.PlaybackRecordIndex}");
+            }
+        }
+
+        if (!decision.HasDeferredSegments || decision.Plan == null)
+        {
+            return decision.SameFrameIndices;
+        }
+
+        SegmentQueue.Enqueue(authorization.WindowSequence, decision.Plan, PlayerActionTimelineRuntime.Now());
+        SegmentContexts[authorization.WindowSequence] = new PendingSegmentContext(
+            authorization,
+            queued.Chain);
+        foreach (SlotActionSegment segment in decision.Plan.Segments)
+        {
+            lines.Add(
+                $"{Stamp()} queue-segment sequence={authorization.WindowSequence}; "
+                + $"record={authorization.PlaybackRecordIndex}; slot={segment.SlotKey}; "
+                + $"index={segment.DirectiveIndex}; startMs={segment.StartMs:R}; "
+                + $"durationMs={segment.DurationMs:R}; kind={segment.Kind}; "
+                + $"placement={SlotActionPlacementParser.Describe(segment.Placement)}; "
+                + $"action={(decision.DeferredIndices.Contains(segment.DirectiveIndex) ? "DEFER_TO_SLOT_QUEUE" : "SAME_FRAME")}");
+        }
+
+        return decision.SameFrameIndices;
+    }
+
+    /// <summary>
+    /// Dispatches every queued segment whose start time has arrived, reusing the
+    /// authorization its window already obtained: <see cref="PlaybackSceneDispatchGate"/>
+    /// refuses a second window sequence, so a continuation segment must never ask the
+    /// gate again. Runs next to the deferred-batch drain, which is before the action
+    /// hold's own tick, so a segment that came due in this frame extends the hold
+    /// before the hold could decide the row is finished.
+    /// </summary>
+    internal static void DrainQueuedSegments(PlayerCommandObservationStage stage)
+    {
+        if (stage != PlayerCommandObservationStage.SceneCommandDispatch || SegmentQueue.IsEmpty)
+        {
+            return;
+        }
+
+        IReadOnlyList<SlotActionQueuedSegment> due =
+            SegmentQueue.TakeDue(PlayerActionTimelineRuntime.Now());
+        if (due.Count == 0)
+        {
+            return;
+        }
+
+        var lines = new List<string>();
+        foreach (SlotActionQueuedSegment segment in due)
+        {
+            if (!SegmentContexts.TryGetValue(segment.Sequence, out PendingSegmentContext? context))
+            {
+                if (PreviewSegmentContexts.TryGetValue(
+                        segment.Sequence,
+                        out PendingPreviewSegmentContext? preview))
+                {
+                    ApplyQueuedPreviewSegment(preview, segment, lines);
+                    if (!SegmentQueue.HasPending(segment.Sequence))
+                    {
+                        PreviewSegmentContexts.Remove(segment.Sequence);
+                    }
+
+                    continue;
+                }
+
+                lines.Add(
+                    $"{Stamp()} queue-segment-dropped sequence={segment.Sequence}; "
+                    + $"slot={segment.Segment.SlotKey}; index={segment.Segment.DirectiveIndex}; "
+                    + "reason=no-retained-authorization; action=DROP");
+                continue;
+            }
+
+            lines.Add(
+                $"{Stamp()} queue-segment-due sequence={segment.Sequence}; "
+                + $"record={context.Authorization.PlaybackRecordIndex}; "
+                + $"slot={segment.Segment.SlotKey}; index={segment.Segment.DirectiveIndex}; "
+                + $"startMs={segment.Segment.StartMs:R}; durationMs={segment.Segment.DurationMs:R}; "
+                + $"kind={segment.Segment.Kind}; action=APPLY_AUTHORIZED_COMMAND");
+            ApplySceneCommands(
+                context.Authorization,
+                context.Chain,
+                new[] { segment.Segment.DirectiveIndex },
+                lines);
+            if (!SegmentQueue.HasPending(segment.Sequence))
+            {
+                // Last segment of this row: release the authorization it retained.
+                // A row whose hold never armed drains here too, so this is the only
+                // place that can bound the context table.
+                SegmentContexts.Remove(segment.Sequence);
+            }
+        }
+
+        if (lines.Count != 0)
+        {
+            PlayerCommandObservationLog.Append(lines);
+        }
+    }
+
+    /// <summary>
+    /// Fast-forwards a row's still-queued segments when its action hold is released
+    /// early — a manual advance, the native completion, or a watchdog timeout. Every
+    /// remaining target state is written immediately instead of being dropped: a
+    /// relative <c>dx</c> accumulated from a dropped segment leaves an intermediate
+    /// state the author never wrote, and the next row inherits it.
+    /// </summary>
+    internal static void FastForwardQueuedSegments(long sequence, string reason)
+    {
+        if (sequence <= 0 || !SegmentContexts.TryGetValue(sequence, out PendingSegmentContext? context))
+        {
+            return;
+        }
+
+        IReadOnlyList<SlotActionQueuedSegment> remaining = SegmentQueue.FastForwardRemaining(sequence);
+        SegmentContexts.Remove(sequence);
+        if (remaining.Count == 0)
+        {
+            return;
+        }
+
+        double now = PlayerActionTimelineRuntime.Now();
+        double remainingMs = 0;
+        foreach (SlotActionQueuedSegment segment in remaining)
+        {
+            remainingMs = Math.Max(remainingMs, (segment.DueAt - now) * 1000d);
+        }
+
+        var lines = new List<string>
+        {
+            $"{Stamp()} queue-forced-finish sequence={sequence}; "
+            + $"record={context.Authorization.PlaybackRecordIndex}; reason={Escape(reason)}; "
+            + $"remainingMs={Math.Max(0d, remainingMs):R}; segments={remaining.Count}; "
+            + "action=APPLY_END_STATE_NOW"
+        };
+
+        // Every remaining segment lands as an instantaneous commit: the hold is gone,
+        // so a tween left running would make the next row inherit a mid-animation
+        // position instead of the endpoint the author wrote. A family without an
+        // honest instantaneous form keeps its authored directive (fail-open) and says
+        // so in the log, because refusing to move would stall the advance instead.
+        var instant = new List<PlaybackCommandInstruction>(context.Authorization.Commands);
+        foreach (SlotActionQueuedSegment segment in remaining)
+        {
+            PlaybackCommandInstruction command = instant[segment.Segment.DirectiveIndex];
+            Result<string> rewritten = SlotActionInstantRewrite.ToInstant(command.CanonicalDirective);
+            bool applied = rewritten.Success && rewritten.Value != null;
+            Result<SlotActionInput> described = SlotActionQueuePlanner.Describe(
+                segment.Segment.DirectiveIndex,
+                command.CanonicalDirective);
+            double authoredMs = described.Success && described.Value != null
+                ? described.Value.DurationMs
+                : -1d;
+            lines.Add(
+                $"{Stamp()} queue-forced-segment sequence={sequence}; "
+                + $"slot={segment.Segment.SlotKey}; index={segment.Segment.DirectiveIndex}; "
+                + $"skippedMs={Math.Max(0d, (segment.DueAt - now) * 1000d):R}; "
+                + $"kind={segment.Segment.Kind}; appliedMs={(applied ? 0d : authoredMs):R}; "
+                + $"instant={applied}; "
+                + $"reason={Escape(applied ? string.Empty : rewritten.Error)}");
+            if (applied)
+            {
+                instant[segment.Segment.DirectiveIndex] = command with
+                {
+                    CanonicalDirective = rewritten.Value!
+                };
+            }
+        }
+
+        PlaybackSceneDispatchAuthorization forced = context.Authorization with
+        {
+            Commands = instant.AsReadOnly()
+        };
+        foreach (SlotActionQueuedSegment segment in remaining)
+        {
+            ApplySceneCommands(
+                forced,
+                context.Chain,
+                new[] { segment.Segment.DirectiveIndex },
+                lines);
+        }
+
+        PlayerCommandObservationLog.Append(lines);
+    }
+
+    /// <summary>
+    /// Drops every queued segment and its retained authorization without applying
+    /// anything. Only the runtime shutdown path uses this: dispatching into a player
+    /// that is already going away is worse than leaving the row's endpoint unset.
+    /// </summary>
+    internal static void ClearQueuedSegments()
+    {
+        SegmentQueue.ClearAll();
+        SegmentContexts.Clear();
+        PreviewSegmentContexts.Clear();
     }
 
     private static PreviewChainApplyResult ApplyPreviewChain(
@@ -4323,6 +5293,12 @@ internal static class PlayerCommandObservationRuntime
             }
 
             string fullPath = Path.GetFullPath(trimmed);
+            if (extension == ".aap" && OfficialAapCompatibilityProjection.IsNativePath(fullPath))
+            {
+                var projection = OfficialAapCompatibilityProjection.Resolve(fullPath);
+                return projection.Success && projection.Value != null
+                    ? Result<string>.Ok(projection.Value.ProjectPath) : Result<string>.Fail(projection.Error);
+            }
             if (!Path.IsPathRooted(fullPath)
                 || !string.Equals(
                     Path.GetExtension(fullPath),
@@ -4395,6 +5371,16 @@ internal static class PlayerCommandObservationRuntime
             PlayerCommandObservationLog.Append(message);
         }
     }
+
+    /// <summary>
+    /// Which native transforms a camera command actually writes. Overall feeds the
+    /// Back and Spine transforms; a background-only command writes Back alone.
+    /// 2026-10-13: this field used to be a hardcoded literal, so a correct
+    /// background-only command still logged <c>layers=Back+Spine</c> and read as an
+    /// overall one. That cost a misdiagnosis; the field now follows the command.
+    /// </summary>
+    private static string CameraLayers(SceneCameraScope scope) =>
+        scope == SceneCameraScope.Background ? "Back" : "Back+Spine";
 
     private static string StageAction(PlayerCommandObservationStage stage) =>
         stage switch
@@ -4515,7 +5501,29 @@ internal static class PlayerCommandObservationRuntime
         PlaybackCommandBatch Batch,
         PreviewChainResolution? Chain,
         bool ApplyResolvedChain,
-        long ChainGenerationId);
+        long ChainGenerationId,
+        PlayerRuntimeMode OriginMode);
+
+    /// <summary>
+    /// What a queued segment needs to land later: the authorization its window
+    /// already obtained (never re-requested) and the resolved chain that supplies
+    /// the per-slot origin identity.
+    /// </summary>
+    private sealed record PendingSegmentContext(
+        PlaybackSceneDispatchAuthorization Authorization,
+        PreviewChainResolution? Chain);
+
+    /// <summary>
+    /// What a queued editor-preview segment needs to land later: the preview that was
+    /// authorized (its lease, command list and window sequence) and the chain resolved
+    /// during that dispatch, which supplies the per-slot origin identity.
+    /// <see cref="Index"/> is filled in for the one segment being applied; the stored
+    /// context covers every segment that row still owes.
+    /// </summary>
+    private sealed record PendingPreviewSegmentContext(
+        DeferredEditorPreview Queued,
+        PreviewChainResolution? Chain,
+        int Index = -1);
 
     private sealed record PendingEmbeddedPreview(
         long WindowSequence,

@@ -26,16 +26,23 @@ internal static class PlayerAdvanceScenarioObservationPatch
         MethodInfo? prefix = AccessTools.Method(
             typeof(PlayerAdvanceScenarioObservationPatch),
             nameof(Prefix),
-            new[] { typeof(bool) });
+            new[] { typeof(bool), typeof(long).MakeByRefType() });
         MethodInfo? postfix = stage >= PlayerCommandObservationStage.WindowCapture
             ? AccessTools.Method(
                 typeof(PlayerAdvanceScenarioObservationPatch),
                 nameof(Postfix),
-                new[] { typeof(bool) })
+                new[] { typeof(bool), typeof(long) })
+            : null;
+        MethodInfo? finalizer = stage >= PlayerCommandObservationStage.WindowCapture
+            ? AccessTools.Method(
+                typeof(PlayerAdvanceScenarioObservationPatch),
+                nameof(Finalizer),
+                new[] { typeof(Exception), typeof(long) })
             : null;
 
         if (target == null || prefix == null
-            || (stage >= PlayerCommandObservationStage.WindowCapture && postfix == null))
+            || (stage >= PlayerCommandObservationStage.WindowCapture
+                && (postfix == null || finalizer == null)))
         {
             Plugin.Logger.LogError(
                 "Player command observation patch was not installed: exact target or managed run-original callback was not found.");
@@ -48,10 +55,11 @@ internal static class PlayerAdvanceScenarioObservationPatch
             harmony.Patch(
                 target,
                 prefix: new HarmonyMethod(prefix),
-                postfix: postfix == null ? null : new HarmonyMethod(postfix));
+                postfix: postfix == null ? null : new HarmonyMethod(postfix),
+                finalizer: finalizer == null ? null : new HarmonyMethod(finalizer));
             Plugin.Logger.LogInfo(
                 $"Player command observation patch installed: stage={stage}; "
-                + "target=Test.AdvanceScenario(Boolean,IScenarioScriptExcel); callbackState=Harmony-managed-runOriginal; nativeObjectsMarshaled=false.");
+                + "target=Test.AdvanceScenario(Boolean,IScenarioScriptExcel); callbackState=Harmony-managed-runOriginal+scalar-call-state; nativeObjectsMarshaled=false.");
             return true;
         }
         catch (Exception ex)
@@ -62,8 +70,9 @@ internal static class PlayerAdvanceScenarioObservationPatch
         }
     }
 
-    public static void Prefix(bool __runOriginal)
+    public static void Prefix(bool __runOriginal, out long __state)
     {
+        __state = 0;
         // Voice admission runs before this prefix. A blocked attempt is not a
         // scene window: issuing a sequence would prematurely age slot pendings.
         if (!__runOriginal) return;
@@ -76,13 +85,22 @@ internal static class PlayerAdvanceScenarioObservationPatch
         }
 
         Interop.OfficialStoragePathBridge.CaptureOnMainThread(force: true);
-        PlayerAdvanceObservationWindow.Open(ReadPlaybackRow(), Interop.ActiveProjectPairSource.StorageRevision);
+        __state = PlayerAdvanceObservationWindow.BeginAdvance(
+            ReadPlaybackRow(), Interop.ActiveProjectPairSource.StorageRevision);
     }
 
-    public static void Postfix(bool __runOriginal)
+    public static void Postfix(bool __runOriginal, long __state)
     {
-        if (!__runOriginal) return;
-        PlayerAdvanceObservationWindow.Close(ReadPlaybackRow());
+        // Another prefix may skip the original after our prefix already opened
+        // a capture. EndAdvance aborts that admitted state; a voice-blocked call
+        // that never opened anything still has state zero and changes nothing.
+        PlayerAdvanceObservationWindow.EndAdvance(
+            __state, __runOriginal ? ReadPlaybackRow() : -1, originalRan: __runOriginal);
+    }
+
+    public static void Finalizer(Exception? __exception, long __state)
+    {
+        if (__exception != null) PlayerAdvanceObservationWindow.AbortAdvance(__state);
     }
 
     private static bool _rowReadFailureReported;

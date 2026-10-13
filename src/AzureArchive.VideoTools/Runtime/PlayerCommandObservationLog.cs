@@ -44,7 +44,7 @@ internal static class PlayerCommandObservationLog
                     $"transformWrites={(sceneDispatch ? "validated-sidecar-commands-only" : dispatchCanary ? $"maximum-{options.DispatchCanaryMaximumExecutions}-authorized-commands" : "false")}",
                     $"sceneReplayTransformPolicy={(sceneDispatch ? "restore-command-axes-to-captured-scene-baseline" : "disabled")}",
                     "officialFileWrites=false",
-                    "harmonyCallbackArguments=zero",
+                    "advanceHookArguments=managed-scalar-state-and-original-ran; native-script-parameter=false",
                     $"playerContextReads={(options.Stage is PlayerCommandObservationStage.PlaybackContextProbe or PlayerCommandObservationStage.SceneCommandDispatch ? "deferred-managed-update-only" : "false")}",
                     "manualControlsPolicy=playback-only-fail-closed",
                     "commandIndexReload=Ctrl+F6-discard-old-index-and-deferred-batches",

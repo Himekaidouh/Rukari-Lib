@@ -10,7 +10,15 @@ internal enum AdvanceWindowCloseReason
 {
     Completed = 0,
     ReplacedByOverlappingPrefix = 1,
-    PostfixWithoutPrefix = 2
+    PostfixWithoutPrefix = 2,
+    Aborted = 3
+}
+
+internal sealed class AdvanceCallChainState
+{
+    private int _aborted;
+    internal bool Aborted => Volatile.Read(ref _aborted) != 0;
+    internal void Abort() => Interlocked.Exchange(ref _aborted, 1);
 }
 
 internal sealed record ClosedAdvanceWindow(
@@ -25,6 +33,25 @@ internal sealed record ClosedAdvanceWindow(
     int PlaybackRowReadBefore)
 {
     internal long StorageRevision { get; init; }
+    internal long CallChainId { get; init; }
+    internal AdvanceCallChainState? CallChainState { get; init; }
+
+    /// <summary>
+    /// Which capture rule refused the second parsed input: "text" (a different
+    /// compiled script) or "row" (a different playback row). Empty when the
+    /// conflict came from the batch attach path or the branch is unknown, so an
+    /// unknown conflict still reports the original reason string unchanged.
+    /// </summary>
+    internal string EmbeddedCommandConflictBranch { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Field list naming both identities involved in that conflict. Built by the
+    /// window (which may not do I/O: this file is linked standalone into the test
+    /// host) and written to the operator log by the runtime, which is the only
+    /// layer that owns the log. Empty when there is nothing to report.
+    /// </summary>
+    internal string EmbeddedCommandConflictDetail { get; init; } = string.Empty;
+
     internal bool BelongsToStorage(long revision) => StorageRevision == revision;
 }
 
@@ -41,6 +68,9 @@ internal static class PlayerAdvanceObservationWindow
     private static readonly object Gate = new();
     private static readonly ConcurrentQueue<ClosedAdvanceWindow> Closed = new();
     private static ActiveWindow? _active;
+    private static readonly List<long> ManagedCalls = new();
+    private static long _managedCallChainId;
+    private static AdvanceCallChainState? _managedCallChainState;
     private static long _sequence;
     private static long _closedSequenceWatermark;
     private static int _queuedWindows;
@@ -83,17 +113,122 @@ internal static class PlayerAdvanceObservationWindow
     {
         lock (Gate)
         {
-            if (_active != null)
-            {
-                Enqueue(CloseActive(
-                    AdvanceWindowCloseReason.ReplacedByOverlappingPrefix,
-                    playbackRowIndex));
-            }
+            return OpenCore(playbackRowIndex, storageRevision, 0);
+        }
+    }
 
-            long sequence = Interlocked.Increment(ref _sequence);
-            _active = new ActiveWindow(sequence) { PlaybackRowIndex = playbackRowIndex, StorageRevision = storageRevision };
+    /// <summary>
+    /// Begins an admitted managed prefix. Only scalar Harmony state is retained;
+    /// nested advances share the outer call's identity even when one nested
+    /// postfix has already closed the active capture before another begins.
+    /// </summary>
+    internal static long BeginAdvance(int playbackRowIndex, long storageRevision)
+    {
+        lock (Gate)
+        {
+            if (ManagedCalls.Count == 0) _managedCallChainState = new AdvanceCallChainState();
+            long sequence = OpenCore(playbackRowIndex, storageRevision,
+                ManagedCalls.Count == 0 ? 0 : _managedCallChainId);
+            _active!.CallChainState = _managedCallChainState;
+            if (ManagedCalls.Count == 0) _managedCallChainId = sequence;
+            ManagedCalls.Add(sequence);
             return sequence;
         }
+    }
+
+    internal static void EndAdvance(long sequence, int playbackRowIndex, bool originalRan = true)
+    {
+        if (!originalRan)
+        {
+            AbortAdvance(sequence);
+            return;
+        }
+        if (sequence <= 0) return;
+        lock (Gate)
+        {
+            int callIndex = ManagedCalls.LastIndexOf(sequence);
+            if (callIndex < 0) return;
+            if (callIndex != ManagedCalls.Count - 1)
+            {
+                // A malformed callback order must not close another call as a
+                // successful boundary or leave its chain attached to a replay.
+                AbortAdvanceCore(callIndex);
+                return;
+            }
+
+            if (_active?.Sequence == sequence)
+            {
+                Enqueue(CloseActive(AdvanceWindowCloseReason.Completed, playbackRowIndex));
+            }
+
+            ManagedCalls.RemoveAt(callIndex);
+            if (ManagedCalls.Count == 0)
+            {
+                _managedCallChainId = 0;
+                _managedCallChainState = null;
+            }
+        }
+    }
+
+    internal static void AbortAdvance(long sequence)
+    {
+        if (sequence <= 0) return;
+        lock (Gate)
+        {
+            int callIndex = ManagedCalls.LastIndexOf(sequence);
+            if (callIndex >= 0)
+            {
+                AbortAdvanceCore(callIndex);
+                return;
+            }
+
+            // A later plugin postfix can throw after our successful postfix
+            // already removed its managed call. Retained queued captures still
+            // provide the chain marker; consumed windows need no history cache.
+            foreach (ClosedAdvanceWindow pending in Closed)
+            {
+                if (pending.Sequence != sequence) continue;
+                pending.CallChainState?.Abort();
+                break;
+            }
+        }
+    }
+
+    private static void AbortAdvanceCore(int callIndex)
+    {
+        // Closed siblings retain this managed marker. Dequeue rejects those
+        // still awaiting observation; records already consumed remain unchanged.
+        _managedCallChainState?.Abort();
+        if (_active != null && ManagedCalls.Contains(_active.Sequence))
+        {
+            Enqueue(CloseActive(AdvanceWindowCloseReason.Aborted, -1));
+        }
+
+        ManagedCalls.RemoveRange(callIndex, ManagedCalls.Count - callIndex);
+        if (ManagedCalls.Count == 0)
+        {
+            _managedCallChainId = 0;
+            _managedCallChainState = null;
+        }
+    }
+
+    private static long OpenCore(int playbackRowIndex, long storageRevision, long callChainId)
+    {
+        if (_active != null)
+        {
+            Enqueue(CloseActive(
+                AdvanceWindowCloseReason.ReplacedByOverlappingPrefix,
+                playbackRowIndex));
+        }
+
+        long sequence = Interlocked.Increment(ref _sequence);
+        _active = new ActiveWindow(sequence)
+        {
+            PlaybackRowIndex = playbackRowIndex,
+            StorageRevision = storageRevision,
+            CallChainId = callChainId > 0 ? callChainId : sequence
+        };
+        return sequence;
     }
 
     public static void Capture(string text)
@@ -119,6 +254,65 @@ internal static class PlayerAdvanceObservationWindow
             active.Messages.Add(text);
             active.CapturedCharacters += text.Length;
         }
+    }
+
+    // The parser's actual input is authoritative. Debug messages are retained as a legacy
+    // fallback only; duplicate logging must not make one parsed card look like two cards.
+    internal static long CaptureParsedScript(string text, int playbackRowIndex = -1)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        lock (Gate)
+        {
+            ActiveWindow? active = _active;
+            if (active == null) return 0;
+            if (text.Length > MaximumCharacters) { active.CaptureOverflowed = true; return 0; }
+            if (active.ParsedScript != null && !string.Equals(active.ParsedScript, text, StringComparison.Ordinal))
+            {
+                DescribeParsedScriptConflict(active, "text", text, playbackRowIndex);
+                active.EmbeddedCommandConflict = true;
+                active.EmbeddedCommandConflictBranch = "text";
+                return 0;
+            }
+
+            if (active.ParsedRowIndex >= 0 && playbackRowIndex >= 0
+                && active.ParsedRowIndex != playbackRowIndex)
+            {
+                DescribeParsedScriptConflict(active, "row", text, playbackRowIndex);
+                active.EmbeddedCommandConflict = true;
+                active.EmbeddedCommandConflictBranch = "row";
+                return 0;
+            }
+
+            active.ParsedScript = text;
+            if (playbackRowIndex >= 0) active.ParsedRowIndex = playbackRowIndex;
+            return active.Sequence;
+        }
+    }
+
+    /// <summary>
+    /// Fills in the conflict detail for the FIRST refusal of a window: this method runs
+    /// on every ParseScript, so a repeated refusal inside the same window must not
+    /// rewrite (or later flood) the diagnostic. No I/O happens here — the runtime writes
+    /// the field list to the operator log together with the rejection it already emits.
+    /// </summary>
+    private static void DescribeParsedScriptConflict(
+        ActiveWindow active,
+        string branch,
+        string incomingText,
+        int incomingRow)
+    {
+        if (active.EmbeddedCommandConflict)
+        {
+            return;
+        }
+
+        string captured = active.ParsedScript ?? string.Empty;
+        active.EmbeddedCommandConflictDetail =
+            $"branch={branch}; "
+            + $"capturedSha16={CommandIdentity.CompiledScript(captured).Sha256[..16]}; "
+            + $"capturedLength={captured.Length}; capturedRow={active.ParsedRowIndex}; "
+            + $"rejectedSha16={CommandIdentity.CompiledScript(incomingText).Sha256[..16]}; "
+            + $"rejectedLength={incomingText.Length}; rejectedRow={incomingRow}";
     }
 
     public static bool AttachEmbeddedCommandBatch(PlaybackCommandBatch batch)
@@ -185,6 +379,10 @@ internal static class PlayerAdvanceObservationWindow
         }
 
         Interlocked.Decrement(ref _queuedWindows);
+        if (window.CallChainState?.Aborted == true)
+        {
+            window = window with { CloseReason = AdvanceWindowCloseReason.Aborted };
+        }
         return true;
     }
 
@@ -200,13 +398,21 @@ internal static class PlayerAdvanceObservationWindow
         return new ClosedAdvanceWindow(
             active.Sequence,
             reason,
-            Array.AsReadOnly(active.Messages.ToArray()),
+            Array.AsReadOnly(active.ParsedScript is null ? active.Messages.ToArray() : new[] { active.ParsedScript }),
             active.RejectedMessageCount,
             active.CaptureOverflowed,
             active.EmbeddedCommandBatch,
             active.EmbeddedCommandConflict,
-            playbackRowIndex >= 0 ? playbackRowIndex : active.PlaybackRowIndex,
-            active.PlaybackRowIndex) { StorageRevision = active.StorageRevision };
+            active.ParsedRowIndex >= 0 ? active.ParsedRowIndex
+                : playbackRowIndex >= 0 ? playbackRowIndex : active.PlaybackRowIndex,
+            active.PlaybackRowIndex)
+        {
+            StorageRevision = active.StorageRevision,
+            CallChainId = active.CallChainId,
+            CallChainState = active.CallChainState,
+            EmbeddedCommandConflictBranch = active.EmbeddedCommandConflictBranch,
+            EmbeddedCommandConflictDetail = active.EmbeddedCommandConflictDetail
+        };
     }
 
     private static void Enqueue(ClosedAdvanceWindow window)
@@ -240,8 +446,12 @@ internal static class PlayerAdvanceObservationWindow
 
         public long Sequence { get; }
         public long StorageRevision { get; init; }
+        public long CallChainId { get; init; }
+        public AdvanceCallChainState? CallChainState { get; set; }
 
         public List<string> Messages { get; } = new();
+        public string? ParsedScript { get; set; }
+        public int ParsedRowIndex { get; set; } = -1;
 
         public int CapturedCharacters { get; set; }
 
@@ -255,6 +465,12 @@ internal static class PlayerAdvanceObservationWindow
         public PlaybackCommandBatch? EmbeddedCommandBatch { get; set; }
 
         public bool EmbeddedCommandConflict { get; set; }
+
+        /// <summary>"text" or "row" for the first conflict this window saw.</summary>
+        public string EmbeddedCommandConflictBranch { get; set; } = string.Empty;
+
+        /// <summary>Field list for that conflict; built once, on the first refusal.</summary>
+        public string EmbeddedCommandConflictDetail { get; set; } = string.Empty;
     }
 
     private static bool SameEmbeddedBatch(
