@@ -102,6 +102,43 @@ internal static class PublicContractTests
             "The real hosted surface must provide the optional styled-button capability.");
     }
 
+    internal static void ToolWindowRegistrationIsASiblingOfTheFrozenToolbox()
+    {
+        // The toolbox contract is frozen: adding a member would break every provider compiled against it, and a
+        // page that failed to implement one would die with a TypeLoadException. Windows therefore arrive as a
+        // sibling interface that a mod asks for and falls back from.
+        var toolbox = typeof(Rukari.Lib.Tools.IToolboxService);
+        Check.True(!toolbox.GetMethods().Any(m => m.Name.Contains("Window", StringComparison.Ordinal)),
+            "No window member may be added to the frozen toolbox interface.");
+        Check.True(typeof(Rukari.Lib.Tools.IToolWindowService).IsInterface,
+            "The window capability is an interface a provider can ask for.");
+
+        var register = typeof(Rukari.Lib.Tools.IToolWindowService)
+            .GetMethods().Where(m => m.Name == "RegisterWindow").ToArray();
+        Check.Equal(1, register.Length, "Exactly one window registration entry point may exist.");
+        var parameters = register[0].GetParameters();
+        Check.Equal(5, parameters.Length,
+            "RegisterWindow(ownerId, windowId, title, content, iconId) must keep its arity.");
+        foreach (var parameter in parameters)
+            Check.True(!parameter.IsOptional, $"RegisterWindow parameter '{parameter.Name}' must not be optional.");
+        Check.True(parameters[3].ParameterType == typeof(Rukari.Lib.Tools.IToolPanelContent),
+            "A window takes the same content contract as a drawer page, not a second kind of page.");
+
+        // The page contract itself is what makes a page usable in either host, so it stays exactly two members.
+        var content = typeof(Rukari.Lib.Tools.IToolPanelContent);
+        var declared = content.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+        Check.Equal(2, declared.Length,
+            "The frozen page contract keeps exactly PreferredHeight and Draw; new needs arrive as sibling surfaces.");
+        Check.True(typeof(Rukari.Lib.Tools.IToolPanelSizing).GetMethods(
+                BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly).Length == 1,
+            "Sizing stays one optional member so an already compiled page keeps loading without it.");
+
+        // One service object answers to both capabilities, and the window capability has its own name.
+        Check.True(Rukari.Lib.Tools.ToolCapabilities.Windows != Rukari.Lib.Tools.ToolCapabilities.Toolbox
+            && Rukari.Lib.Tools.ToolCapabilities.Windows.Length != 0,
+            "The window capability needs its own published name.");
+    }
+
     internal static void ExportedContractsDoNotExposeNativeOrFeatureTypes()
     {
         var apiAssembly = typeof(IModRuntime).Assembly;

@@ -33,6 +33,13 @@ internal sealed class ToolboxDrawer : IDisposable
     private const float ContentX = ToolDrawerLayout.Padding;
     private const float ContentWidth = ToolDrawerLayout.ContentWidth;
     private const int MaxRows = ToolDrawerLayout.MaximumRows;
+    /// <summary>
+    /// Answers whether a standalone tool window covers a physical screen point. A window is always drawn above this
+    /// sheet — its canvas sorts higher — so a press a window owns must not also reach the drawer underneath it. The
+    /// shared input guard cannot express this: it is a union of rectangles with no notion of stacking order. Null
+    /// while no window host exists, which is every session that registers no window pages.
+    /// </summary>
+    internal Func<float, float, bool>? CoveredByWindow { get; set; }
     private readonly ToolInputService _input;
     private readonly Action<string> _log;
     private string _lastLayoutLog = "";
@@ -79,6 +86,16 @@ internal sealed class ToolboxDrawer : IDisposable
     private bool _moduleScrollDrag;
     /// <summary>Distance from the pointer to the thumb's own bottom edge, kept constant during a drag.</summary>
     private float _moduleScrollGrab;
+    /// <summary>
+    /// True while the current large page is being moved by its header. The panel is the only movable surface;
+    /// the toolbox card remains anchored so it can be found again after closing the page.
+    /// </summary>
+    private bool _panelDragging;
+    private float _panelDragGrabX;
+    private float _panelDragGrabY;
+    private bool _panelPositioned;
+    private float _panelUserX;
+    private float _panelUserY;
     /// <summary>
     /// Pool for a hosted page's controls. Created on first use and only grown, because most sessions never open a
     /// page that draws itself and each control is a native game object.
@@ -143,6 +160,7 @@ internal sealed class ToolboxDrawer : IDisposable
     private const string ModuleCardTitle = "扩展工具";
     private ToolInputRect[] _childRects = Array.Empty<ToolInputRect>();
     private ToolInputRect _panelHit;
+    private ToolInputRect _panelDragHit;
     private ToolInputRect _masterRect;
     private ToolInputRect _catchAll;
     private int _lastPixelWidth;
@@ -266,6 +284,7 @@ internal sealed class ToolboxDrawer : IDisposable
         if (nextDepth < _depth) ResetInteraction();
         _depth = nextDepth;
         bool expanded = _depth >= 2;
+        bool showToolbox = !expanded;
         _canvasObject.SetActive(true);
         IReadOnlyList<ToolListItem> original = snapshot.Items ?? Array.Empty<ToolListItem>();
         bool hasList = snapshot.Items is not null;
@@ -326,31 +345,59 @@ internal sealed class ToolboxDrawer : IDisposable
         _scaler.scaleFactor = _scale;
         _canvas.scaleFactor = _scale;
         float height = layout.Height;
-        _panelX = placement.Panel.X / _scale;
-        _panelY = placement.Panel.Y / _scale;
         _moduleTitle = modules.Count > 0 ? modules[titledModule].Title : "Rukari";
         // The master icon is the only permanently visible control and it NEVER moves: opening only reveals the
         // child stack above it. Every tracked rectangle comes from this one placement, assigned before any
         // branch, because the collapsed path publishes too and a 0x0 rectangle would disarm the input guard.
         _masterRect = placement.Master;
-        _catchAll = placement.CatchAll;
+        // Once a large page is open only that page and the permanent handle are visible. Do not leave the
+        // toolbox's old catch-all band active over the editor; it belongs to the hidden card and would make the
+        // modal page feel like it had invisible controls beside it.
+        _catchAll = showToolbox ? placement.CatchAll : placement.Master;
         // Rail and entry rectangles are physical pixels, so they are published unchanged and only divided by the
         // canvas scale when drawn; panel rectangles are canvas units and are published through _panelHit alone.
         // The card is published as one rectangle rather than one per row: the guard already covers it, and the
         // list of published rectangles is what has to stay bounded when a mod author installs thirty mods.
-        var published = new List<ToolInputRect>(placement.Children.Count + placement.Entries.Count + 2);
-        published.AddRange(placement.Children);
-        published.AddRange(placement.Entries);
-        if (placement.Card.IsValid) published.Add(placement.Card);
+        // A large page is a modal surface: the extension-tools card and its entry column are hidden while it is
+        // open, so their old hit regions must disappear at the same time. Keeping them published would make the
+        // invisible card swallow clicks and would make it possible for two windows to be interactive at once.
+        var published = new List<ToolInputRect>(showToolbox ? placement.Children.Count + placement.Entries.Count + 2 : 1);
+        if (showToolbox) published.AddRange(placement.Children);
+        if (showToolbox) published.AddRange(placement.Entries);
+        if (showToolbox && placement.Card.IsValid) published.Add(placement.Card);
         published.Add(_masterRect);
         _childRects = published.ToArray();
-        _panelHit = new ToolInputRect(placement.Panel.X, placement.Panel.Y, placement.Panel.Width, placement.Panel.Height);
+        ToolInputRect wantedPanel = placement.Panel;
+        if (expanded)
+        {
+            // The module card is hidden for a large page. Reuse its left edge so the page fills the space the
+            // extension-tools card occupied instead of leaving a blank column beside the rail.
+            wantedPanel = ToolDrawerLayout.PanelAtModuleColumn(wantedPanel, placement.Card);
+            // Keep a user's chosen location across page redraws and window resizes, while clamping it to the
+            // current screen. The first opening uses the hidden module-card position above.
+            float panelX = _panelPositioned ? _panelUserX : wantedPanel.X;
+            float panelY = _panelPositioned ? _panelUserY : wantedPanel.Y;
+            (panelX, panelY) = ToolDrawerLayout.ClampPanelPosition(
+                panelX, panelY, wantedPanel.Width, wantedPanel.Height, pixelWidth, pixelHeight);
+            _panelUserX = panelX;
+            _panelUserY = panelY;
+            _panelPositioned = true;
+            wantedPanel = new ToolInputRect(panelX, panelY, wantedPanel.Width, wantedPanel.Height);
+        }
+        else
+        {
+            _panelPositioned = false;
+            _panelDragging = false;
+        }
+        _panelHit = wantedPanel;
+        _panelX = wantedPanel.X / _scale;
+        _panelY = wantedPanel.Y / _scale;
         _active.Clear();
         _panelActive.Clear();
         for (int slot = 0; slot < _rail.Length; slot++)
         {
             // The module rows exist only while the tree is open; the big icon is the way in and out.
-            if (slot >= placement.Children.Count || _depth < 1) { _rail[slot].GameObject.SetActive(false); continue; }
+            if (!showToolbox || slot >= placement.Children.Count || _depth < 1) { _rail[slot].GameObject.SetActive(false); continue; }
             // A row is a slot, not a module: with the column scrolled, the first row is no longer the first mod,
             // and a button that opened "the module with this index" would open the wrong one.
             int moduleIndex = slot < placement.VisibleModules.Count ? placement.VisibleModules[slot] : slot;
@@ -363,17 +410,29 @@ internal sealed class ToolboxDrawer : IDisposable
         }
         for (int i = 0; i < _entries.Length; i++)
         {
-            if (i >= entries.Count || _depth < 1) { _entries[i].GameObject.SetActive(false); continue; }
+            if (!showToolbox || i >= entries.Count || _depth < 1) { _entries[i].GameObject.SetActive(false); continue; }
             ToolEntry entry = entries[i];
             LayoutEntry(_entries[i], entry, i < placement.Entries.Count ? placement.Entries[i] : default,
                 i == openEntryIndex, () => openEntry(entry.Id));
         }
-        LayoutModuleCard(placement, collapseOne);
+        if (showToolbox) LayoutModuleCard(placement, collapseOne);
+        else HideModuleCard();
         LayoutMasterButton(_master, _masterRect, toggle);
         // The wheel and the scrollbar thumb are read from the same placement the card was just drawn from, so the
-        // thumb the pointer is dragging is the thumb on screen.
-        HandleModuleScroll(placement, modules.Count);
+        // thumb the pointer is dragging is the thumb on screen. Once a large page is open the card is hidden and
+        // must stop consuming the old card rectangle immediately; otherwise an invisible scrollbar could capture
+        // the editor's pointer or wheel input behind the modal page.
+        if (showToolbox) HandleModuleScroll(placement, modules.Count);
+        else _moduleScrollDrag = false;
         _panelObject.SetActive(expanded);
+        if (expanded)
+        {
+            // The panel is a modal surface. It is created before the rail and the master handle, so without
+            // moving it to the end of the shared canvas hierarchy the leftmost handle would draw over a page
+            // after the page had been dragged onto that area. Keep the whole panel (including hosted controls)
+            // above the rail for the entire time it is open.
+            _panelObject.transform.SetAsLastSibling();
+        }
         if (!expanded)
         {
             _input.SetKeyboardCapture(false);
@@ -385,13 +444,15 @@ internal sealed class ToolboxDrawer : IDisposable
             return;
         }
 
-        SetRect(_panelRect, _panelX, _panelY, placement.Panel.Width / _scale, height);
+        SetRect(_panelRect, _panelX, _panelY, wantedPanel.Width / _scale, height);
         float cursor = height - ToolDrawerLayout.Padding;
         // Header geometry comes from the layout contract, so the close button can never be placed past the
         // panel's own frame again. It used to sit at ContentWidth + 8, four units outside the panel width, and it
         // now measures against THIS page's sheet width rather than the shared default one.
         ToolInputRect titleBounds = ToolDrawerLayout.TitleBounds(layout.PanelWidth, height);
         ToolInputRect closeBounds = ToolDrawerLayout.CloseBounds(layout.PanelWidth, height);
+        _panelDragHit = ToolDrawerLayout.ToScreenPixels(_panelHit, _scale,
+            new ToolInputRect(titleBounds.X, titleBounds.Y, titleBounds.Width, titleBounds.Height));
         _title.text = ToolDrawerLayout.FitSingleLine(_moduleTitle, _title.fontSize, titleBounds.Width);
         LayoutText(_title, titleBounds.X, titleBounds.Y, titleBounds.Width, titleBounds.Height);
         float headerHeight = ToolDrawerLayout.Padding + ToolDrawerLayout.HeaderRowHeight - 4f;
@@ -505,7 +566,7 @@ internal sealed class ToolboxDrawer : IDisposable
         ToolDrawerPlacement placement, Action collapseOne)
     {
         _region.Update(BuildInputRects(includePanel: true, pixelWidth, pixelHeight),
-            captureAllPointer: _hostedDragging || _moduleScrollDrag);
+            captureAllPointer: _hostedDragging || _moduleScrollDrag || _panelDragging);
         _input.ReportPublishedRegions();
         LogLayoutOnce(pixelWidth, pixelHeight, moduleCount, placement);
         HandleKeyboard(collapseOne);
@@ -626,50 +687,17 @@ internal sealed class ToolboxDrawer : IDisposable
     }
 
     /// <summary>
-    /// Turns input-method composition on while one of our fields is focused, and points it at that field so the
-    /// candidate window appears next to what is being typed instead of in a corner.
+    /// States whether this drawer's own fields want input-method composition, and where its caret is. The switch
+    /// itself belongs to <see cref="ToolInputService"/>, which arbitrates it between every surface: writing it here
+    /// meant the drawer could switch composition off under a text field the user had just clicked in a tool window.
     /// </summary>
     private void SetIme(bool on)
-    {
-        try
-        {
-            if (_imeOn == on)
-            {
-                if (on) AimCompositionCursor();
-                return;
-            }
-            UnityEngine.Input.imeCompositionMode = on
-                ? UnityEngine.IMECompositionMode.On
-                : UnityEngine.IMECompositionMode.Auto;
-            _imeOn = on;
-            if (on) AimCompositionCursor();
-        }
-        catch (Exception ex)
-        {
-            if (!_imeFailureLogged)
-            {
-                _imeFailureLogged = true;
-                _log?.Invoke($"Input method composition could not be switched on: {ex.GetType().Name}: {ex.Message}");
-            }
-        }
-    }
-
-    private void AimCompositionCursor()
     {
         ToolInputRect rect = _focused && _activeSearch
             ? new ToolInputRect(_search.Hit.X * _scale, _search.Hit.Y * _scale,
                 _search.Hit.Width * _scale, _search.Hit.Height * _scale)
             : _hostedFieldRect;
-        if (!rect.IsValid) return;
-        try
-        {
-            UnityEngine.Input.compositionCursorPos = new Vector2(
-                rect.X + 12f, rect.Y + rect.Height / 2f);
-        }
-        catch (Exception)
-        {
-            // The cursor position is a hint; a platform that refuses it still composes.
-        }
+        _input.SetComposition("shared-toolbox", on, rect);
     }
 
     private string SafeComposition()
@@ -989,6 +1017,10 @@ internal sealed class ToolboxDrawer : IDisposable
     /// </summary>
     private void LogLayoutOnce(int pixelWidth, int pixelHeight, int moduleCount, ToolDrawerPlacement placement)
     {
+        // A drag moves the sheet every frame, so logging each change would write one line per frame for as long as
+        // the button is held and bury every other diagnostic. The line is written once the drag ends instead: by
+        // then the placement differs from the last logged one, so the next frame reports where the sheet came to rest.
+        if (_panelDragging) return;
         var text = new System.Text.StringBuilder();
         text.Append("Shared tool rail layout: screen=").Append(pixelWidth).Append('x').Append(pixelHeight)
             .Append("; modules=").Append(moduleCount)
@@ -1042,16 +1074,57 @@ internal sealed class ToolboxDrawer : IDisposable
     private void HandlePointer()
     {
         var raw = UnityEngine.Input.mousePosition;
-        // The permanent rail and the toggle handle can overlap at screen centre, so they are resolved by
-        // priority instead of by list order: a module or entry button always wins, then the handle, then the
-        // panel. Rail and entry rectangles are physical pixels while panel rectangles are canvas units, which
-        // is why the two lists are kept apart rather than searched as one.
-        Control? rail = _active.Count == 0 ? null : _active.LastOrDefault(c => c.Enabled && c.Hit.Contains(raw.x, raw.y));
-        Control? master = _master.Enabled && _master.Hit.Contains(raw.x, raw.y) ? _master : null;
+        // A standalone tool window is drawn above this sheet, so where it covers the pointer the press belongs to
+        // it and must not also move or click the drawer underneath. A drag of our own keeps the pointer: it captured
+        // every position when it started.
+        if (!_panelDragging && !_moduleScrollDrag && !_hostedDragging
+            && CoveredByWindow?.Invoke(raw.x, raw.y) == true)
+        {
+            // A window owns the pointer here. Any press of ours is dropped rather than kept: a pointer that travelled
+            // across a window and came back must not fire the control the press started on.
+            _pressedKey = null;
+            _hostedPressed = null;
+            return;
+        }
+        // The title band is a deliberately separate hit target. It does not add a visible control, so hosted
+        // pages can keep their own buttons there, but a click on the shared title moves the whole sheet. While a
+        // drag is held, capture all pointer input and never dispatch the press to a page control underneath.
+        if (_depth >= 2)
+        {
+            if (_panelDragging)
+            {
+                if (UnityEngine.Input.GetMouseButton(0))
+                {
+                    MovePanelTo(raw.x - _panelDragGrabX, raw.y - _panelDragGrabY);
+                }
+                else
+                {
+                    _panelDragging = false;
+                }
+                return;
+            }
+            if (UnityEngine.Input.GetMouseButtonDown(0) && _panelDragHit.Contains(raw.x, raw.y))
+            {
+                _panelDragging = true;
+                _panelDragGrabX = raw.x - _panelHit.X;
+                _panelDragGrabY = raw.y - _panelHit.Y;
+                _pressedKey = null;
+                _focused = false;
+                return;
+            }
+        }
+        // The large page is modal. Its controls win over the permanent handle, and the handle is disabled as a
+        // click target anywhere underneath the sheet so dragging the page over the left rail cannot accidentally
+        // toggle the toolbox through the page background.
+        bool insidePanel = _depth >= 2 && _panelHit.Contains(raw.x, raw.y);
+        Control? rail = !insidePanel && _active.Count != 0
+            ? _active.LastOrDefault(c => c.Enabled && c.Hit.Contains(raw.x, raw.y))
+            : null;
+        Control? master = !insidePanel && _master.Enabled && _master.Hit.Contains(raw.x, raw.y) ? _master : null;
         Control? panel = _depth >= 2 && _panelActive.Count != 0
             ? _panelActive.LastOrDefault(c => c.Enabled && c.Hit.Contains(raw.x / _scale, raw.y / _scale))
             : null;
-        Control? hovered = rail ?? master ?? panel;
+        Control? hovered = panel ?? rail ?? master;
         if (UnityEngine.Input.GetMouseButtonDown(0))
         {
             _pressedKey = hovered?.Key;
@@ -1068,10 +1141,32 @@ internal sealed class ToolboxDrawer : IDisposable
         }
     }
 
+    private void MovePanelTo(float x, float y)
+    {
+        float dragLocalX = _panelDragHit.X - _panelHit.X;
+        float dragLocalY = _panelDragHit.Y - _panelHit.Y;
+        (float clampedX, float clampedY) = ToolDrawerLayout.ClampPanelPosition(
+            x, y, _panelHit.Width, _panelHit.Height, _lastPixelWidth, _lastPixelHeight);
+        _panelUserX = clampedX;
+        _panelUserY = clampedY;
+        _panelPositioned = true;
+        _panelHit = new ToolInputRect(clampedX, clampedY, _panelHit.Width, _panelHit.Height);
+        _panelX = clampedX / _scale;
+        _panelY = clampedY / _scale;
+        SetRect(_panelRect, _panelX, _panelY, _panelHit.Width / _scale, _panelHit.Height / _scale);
+        _panelDragHit = new ToolInputRect(
+            clampedX + dragLocalX,
+            clampedY + dragLocalY,
+            _panelDragHit.Width,
+            _panelDragHit.Height);
+    }
+
     internal void ResetInteraction()
     {
         _focused = false;
         _pressedKey = null;
+        _panelDragging = false;
+        _panelDragHit = default;
         // A press that belonged to a hosted page before the tree changed level must not survive to become a
         // click when the page is opened again.
         _hostedPressed = null;
@@ -1364,6 +1459,11 @@ internal sealed class ToolboxDrawer : IDisposable
             return;
         }
         var raw = UnityEngine.Input.mousePosition;
+        // A standalone window drawn above this card owns the pointer here, the wheel included: scrolling a list the
+        // user cannot see because a window covers it is the same mistake as clicking through it. A thumb drag that
+        // is already in progress keeps the pointer — it captured it when it started, and cancelling it mid-gesture
+        // would drop the rows the user was dragging to.
+        if (!_moduleScrollDrag && CoveredByWindow?.Invoke(raw.x, raw.y) == true) return;
         bool overCard = placement.Card.Contains(raw.x, raw.y);
         bool pressed = UnityEngine.Input.GetMouseButtonDown(0);
         bool held = UnityEngine.Input.GetMouseButton(0);

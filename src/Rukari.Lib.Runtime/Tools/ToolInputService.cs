@@ -1,6 +1,9 @@
+extern alias unitycore;
+
 using HarmonyLib;
 using Rukari.Lib.Tools;
 using System.Reflection;
+using Vector2 = unitycore::UnityEngine.Vector2;
 
 namespace Rukari.Lib.Runtime.Tools;
 
@@ -15,6 +18,9 @@ internal sealed class ToolInputService : IToolInputService, IDisposable
     private bool _keyboardCaptured;
     private bool _keyboardWanted;
     private readonly HashSet<string> _keyboardOwners = new(StringComparer.Ordinal);
+    /// <summary>Which surfaces want input-method composition; the engine's switch is global, so it is arbitrated here.</summary>
+    private readonly ToolCompositionState _composition = new();
+    private bool _compositionFailureLogged;
     private int _probeCount;
     private int _updateLogCount;
     internal bool SupportsKeyboardCapture { get; private set; }
@@ -181,7 +187,11 @@ internal sealed class ToolInputService : IToolInputService, IDisposable
     internal void BeginFrame()
     {
         if (Environment.CurrentManagedThreadId == _threadId)
+        {
             _keyboardCaptured = _keyboardWanted && SupportsKeyboardCapture && !_stopped;
+            // Re-aim on every pump: a field that moved keeps its candidate window beside it.
+            if (_composition.Wanted) ApplyComposition();
+        }
     }
 
     internal void SetKeyboardCapture(bool capture)
@@ -201,6 +211,48 @@ internal sealed class ToolInputService : IToolInputService, IDisposable
         }
     }
 
+    /// <summary>
+    /// Records that one surface wants the input method's composition window, and where its caret is. The switch itself
+    /// is one global value in the engine, so it is written here and nowhere else: two surfaces that each wrote it for
+    /// themselves fought, and which one lost depended on the order they happened to run in.
+    /// </summary>
+    internal void SetComposition(string ownerId, bool on, ToolInputRect cursor = default)
+    {
+        if (Environment.CurrentManagedThreadId != _threadId) return;
+        if (_stopped) return;
+        _composition.Set(ownerId, on, cursor);
+        ApplyComposition();
+    }
+
+    /// <summary>
+    /// Applies the owners' wishes to the engine: composition on while any owner wants it, aimed at the caret the last
+    /// of them reported. Called once per pump as well, because an owner that keeps a field focused keeps reporting the
+    /// same caret and the candidate window follows the field if it moves.
+    /// </summary>
+    private void ApplyComposition()
+    {
+        try
+        {
+            bool wanted = _composition.Wanted && !_stopped;
+            UnityEngine.Input.imeCompositionMode = wanted
+                ? UnityEngine.IMECompositionMode.On
+                : UnityEngine.IMECompositionMode.Auto;
+            if (!wanted) return;
+            ToolInputRect cursor = _composition.Cursor;
+            if (cursor.IsValid)
+            {
+                UnityEngine.Input.compositionCursorPos = new Vector2(
+                    cursor.X + 12f, cursor.Y + cursor.Height / 2f);
+            }
+        }
+        catch (Exception ex)
+        {
+            if (_compositionFailureLogged) return;
+            _compositionFailureLogged = true;
+            _log($"Input method composition could not be switched: {ex.Message}");
+        }
+    }
+
     // No IL2CPP arguments or result are marshalled. NGUI keyboard navigation and text processing
     // pause only while our search holds focus, including its final input frame on close/hide/failure.
     private static bool KeyboardPrefix() => _installed is not { _stopped: false, _keyboardCaptured: true };
@@ -212,6 +264,8 @@ internal sealed class ToolInputService : IToolInputService, IDisposable
         _regions.Clear();
         _keyboardOwners.Clear();
         _keyboardWanted = _keyboardCaptured = false;
+        _composition.Clear();
+        ApplyComposition();
         if (ReferenceEquals(_installed, this)) _installed = null;
         _harmony?.UnpatchSelf();
         _harmony = null;

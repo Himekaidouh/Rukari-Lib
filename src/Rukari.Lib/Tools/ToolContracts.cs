@@ -155,4 +155,6 @@ public static class ToolCapabilities
     public const string Toolbox = "rukari.tools.toolbox";
     /// <summary>Shared ownership of native mouse input regions.</summary>
     public const string Input = "rukari.tools.input";
+    /// <summary>Standalone movable tool windows, beside the drawer rather than inside it.</summary>
+    public const string Windows = "rukari.tools.windows";
 }

@@ -11,6 +11,7 @@ public static class ToolsHost
     private static ToolboxService? _toolbox;
     private static IDisposable? _inputRegistration;
     private static IDisposable? _toolboxRegistration;
+    private static IDisposable? _windowRegistration;
     private static IDisposable? _savePage;
 
     /// <summary>Registers the shared tools only if the single native input guard was installed successfully.</summary>
@@ -44,10 +45,22 @@ public static class ToolsHost
             inputResult.Value.Dispose(); toolbox.Dispose(); input.Dispose(); OfficialButtonSkin.Shutdown(); ToolTheme.Shutdown(); EditorWorkspaceContext.Shutdown();
             log(toolboxResult.Error!.Message); return;
         }
+        // Windows are published as their own capability on the SAME service object: a mod that already found the
+        // toolbox can ask it for this interface without a second lookup and a second registration lifetime.
+        var windowResult = runtime.RegisterService<IToolWindowService>("rukari.lib.runtime", toolbox,
+            new CapabilityInfo(ToolCapabilities.Windows, "rukari.lib.runtime", "0.2.0", CapabilityLevel.Experimental,
+                "Standalone movable tool windows; the shared frame, theme and input ownership on a surface the user places."));
+        if (!windowResult.Success)
+        {
+            toolboxResult.Value.Dispose(); inputResult.Value.Dispose(); toolbox.Dispose(); input.Dispose();
+            OfficialButtonSkin.Shutdown(); ToolTheme.Shutdown(); EditorWorkspaceContext.Shutdown();
+            log(windowResult.Error!.Message); return;
+        }
         _input = input;
         _toolbox = toolbox;
         _inputRegistration = inputResult.Value;
         _toolboxRegistration = toolboxResult.Value;
+        _windowRegistration = windowResult.Value;
         log("Shared toolbox and mouse ownership services registered; tool pages are supplied by enabled mods.");
         // The lib's own page, so saving does not depend on which feature packages are enabled.
         _savePage?.Dispose();
@@ -72,6 +85,7 @@ public static class ToolsHost
     public static void Shutdown()
     {
         SettingsHost.Shutdown();
+        _windowRegistration?.Dispose(); _windowRegistration = null;
         _toolboxRegistration?.Dispose(); _toolboxRegistration = null;
         _inputRegistration?.Dispose(); _inputRegistration = null;
         _toolbox?.Dispose(); _toolbox = null;
@@ -84,7 +98,7 @@ public static class ToolsHost
     }
 }
 
-internal sealed class ToolboxService : IToolboxService, IDisposable
+internal sealed class ToolboxService : IToolboxService, IToolWindowService, IDisposable
 {
     internal sealed class Page : IDisposable
     {
@@ -100,18 +114,39 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
         internal readonly IToolPanelContent? Content;
         /// <summary>Action handler for an ordinary page; null for a hosted page, which owns its own actions.</summary>
         internal readonly Action<ToolAction>? Action;
+        /// <summary>
+        /// True when this page draws in its own standalone window instead of the modal drawer sheet. It still
+        /// appears in its module's entries column, so the rail stays the one way into every tool.
+        /// </summary>
+        internal readonly bool Window;
         internal bool Disposed => Volatile.Read(ref _disposed) != 0;
         internal Page(ToolboxService owner, string ownerId, string id, string title, string icon,
-            Func<ToolPageSnapshot>? read, Action<ToolAction>? action, IToolPanelContent? content)
-        { _owner = owner; OwnerId = ownerId; Id = id; Title = title; Icon = icon; Read = read; Action = action; Content = content; }
+            Func<ToolPageSnapshot>? read, Action<ToolAction>? action, IToolPanelContent? content, bool window)
+        { _owner = owner; OwnerId = ownerId; Id = id; Title = title; Icon = icon; Read = read; Action = action; Content = content; Window = window; }
         public void Dispose()
         {
+            // A lease may be released from any thread, so this only marks the page gone. The renderer notices on its
+            // next Tick and performs the native teardown there.
             if (Interlocked.Exchange(ref _disposed, 1) == 0) _owner._dirty = true;
         }
     }
 
     private readonly int _threadId = Environment.CurrentManagedThreadId;
     private readonly List<Page> _pages = new();
+    /// <summary>
+    /// Where the user put each standalone window, for as long as this library lives. Session-scoped: a position is
+    /// worth keeping while the game runs, and writing it to disk would need a file this library does not own.
+    /// </summary>
+    private readonly ToolWindowPlacementStore _placements = new();
+    /// <summary>
+    /// Who is in front. Windows and the drawer both consult it, because one press must reach exactly one surface.
+    /// </summary>
+    private readonly ToolWindowStack _windowStack = new();
+    /// <summary>
+    /// One live host per window-backed page, created when that page is registered, so a mod learns immediately
+    /// whether a window could be built at all and can fall back to a drawer page when it could not.
+    /// </summary>
+    private readonly Dictionary<string, ToolPanelWindow> _windowHosts = new(StringComparer.Ordinal);
     private readonly ToolInputService _input;
     private readonly Action<string> _log;
     /// <summary>
@@ -143,18 +178,106 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(action);
-        return Register(ownerId, pageId, title, iconId, snapshot, action, null);
+        return Register(ownerId, pageId, title, iconId, snapshot, action, null, window: false);
     }
 
     public ModResult<IDisposable> RegisterHostedPage(string ownerId, string pageId, string title,
         IToolPanelContent content, string? iconId)
     {
         ArgumentNullException.ThrowIfNull(content);
-        return Register(ownerId, pageId, title, iconId, null, null, content);
+        return Register(ownerId, pageId, title, iconId, null, null, content, window: false);
+    }
+
+    /// <summary>
+    /// Registers a page that draws itself in its own movable window instead of the modal drawer sheet. The window is
+    /// built here rather than on first use, so a library that cannot build one says so now and the caller can fall
+    /// back to <see cref="RegisterHostedPage"/> instead of discovering it when the user clicks the entry.
+    /// </summary>
+    /// <summary>
+    /// Most windows that may be registered at once. It is a drawing limit, not an arbitrary one: windows are stacked
+    /// by one canvas sorting order each, and the table that decides which window owns a press has to agree with what
+    /// is actually drawn on top. Past this count the two would disagree, so registration fails instead of letting a
+    /// click reach a window the user cannot see.
+    /// </summary>
+    private const int MaximumWindows = 10;
+
+    public ModResult<IDisposable> RegisterWindow(string ownerId, string windowId, string title,
+        IToolPanelContent content, string? iconId)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        if (Environment.CurrentManagedThreadId != _threadId)
+            return ModResult<IDisposable>.Fail(ModErrorCode.WrongThread, "Window registration requires the main thread.");
+        if (_windowHosts.Count >= MaximumWindows)
+            return ModResult<IDisposable>.Fail(ModErrorCode.Busy,
+                $"At most {MaximumWindows} tool windows can be registered at once.");
+        ModResult<IDisposable> registered = Register(ownerId, windowId, title, iconId, null, null, content, window: true);
+        if (!registered.Success) return registered;
+        var page = (Page)registered.Value;
+        // The same window id can be registered again in the frame its old lease was released: that host still holds
+        // the id's input-region key until the next Tick, and the new one would fail to register and be discarded.
+        if (_windowHosts.TryGetValue(windowId, out ToolPanelWindow? previous))
+        {
+            _windowHosts.Remove(windowId);
+            try { previous.Dispose(); }
+            catch (Exception ex) { _log($"Tool window {windowId} cleanup failed before re-registration: {ex.Message}"); }
+        }
+        try
+        {
+            _windowHosts[windowId] = new ToolPanelWindow(_input, windowId, title, content, _placements, _windowStack, _log);
+        }
+        catch (Exception ex)
+        {
+            page.Dispose();
+            _pages.Remove(page);
+            _log($"Tool window {windowId} could not be created: {ex.Message}");
+            return ModResult<IDisposable>.Fail(ModErrorCode.NotReady, "The tool window could not be created.");
+        }
+        return registered;
+    }
+
+    public ModResult<bool> Show(string windowId)
+    {
+        if (Environment.CurrentManagedThreadId != _threadId)
+            return ModResult<bool>.Fail(ModErrorCode.WrongThread, "Opening a tool window requires the main thread.");
+        if (_stopped || _uiFailed) return ModResult<bool>.Fail(ModErrorCode.NotReady, "The toolbox renderer is unavailable.");
+        if (!_windowHosts.TryGetValue(windowId ?? string.Empty, out ToolPanelWindow? window))
+            return ModResult<bool>.Fail(ModErrorCode.NotFound, "The tool window is not registered.");
+        if (!EditorWorkspaceContext.IsToolWorkspaceVisible || SettingsHost.IsOpen)
+            return ModResult<bool>.Fail(ModErrorCode.NotReady, "请返回项目内的台词编辑界面，并关闭官方选择窗口。");
+        window.Requested = true;
+        return ModResult<bool>.Ok(true);
+    }
+
+    public void Hide(string windowId)
+    {
+        RequireThread();
+        if (windowId is not null && _windowHosts.TryGetValue(windowId, out ToolPanelWindow? window)) window.Requested = false;
+    }
+
+    public bool IsWindowOpen(string windowId) =>
+        windowId is not null && _windowHosts.TryGetValue(windowId, out ToolPanelWindow? window) && window.IsVisible;
+
+    public ModResult<bool> Toggle(string windowId)
+    {
+        if (IsWindowOpen(windowId))
+        {
+            Hide(windowId);
+            return ModResult<bool>.Ok(false);
+        }
+        return Show(windowId);
+    }
+
+    public bool ResetPlacement(string windowId)
+    {
+        bool forgotten = _placements.Reset(windowId);
+        // A live window keeps its own resolved placement, so it has to be told: without this the remembered position
+        // was dropped while the window on screen stayed exactly where the user left it.
+        if (windowId is not null && _windowHosts.TryGetValue(windowId, out ToolPanelWindow? window)) window.ResetPlacement();
+        return forgotten;
     }
 
     private ModResult<IDisposable> Register(string ownerId, string pageId, string title, string? iconId,
-        Func<ToolPageSnapshot>? snapshot, Action<ToolAction>? action, IToolPanelContent? content)
+        Func<ToolPageSnapshot>? snapshot, Action<ToolAction>? action, IToolPanelContent? content, bool window)
     {
         if (Environment.CurrentManagedThreadId != _threadId)
             return ModResult<IDisposable>.Fail(ModErrorCode.WrongThread, "Page registration requires the main thread.");
@@ -167,9 +290,11 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
             return ModResult<IDisposable>.Fail(ModErrorCode.Conflict, "The tool page ID is already registered.");
         if (_pages.Count >= 16)
             return ModResult<IDisposable>.Fail(ModErrorCode.Busy, "The toolbox page limit was reached.");
-        var page = new Page(this, ownerId, pageId, title, (iconId ?? "").Trim(), snapshot, action, content);
+        var page = new Page(this, ownerId, pageId, title, (iconId ?? "").Trim(), snapshot, action, content, window);
         _pages.Add(page);
-        _selected ??= page;
+        // A window page is never the drawer's selected page: the drawer draws a sheet for whatever is selected, and
+        // this page is already on screen in a window of its own.
+        if (!window) _selected ??= page;
         _dirty = true;
         return ModResult<IDisposable>.Ok(page);
     }
@@ -242,10 +367,13 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
         return -1;
     }
 
-    /// <summary>Selects a module's first page, which is what a rail button click asks for.</summary>
+    /// <summary>Selects a module's first drawer page, which is what a rail button click asks for.</summary>
     internal void SelectModule(string ownerId)
     {
-        Page? first = _pages.FirstOrDefault(p => !p.Disposed && StringComparer.Ordinal.Equals(p.OwnerId, ownerId));
+        // Never a window page: the drawer draws a sheet for whatever is selected, and that page is on screen
+        // somewhere else. A module that publishes only windows therefore leaves the selection where it was.
+        Page? first = _pages.FirstOrDefault(p => !p.Disposed && !p.Window
+            && StringComparer.Ordinal.Equals(p.OwnerId, ownerId));
         if (first is not null) Select(first);
     }
 
@@ -294,6 +422,13 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
     {
         if (StringComparer.Ordinal.Equals(_tree.OpenModuleId, ownerId))
         {
+            // A module whose single entry draws in a window has no column to walk back through and no sheet to
+            // close, so its own button is what closes the window it opened.
+            if (SingleWindowPage(ownerId) is { } open)
+            {
+                ToggleWindow(open.Id);
+                return;
+            }
             CloseOneLevel();
             return;
         }
@@ -301,9 +436,26 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
         _tree.OpenModule(ownerId);
         SelectModule(ownerId);
         IReadOnlyList<ToolEntry> entries = EntriesOf(ownerId);
-        if (entries.Count == 1) _tree.OpenEntry(ownerId, entries[0].Id);
+        // OpenEntry is what routes a window-backed entry to its window and leaves the tree at the column.
+        if (entries.Count == 1) OpenEntry(entries[0].Id);
         try { _drawer?.BeginLevelChange(); }
         catch (Exception ex) { StopRenderer(ex); }
+    }
+
+    /// <summary>
+    /// The module's only page, when that page draws in its own window, and null for every other module: one with
+    /// several entries is entered through its column, and one with a sheet is closed by walking back a level.
+    /// </summary>
+    private Page? SingleWindowPage(string ownerId)
+    {
+        Page? found = null;
+        foreach (Page page in _pages)
+        {
+            if (page.Disposed || !StringComparer.Ordinal.Equals(page.OwnerId, ownerId)) continue;
+            if (found is not null) return null;
+            found = page;
+        }
+        return found is { Window: true } ? found : null;
     }
 
     /// <summary>
@@ -319,10 +471,28 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
             CloseOneLevel();
             return;
         }
+        // A window-backed entry opens or closes its window, and the card it was reached through closes with it: the
+        // window is the tool now, and a lingering column only stacks more chrome on the screen.
+        if (page.Window)
+        {
+            ToggleWindow(page.Id);
+            CloseOneLevel();
+            return;
+        }
         _tree.OpenEntry(page.OwnerId, page.Id);
         Select(page);
         try { _drawer?.BeginLevelChange(); }
         catch (Exception ex) { StopRenderer(ex); }
+    }
+
+    /// <summary>
+    /// One entry of a module that draws in its own window: the window opens or closes and the tree stays where it
+    /// is, so the entries column remains visible and a second tool can be opened from it without closing the first.
+    /// </summary>
+    private void ToggleWindow(string windowId)
+    {
+        ModResult<bool> result = Toggle(windowId);
+        if (!result.Success) _log($"Tool window {windowId} could not be toggled: {result.Error?.Message}");
     }
 
     /// <summary>
@@ -376,15 +546,20 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
         if (_stopped || _uiFailed || Environment.CurrentManagedThreadId != _threadId) return;
         try
         {
-            if (!EditorWorkspaceContext.IsToolWorkspaceVisible || SettingsHost.IsOpen) { HideOutsideWorkspace(); return; }
+            // Windows follow the same visibility rule as the drawer: they hide while an official selector covers
+            // the editor and come back with it, keeping the place and the open/closed state the user left them in.
+            bool allowed = EditorWorkspaceContext.IsToolWorkspaceVisible && !SettingsHost.IsOpen;
+            if (!allowed) { HideOutsideWorkspace(); TickWindows(false); return; }
             _pages.RemoveAll(p => p.Disposed);
-            if (_selected is null || _selected.Disposed) { _selected = _pages.FirstOrDefault(); _dirty = true; _drawer?.ResetPage(); }
+            CloseDeadWindows();
+            TickWindows(true);
+            if (_selected is null || _selected.Disposed) { _selected = _pages.FirstOrDefault(p => !p.Window); _dirty = true; _drawer?.ResetPage(); }
             // A module or entry whose provider unloaded cannot keep a column, let alone a panel, on screen.
             IReadOnlyList<ToolEntry> openEntries = EntriesOf(_tree.OpenModuleId);
             if (_tree.Synchronize(Modules(), openEntries)) _drawer?.BeginLevelChange();
             // Lazily create native UI only once at least one enabled feature supplies a page.
             if (_pages.Count == 0) { _tree.CollapseAll(); _drawer?.Hide(); return; }
-            _drawer ??= new ToolboxDrawer(_input, _log);
+            _drawer ??= new ToolboxDrawer(_input, _log) { CoveredByWindow = CoveredByWindow };
             if (_dirty || ++_frames % 15 == 0)
             {
                 _dirty = false;
@@ -410,6 +585,40 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
         catch (Exception ex) { StopRenderer(ex); }
     }
 
+    /// <summary>Draws every live window. <paramref name="allowed"/> is false while the tool workspace is off screen.</summary>
+    private void TickWindows(bool allowed)
+    {
+        if (_windowHosts.Count == 0) return;
+        foreach (ToolPanelWindow window in _windowHosts.Values) window.Tick(allowed);
+    }
+
+    /// <summary>Whether a standalone window is in front at this physical screen point.</summary>
+    private bool CoveredByWindow(float x, float y) => _windowStack.OwnerAt(x, y) is not null;
+
+    /// <summary>
+    /// Tears down the windows whose registration was released. A lease only marks its page gone, because it may be
+    /// released from any thread; the native teardown happens here, on the game main thread.
+    /// </summary>
+    private void CloseDeadWindows()
+    {
+        if (_windowHosts.Count == 0) return;
+        foreach (string id in _windowHosts.Keys.ToArray())
+        {
+            bool alive = false;
+            foreach (Page page in _pages)
+            {
+                if (page.Disposed || !page.Window || !StringComparer.Ordinal.Equals(page.Id, id)) continue;
+                alive = true;
+                break;
+            }
+            if (alive) continue;
+            ToolPanelWindow window = _windowHosts[id];
+            _windowHosts.Remove(id);
+            try { window.Dispose(); }
+            catch (Exception ex) { _log($"Tool window {id} native cleanup failed after its lease was released: {ex.Message}"); }
+        }
+    }
+
     private void StopRenderer(Exception cause)
     {
         _uiFailed = true;
@@ -418,6 +627,14 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
         _drawer = null;
         try { drawer?.Dispose(); }
         catch (Exception cleanup) { _log($"Shared toolbox native cleanup failed after input release: {cleanup.Message}"); }
+        // A window owns a canvas and an input region of its own, and nothing would tick it once the service has
+        // stopped, so it is torn down here rather than left on screen swallowing clicks for a dead renderer.
+        foreach (ToolPanelWindow window in _windowHosts.Values)
+        {
+            try { window.Dispose(); }
+            catch (Exception cleanup) { _log($"Tool window cleanup failed after the renderer stopped: {cleanup.Message}"); }
+        }
+        _windowHosts.Clear();
         _log($"Shared toolbox renderer stopped and released its input: {cause}");
     }
 
@@ -469,6 +686,14 @@ internal sealed class ToolboxService : IToolboxService, IDisposable
         _stopped = true;
         foreach (Page page in _pages) page.Dispose();
         _pages.Clear();
+        foreach (ToolPanelWindow window in _windowHosts.Values)
+        {
+            try { window.Dispose(); }
+            catch (Exception ex) { _log($"Tool window cleanup failed: {ex.Message}"); }
+        }
+        _windowHosts.Clear();
+        _placements.Clear();
+        _windowStack.Clear();
         _drawer?.Dispose(); _drawer = null;
     }
 }

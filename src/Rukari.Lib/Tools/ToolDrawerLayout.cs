@@ -301,6 +301,18 @@ public sealed record ToolDrawerLayout(
         panelLocal.Height * scale);
 
     /// <summary>
+    /// Keeps a user-moved large page reachable after a resize. The drawer stores the position in physical pixels,
+    /// while its content remains in canvas units; clamping here keeps that conversion in one pure, testable rule.
+    /// </summary>
+    public static (float X, float Y) ClampPanelPosition(
+        float x, float y, float width, float height, int pixelWidth, int pixelHeight)
+    {
+        float maxX = Math.Max(0f, pixelWidth - Math.Max(1f, width));
+        float maxY = Math.Max(0f, pixelHeight - Math.Max(1f, height));
+        return (Math.Clamp(x, 0f, maxX), Math.Clamp(y, 0f, maxY));
+    }
+
+    /// <summary>
     /// Measures a hosted page, whose content height the mod states instead of deriving it from a snapshot. The
     /// value is clamped so a wrong number cannot collapse or overflow the sheet, and the ordinary panel scale
     /// still shrinks the whole thing to fit the window.
@@ -532,6 +544,16 @@ public sealed record ToolDrawerLayout(
     /// </summary>
     public static float PanelXFor(float columnWidth, bool showEntries) =>
         (showEntries ? EntryColumnRight(columnWidth) : ModuleColumnRight(columnWidth)) + RailPanelGap;
+
+    /// <summary>
+    /// Moves an expanded page onto the module-card column. The card is hidden while a large page is open, so
+    /// keeping the page at the ordinary tree position would leave a conspicuous empty band where the card used to
+    /// be. The size and vertical position stay unchanged; only the horizontal origin is borrowed from the card.
+    /// </summary>
+    public static ToolInputRect PanelAtModuleColumn(ToolInputRect panel, ToolInputRect moduleCard) =>
+        moduleCard.IsValid
+            ? new ToolInputRect(moduleCard.X, panel.Y, panel.Width, panel.Height)
+            : panel;
 
     /// <summary>
     /// The module column's width for a set of modules: wide enough for the longest title at the shared font size,

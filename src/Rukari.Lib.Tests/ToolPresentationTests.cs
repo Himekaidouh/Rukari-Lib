@@ -87,6 +87,29 @@ internal static class ToolPresentationTests
         }
     }
 
+    internal static void LargePagesCanBeClampedAfterDragging()
+    {
+        Check.Equal((0f, 0f), ToolDrawerLayout.ClampPanelPosition(-30, -12, 640, 480, 1280, 720),
+            "A dragged page cannot leave the lower-left corner.");
+        Check.Equal((640f, 240f), ToolDrawerLayout.ClampPanelPosition(900, 900, 640, 480, 1280, 720),
+            "A dragged page is clamped to the upper-right screen edge.");
+        Check.Equal((40f, 30f), ToolDrawerLayout.ClampPanelPosition(40, 30, 640, 480, 1280, 720),
+            "A valid user position is preserved.");
+    }
+
+    internal static void ExpandedPanelUsesTheHiddenModuleColumn()
+    {
+        var panel = new ToolInputRect(520, 120, 640, 760);
+        var card = new ToolInputRect(104, 300, 280, 420);
+        ToolInputRect moved = ToolDrawerLayout.PanelAtModuleColumn(panel, card);
+        Check.Equal(card.X, moved.X, "An expanded page starts where the hidden extension-tools card was.");
+        Check.Equal(panel.Y, moved.Y, "Moving the page into the card column must not change its vertical position.");
+        Check.Equal(panel.Width, moved.Width, "Moving the page into the card column must not resize it.");
+        Check.Equal(panel.Height, moved.Height, "Moving the page into the card column must not resize it.");
+        Check.Equal(panel, ToolDrawerLayout.PanelAtModuleColumn(panel, default),
+            "Without a module card, the ordinary panel placement is preserved.");
+    }
+
     internal static void ChinesePageTitlesFitAndLongLabelsStayOnOneLine()
     {
         foreach (string title in new[] { "更多的画面效果", "人物配音支持", "记忆大厅支持" })
