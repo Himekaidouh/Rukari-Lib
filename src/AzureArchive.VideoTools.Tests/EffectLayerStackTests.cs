@@ -7,30 +7,30 @@ namespace AzureArchive.VideoTools.Tests;
 /// The picture editor draws this stack with its own widgets, so its behaviour has to be checkable here rather than by
 /// looking at that page.
 /// </summary>
-internal static class CameraLayerStackTests
+internal static class EffectLayerStackTests
 {
     private const string FirstCamera = "#aavt;camera;set;x=0;y=0;zoom=1.2;duration=300;easing=easeOut";
     private const string SecondCamera = "#aavt;camera;set;x=200;y=0;zoom=1.6;duration=400;easing=linear";
     private const string Background = "#aavt;camera;set;scope=background;zoom=1.5;duration=250;easing=easeOut";
 
-    private static CameraLayerRead Row(params string[] directives) => CameraLayerRead.From(
+    private static EffectLayerRead Row(params string[] directives) => EffectLayerRead.From(CameraLayers.All, 
         string.Join("\n", directives),
         new string('A', 64),
         "token-1",
         "台词 #1");
 
-    private static CameraDraft Draft(string publicDirective, string canonical, string layerKey) =>
-        new(layerKey, publicDirective, canonical, CameraLayerLabel.Of(canonical), string.Empty);
+    private static EffectDraft Draft(string publicDirective, string canonical, string layerKey) =>
+        new(layerKey, publicDirective, canonical, EffectDirectiveLabel.Of(canonical), string.Empty);
 
-    private static CameraDraft CameraDraftOf(string publicDirective, string canonical) =>
+    private static EffectDraft EffectDraftOf(string publicDirective, string canonical) =>
         Draft(publicDirective, canonical, EffectLayerCatalog.Camera.ResourceKey);
 
-    private static CameraDraft BackgroundDraftOf(string publicDirective, string canonical) =>
+    private static EffectDraft BackgroundDraftOf(string publicDirective, string canonical) =>
         Draft(publicDirective, canonical, EffectLayerCatalog.BackgroundCamera.ResourceKey);
 
     internal static void AReadBecomesTheStackAndNamesItself()
     {
-        var stack = new CameraLayerStack();
+        var stack = new EffectLayerStack(CameraLayers.All);
         stack.Adopt(Row(FirstCamera, Background, SecondCamera));
 
         AssertEx.Equal(2, stack.CountOf(EffectLayerCatalog.Camera), "Two camera directives are two effects.");
@@ -45,9 +45,9 @@ internal static class CameraLayerStackTests
 
     internal static void AFailedReadClearsTheStackInsteadOfShowingTheOldRow()
     {
-        var stack = new CameraLayerStack();
+        var stack = new EffectLayerStack(CameraLayers.All);
         stack.Adopt(Row(FirstCamera));
-        stack.Adopt(CameraLayerRead.Failed("当前没有选中的台词。"));
+        stack.Adopt(EffectLayerRead.Failed("当前没有选中的台词。"));
 
         AssertEx.Equal(0, stack.CountOf(EffectLayerCatalog.Camera), "An unreadable row has nothing to show.");
         AssertEx.False(stack.CanWrite, "An unreadable row cannot be written to.");
@@ -56,7 +56,7 @@ internal static class CameraLayerStackTests
 
     internal static void ADraftLandsInItsOwnLayerAndSelectsItself()
     {
-        var stack = new CameraLayerStack();
+        var stack = new EffectLayerStack(CameraLayers.All);
         stack.Adopt(Row(FirstCamera));
 
         AssertEx.True(stack.Add(BackgroundDraftOf(Background, "#camera;set;scope=background;zoom=1.5;duration=250;easing=easeOut")),
@@ -74,10 +74,10 @@ internal static class CameraLayerStackTests
 
     internal static void AnUnavailableDraftSaysWhyAndChangesNothing()
     {
-        var stack = new CameraLayerStack();
+        var stack = new EffectLayerStack(CameraLayers.All);
         stack.Adopt(Row(FirstCamera));
 
-        AssertEx.False(stack.Add(CameraDraft.None("还没有镜头草稿：先在画面编辑器里调好镜头。")),
+        AssertEx.False(stack.Add(EffectDraft.None("还没有镜头草稿：先在画面编辑器里调好镜头。")),
             "A missing draft is refused.");
 
         AssertEx.Equal(1, stack.CountOf(EffectLayerCatalog.Camera), "Nothing was added.");
@@ -87,7 +87,7 @@ internal static class CameraLayerStackTests
 
     internal static void MovingAndDeletingStayInsideTheirOwnLayer()
     {
-        var stack = new CameraLayerStack();
+        var stack = new EffectLayerStack(CameraLayers.All);
         stack.Adopt(Row(FirstCamera, Background, SecondCamera));
 
         AssertEx.True(stack.Move(EffectLayerCatalog.Camera, 1, -1), "The second camera effect moves up.");
@@ -105,7 +105,7 @@ internal static class CameraLayerStackTests
 
     internal static void MovingPastTheEndSaysSoAndIsNotAChange()
     {
-        var stack = new CameraLayerStack();
+        var stack = new EffectLayerStack(CameraLayers.All);
         stack.Adopt(Row(FirstCamera, SecondCamera));
 
         AssertEx.False(stack.Move(EffectLayerCatalog.Camera, 0, -1), "The first effect cannot move up.");
@@ -116,12 +116,12 @@ internal static class CameraLayerStackTests
 
     internal static void AWritesPlanCarriesBothLayersInOrder()
     {
-        var stack = new CameraLayerStack();
+        var stack = new EffectLayerStack(CameraLayers.All);
         stack.Adopt(Row(FirstCamera));
         stack.Add(BackgroundDraftOf(Background, "#camera;set;scope=background;zoom=1.5;duration=250;easing=easeOut"));
-        stack.Add(CameraDraftOf(SecondCamera, "#camera;set;x=200;y=0;zoom=1.6;duration=400;easing=linear"));
+        stack.Add(EffectDraftOf(SecondCamera, "#camera;set;x=200;y=0;zoom=1.6;duration=400;easing=linear"));
 
-        IReadOnlyList<CameraLayerEdit> edits = stack.BuildEdits();
+        IReadOnlyList<EffectLayerEdit> edits = stack.BuildEdits();
 
         AssertEx.Equal(2, edits.Count, "Both layers are written.");
         AssertEx.Equal(EffectLayerCatalog.Camera.ResourceKey, edits[0].LayerKey, "The camera layer comes first.");
@@ -135,11 +135,11 @@ internal static class CameraLayerStackTests
 
     internal static void AnEmptiedLayerIsStillWritten()
     {
-        var stack = new CameraLayerStack();
+        var stack = new EffectLayerStack(CameraLayers.All);
         stack.Adopt(Row(FirstCamera, Background));
         stack.Delete(EffectLayerCatalog.Camera, 0);
 
-        IReadOnlyList<CameraLayerEdit> edits = stack.BuildEdits();
+        IReadOnlyList<EffectLayerEdit> edits = stack.BuildEdits();
 
         AssertEx.Equal(0, edits[0].Directives.Count, "An empty layer is written as an empty list: that removes its line.");
         AssertEx.Equal(1, edits[1].Directives.Count, "The other layer keeps its effect.");
@@ -147,7 +147,7 @@ internal static class CameraLayerStackTests
 
     internal static void TheSelectionSurvivesARemovalAndTheLastOneClamps()
     {
-        var stack = new CameraLayerStack();
+        var stack = new EffectLayerStack(CameraLayers.All);
         stack.Adopt(Row(FirstCamera, SecondCamera));
         stack.Select(EffectLayerCatalog.Camera, 1);
 
@@ -163,11 +163,11 @@ internal static class CameraLayerStackTests
 
     internal static void TheHeaderSummaryFollowsTheStackNotTheSavedRow()
     {
-        var stack = new CameraLayerStack();
+        var stack = new EffectLayerStack(CameraLayers.All);
         stack.Adopt(Row(FirstCamera));
 
         EffectLayerSummary before = stack.SummaryOf(EffectLayerCatalog.Camera);
-        stack.Add(CameraDraftOf(SecondCamera, "#camera;set;x=200;y=0;zoom=1.6;duration=400;easing=linear"));
+        stack.Add(EffectDraftOf(SecondCamera, "#camera;set;x=200;y=0;zoom=1.6;duration=400;easing=linear"));
         EffectLayerSummary after = stack.SummaryOf(EffectLayerCatalog.Camera);
 
         AssertEx.Equal(1, before.SegmentCount, "One effect before.");
@@ -183,7 +183,7 @@ internal static class CameraLayerStackTests
         // The page publishes the public form — this exact shape came back from a real session — and a canonical
         // directive is what a plan or a hand-written card carries. Both have to become the same kind of draft.
         const string published = "#aavt;camera;set;x=270;y=0;zoom=1.364;duration=500;easing=easeOut";
-        CameraDraft fromPage = CameraDraft.FromDirective(published);
+        EffectDraft fromPage = EffectDraft.FromDirective(published);
         AssertEx.True(fromPage.Available, "The form the picture editor publishes is a usable draft.");
         AssertEx.Equal(EffectLayerCatalog.Camera.ResourceKey, fromPage.LayerKey, "Its scope decides its layer.");
         AssertEx.Equal(published, fromPage.PublicDirective, "It is written back in the form the document holds.");
@@ -191,37 +191,93 @@ internal static class CameraLayerStackTests
             "And it carries the canonical form the planner reads.");
         AssertEx.True(fromPage.Label.Contains("设置", StringComparison.Ordinal), "With a readable label.");
 
-        CameraDraft fromPlan = CameraDraft.FromDirective(
+        EffectDraft fromPlan = EffectDraft.FromDirective(
             "#camera;set;x=0;y=0;zoom=1.2;duration=300;easing=easeOut");
         AssertEx.True(fromPlan.Available, "The canonical form is a usable draft too.");
         AssertEx.True(fromPlan.PublicDirective.StartsWith("#aavt;camera;", StringComparison.Ordinal),
             "And it is converted rather than left canonical.");
         AssertEx.Equal(EffectLayerCatalog.Camera.ResourceKey, fromPlan.LayerKey, "With the same layer.");
 
-        CameraDraft background = CameraDraft.FromDirective(
+        EffectDraft background = EffectDraft.FromDirective(
             "#aavt;camera;set;scope=background;zoom=1.5;duration=250;easing=easeOut");
         AssertEx.Equal(EffectLayerCatalog.BackgroundCamera.ResourceKey, background.LayerKey,
             "A background camera is a background draft.");
 
-        AssertEx.False(CameraDraft.FromDirective(string.Empty).Available, "No draft is not a draft.");
-        AssertEx.False(CameraDraft.FromDirective("#char;3;move;dx=10;duration=0").Available,
-            "A character effect cannot be added to a camera layer.");
-        AssertEx.True(CameraDraft.FromDirective(string.Empty).Error.Contains("镜头草稿", StringComparison.Ordinal),
+        AssertEx.False(EffectDraft.FromDirective(string.Empty).Available, "No draft is not a draft.");
+        AssertEx.True(
+            EffectDraft.FromDirective(string.Empty).Error.Contains("草稿", StringComparison.Ordinal),
             "And the refusal says what to do first.");
+
+        // A draft of a family this build knows is readable as a draft; which window may stack it is the stack's own
+        // decision, not the draft's, so the refusal happens where the layer set is known.
+        EffectDraft character = EffectDraft.FromDirective("#char;3;move;dx=10;duration=0");
+        AssertEx.True(character.Available, "A character effect is a draft of the character layer.");
+        AssertEx.Equal(EffectLayerCatalog.Character(3).ResourceKey, character.LayerKey, "Which is its own layer.");
+        var cameraWindow = new EffectLayerStack(CameraLayers.All);
+        AssertEx.False(cameraWindow.Add(character), "The camera window refuses it.");
+        AssertEx.True(cameraWindow.Status.Contains("角色 3", StringComparison.Ordinal),
+            "And says which layer the window does own.");
+
+        AssertEx.False(EffectDraft.FromDirective("这不是指令").Available, "Text that is not a directive is refused.");
     }
 
     internal static void ASecondEffectOfOneLayerIsCalledOutAsTheReasonToStopEditingElsewhere()
     {
-        var stack = new CameraLayerStack();
+        var stack = new EffectLayerStack(CameraLayers.All);
         stack.Adopt(Row(FirstCamera));
         AssertEx.True(stack.Consequence().Contains("播放这一句", StringComparison.Ordinal),
             "One effect per layer needs no warning.");
 
-        stack.Add(CameraDraftOf(SecondCamera, "#camera;set;x=200;y=0;zoom=1.6;duration=400;easing=linear"));
+        stack.Add(EffectDraftOf(SecondCamera, "#camera;set;x=200;y=0;zoom=1.6;duration=400;easing=linear"));
 
         AssertEx.True(stack.Consequence().Contains("2 段", StringComparison.Ordinal),
             "Two effects say how many there are.");
         AssertEx.True(stack.Consequence().Contains("一次一条指令", StringComparison.Ordinal),
             "And which editors no longer fit this layer.");
+    }
+
+    /// <summary>
+    /// The same stack over one preset layer: the second family to get a layer editor, and the proof that the stack is
+    /// not a camera thing. A window owns its layer even when it is the only one it has, and a draft for somebody
+    /// else's layer is refused.
+    /// </summary>
+    internal static void APresetLayerStacksItsOwnEffectsWithItsOwnLabels()
+    {
+        EffectLayer preset = EffectLayerCatalog.Preset(3);
+        var stack = new EffectLayerStack(new[] { preset });
+        stack.Adopt(EffectLayerRead.From(
+            new[] { preset },
+            "#aavt;char;3;move;dx=10;duration=200\n#aavt;fx;3;squash;frequency=4",
+            new string('A', 64),
+            "token-1",
+            "台词 #1"));
+
+        AssertEx.Equal(1, stack.CountOf(preset), "Only the preset layer's own effect is counted.");
+        AssertEx.Equal(0, stack.CountOf(EffectLayerCatalog.Camera), "A layer this window does not own holds nothing.");
+        AssertEx.True(stack.Rows[0].Label.Contains("压扁", StringComparison.Ordinal),
+            "The row says which preset it is rather than printing the directive at the author.");
+        AssertEx.True(stack.Rows[0].Label.Contains("频率=4", StringComparison.Ordinal), "And how strong it is.");
+
+        AssertEx.False(
+            stack.Add(EffectDraftOf(FirstCamera, "#camera;set;x=0;y=0;zoom=1.2;duration=300;easing=easeOut")),
+            "A camera draft does not go into the preset window.");
+        AssertEx.False(stack.HasPendingChanges, "And nothing became pending.");
+        AssertEx.True(stack.Status.Contains("预设 3", StringComparison.Ordinal),
+            "The refusal names the layer this window does own.");
+
+        AssertEx.True(
+            stack.Add(Draft(
+                "#aavt;fx;3;sway;frequency=2",
+                "#fx;3;sway;frequency=2",
+                preset.ResourceKey)),
+            "A draft for its own layer does.");
+        AssertEx.Equal(2, stack.CountOf(preset), "It is the layer's second effect.");
+
+        IReadOnlyList<EffectLayerEdit> edits = stack.BuildEdits();
+        AssertEx.Equal(1, edits.Count, "One window writes one layer.");
+        AssertEx.Equal(preset.ResourceKey, edits[0].LayerKey, "Its own.");
+        AssertEx.Equal(2, edits[0].Directives.Count, "Both effects are written, in the order they play.");
+        AssertEx.True(edits[0].Directives[0].StartsWith("#aavt;fx;3;squash;", StringComparison.Ordinal),
+            "The effect that was already there is written first, in the compiler's canonical public form.");
     }
 }

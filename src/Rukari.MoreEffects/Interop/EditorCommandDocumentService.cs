@@ -169,33 +169,34 @@ internal sealed class EditorCommandDocumentService : IEditorCommandDocumentServi
     /// <para>
     /// It reads the shared transaction's raw text through
     /// <see cref="EditorCommandDocumentComposer.ReadAllowingMultipleResources"/>: the strict read refuses a row that
-    /// declares two directives for one resource, and a camera layer with two effects is exactly the row the layer
-    /// editor produces. The caller displays what this returns and writes it back through
-    /// <see cref="ApplyCameraLayersOnMainThread"/>.
+    /// declares two directives for one resource, and a layer with two effects is exactly the row a layer editor
+    /// produces. The caller displays what this returns and writes it back through
+    /// <see cref="ApplyLayersOnMainThread"/>.
     /// </para>
     /// </summary>
-    internal CameraLayerRead ReadCameraLayersOnMainThread()
+    internal EffectLayerRead ReadLayersOnMainThread(IReadOnlyList<EffectLayer> layers)
     {
         try
         {
             var documents = Rukari.Lib.ModServices.Current?.GetService<Rukari.Lib.Editor.IEditorDocumentService>();
             if (documents?.Success != true || documents.Value is null)
-                return CameraLayerRead.Failed("共享编辑事务不可用，请先启用 Rukari Lib。");
+                return EffectLayerRead.Failed("共享编辑事务不可用，请先启用 Rukari Lib。");
             var read = documents.Value.ReadSelection();
             if (!read.Success || read.Value is null)
-                return CameraLayerRead.Failed(read.Error?.Message ?? "当前没有选中的台词。");
+                return EffectLayerRead.Failed(read.Error?.Message ?? "当前没有选中的台词。");
             Rukari.Lib.Editor.EditorDocumentSnapshot selection = read.Value;
-            return ToCameraRead(selection);
+            return ToLayerRead(selection, layers);
         }
         catch (Exception ex)
         {
-            return CameraLayerRead.Failed(PatchGuard.Describe(ex));
+            return EffectLayerRead.Failed(PatchGuard.Describe(ex));
         }
     }
 
     /// <summary>
-    /// Writes both camera layers of the selected row in one transaction, guarded by the token and the revision the
-    /// draft was built from. Both layers are always written, so removing the last effect of a layer removes its line.
+    /// Writes the given layers of the selected row in one transaction, guarded by the token and the revision the
+    /// draft was built from. Every layer the caller names is written, so removing the last effect of a layer removes
+    /// its line.
     ///
     /// <para>
     /// The write goes through the shared transaction rather than through this service's own upsert, for the reason
@@ -203,29 +204,29 @@ internal sealed class EditorCommandDocumentService : IEditorCommandDocumentServi
     /// by re-extracting the written text, which is the reader playback uses.
     /// </para>
     /// </summary>
-    internal CameraLayerApply ApplyCameraLayersOnMainThread(
+    internal EffectLayerApply ApplyLayersOnMainThread(
         string expectedRevisionSha256,
         string selectionToken,
-        IReadOnlyList<CameraLayerEdit> layers)
+        IReadOnlyList<EffectLayerEdit> layers)
     {
         try
         {
             ArgumentNullException.ThrowIfNull(layers);
             var documents = Rukari.Lib.ModServices.Current?.GetService<Rukari.Lib.Editor.IEditorDocumentService>();
             if (documents?.Success != true || documents.Value is null)
-                return CameraLayerApply.Failed("共享编辑事务不可用。");
+                return EffectLayerApply.Failed("共享编辑事务不可用。");
             var current = documents.Value.ReadSelection();
             if (!current.Success || current.Value is null)
-                return CameraLayerApply.Failed(current.Error?.Message ?? "当前没有选中的台词。");
+                return EffectLayerApply.Failed(current.Error?.Message ?? "当前没有选中的台词。");
             Rukari.Lib.Editor.EditorDocumentSnapshot selection = current.Value;
             if (!string.Equals(selection.SelectionToken, selectionToken, StringComparison.Ordinal))
-                return CameraLayerApply.Failed("台词选择已变化，请先刷新。");
+                return EffectLayerApply.Failed("台词选择已变化，请先刷新。");
             if (!string.Equals(selection.Revision, expectedRevisionSha256, StringComparison.OrdinalIgnoreCase))
-                return CameraLayerApply.Failed("台词内容已变化，请先刷新。");
+                return EffectLayerApply.Failed("台词内容已变化，请先刷新。");
 
             string text = selection.AdditionalPrompt ?? string.Empty;
             string revision = selection.Revision;
-            foreach (CameraLayerEdit layer in layers)
+            foreach (EffectLayerEdit layer in layers)
             {
                 if (layer is null) continue;
                 var edit = _composer.PreviewReplaceResource(
@@ -234,53 +235,71 @@ internal sealed class EditorCommandDocumentService : IEditorCommandDocumentServi
                     layer.LayerKey,
                     layer.Directives ?? Array.Empty<string>());
                 if (!edit.Success || edit.Value is null)
-                    return CameraLayerApply.Failed(edit.Error ?? "无法改写这一层镜头。");
+                    return EffectLayerApply.Failed(edit.Error ?? "无法改写这一层效果。");
                 text = edit.Value.UpdatedText;
                 revision = edit.Value.ResultRevisionSha256;
             }
 
             string? conflict = DirectiveOwnershipError(text);
-            if (conflict is not null) return CameraLayerApply.Failed(conflict);
+            if (conflict is not null) return EffectLayerApply.Failed(conflict);
 
+            // The readback names the layers that were written, so the window that asked sees exactly its own rows.
+            List<EffectLayer> written = LayersOf(layers);
             if (string.Equals(revision, selection.Revision, StringComparison.OrdinalIgnoreCase))
-                return CameraLayerApply.Ok(ToCameraRead(selection));
+                return EffectLayerApply.Ok(ToLayerRead(selection, written));
 
             var write = documents.Value.Replace(
                 new Rukari.Lib.Editor.EditorDocumentEditRequest(selectionToken, expectedRevisionSha256, text));
             if (!write.Success || write.Value is null)
-                return CameraLayerApply.Failed(write.Error?.Message ?? "共享编辑器写入失败。");
+                return EffectLayerApply.Failed(write.Error?.Message ?? "共享编辑器写入失败。");
             if (!string.Equals(
                     write.Value.Selection.Revision,
                     revision,
                     StringComparison.OrdinalIgnoreCase))
             {
-                return CameraLayerApply.Failed("写回校验不一致，请刷新后重试。");
+                return EffectLayerApply.Failed("写回校验不一致，请刷新后重试。");
             }
 
             _capabilities.Verified(
-                "Editor.CameraLayerWrite",
-                "shared transaction replace -> extractor readback of both camera layers");
-            return CameraLayerApply.Ok(ToCameraRead(write.Value.Selection));
+                "Editor.EffectLayerWrite",
+                "shared transaction replace -> extractor readback of the written layers");
+            return EffectLayerApply.Ok(ToLayerRead(write.Value.Selection, written));
         }
         catch (Exception ex)
         {
-            return CameraLayerApply.Failed(PatchGuard.Describe(ex));
+            return EffectLayerApply.Failed(PatchGuard.Describe(ex));
         }
     }
 
-    private static CameraLayerRead ToCameraRead(Rukari.Lib.Editor.EditorDocumentSnapshot selection) =>
-        CameraLayerRead.From(
+    /// <summary>The layers a set of edits names, in the order they were written.</summary>
+    private static List<EffectLayer> LayersOf(IReadOnlyList<EffectLayerEdit> edits)
+    {
+        var layers = new List<EffectLayer>(edits.Count);
+        foreach (EffectLayerEdit edit in edits)
+        {
+            if (edit is null) continue;
+            if (EffectLayerCatalog.ForResourceKey(edit.LayerKey) is EffectLayer layer) layers.Add(layer);
+        }
+
+        return layers;
+    }
+
+    private static EffectLayerRead ToLayerRead(
+        Rukari.Lib.Editor.EditorDocumentSnapshot selection,
+        IReadOnlyList<EffectLayer> layers) =>
+        EffectLayerRead.From(
+            layers,
             selection.AdditionalPrompt,
             selection.Revision,
             selection.SelectionToken,
-            CameraRowLabel(selection.ContextId));
+            RowLabel(selection.ContextId));
 
     /// <summary>
     /// A short name for the row, taken from the transaction's context identity. It ends in the row's index, which is
     /// the one piece of identity the shared read offers; anything unexpected falls back to a plain label rather than
     /// showing a pointer or a hash.
     /// </summary>
-    private static string CameraRowLabel(string? contextId)
+    private static string RowLabel(string? contextId)
     {
         if (string.IsNullOrWhiteSpace(contextId)) return "台词";
         int colon = contextId.LastIndexOf(':');

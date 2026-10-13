@@ -3,27 +3,40 @@ using System.Globalization;
 namespace AzureArchive.VideoTools.Core.Commands;
 
 /// <summary>
-/// The order of a camera window's effects, with no surface attached: what the author has stacked, what is selected,
-/// and what a write would send (2026-10-13).
+/// The order of a window's effects, with no surface attached: what the author has stacked, what is selected, and what
+/// a write would send (2026-10-13).
 ///
 /// <para>
-/// It is separate from the drawing because the same stack is drawn in two very different places — the standalone
-/// window first, and now the picture editor's own camera mode, which has its own widgets and its own idea of a row.
-/// The behaviour that matters (what is appended where, what a move does, when the row is pending, what the summary
-/// says) is identical in both, so it is stated once here and tested once here; only the pixels differ.
+/// It is separate from the drawing because the same stack is drawn in very different places — the picture editor's
+/// camera mode with its own widgets, the preset window through the shared surface — and because the behaviour that
+/// matters (what is appended where, what a move does, when the row is pending, what the summary says) is identical
+/// everywhere. It is stated once here and tested once here; only the pixels differ.
 /// </para>
 ///
 /// <para>
-/// One instance is one row of one dialogue line: <see cref="Adopt"/> replaces everything it holds with what the game
-/// reports, which is what happens on every read and after every successful write.
+/// One instance is one window's layers on one dialogue line: <see cref="Adopt"/> replaces everything it holds with
+/// what the game reports, which is what happens on every read and after every successful write. A draft for a layer
+/// this stack does not own is refused, so a window cannot add an effect to somebody else's layer through it.
 /// </para>
 /// </summary>
-public sealed class CameraLayerStack
+public sealed class EffectLayerStack
 {
-    private readonly List<CameraLayerSegment> _rows = new();
+    private readonly List<EffectLayerSegment> _rows = new();
 
-    /// <summary>A row of the two layers, in display order: the layers are interleaved here and filtered when read.</summary>
-    public IReadOnlyList<CameraLayerSegment> Rows => _rows;
+    /// <summary>Creates a stack over the layers one window owns, in the order it shows them.</summary>
+    public EffectLayerStack(IReadOnlyList<EffectLayer> layers)
+    {
+        ArgumentNullException.ThrowIfNull(layers);
+        if (layers.Count == 0) throw new ArgumentException("A stack needs at least one layer.", nameof(layers));
+        Layers = layers;
+        SelectedLayer = layers[0];
+    }
+
+    /// <summary>The layers this window owns, in the order it shows them.</summary>
+    public IReadOnlyList<EffectLayer> Layers { get; }
+
+    /// <summary>A row of those layers, in display order: the layers are interleaved here and filtered when read.</summary>
+    public IReadOnlyList<EffectLayerSegment> Rows => _rows;
 
     /// <summary>How the row names itself, empty when the reader had no name for it.</summary>
     public string RowLabel { get; private set; } = string.Empty;
@@ -53,17 +66,17 @@ public sealed class CameraLayerStack
     public int SelectedIndex { get; private set; } = -1;
 
     /// <summary>What the author would act on, or null when the layer it was in no longer has that row.</summary>
-    public CameraLayerSegment? Selected => RowAt(SelectedLayer, SelectedIndex);
+    public EffectLayerSegment? Selected => RowAt(SelectedLayer, SelectedIndex);
 
     /// <summary>What a status line shows: the last action, or the state of the row.</summary>
     public string Status => Message.Length != 0 ? Message : ReadStatus;
 
     /// <summary>One layer's rows, in play order.</summary>
-    public IReadOnlyList<CameraLayerSegment> RowsOf(EffectLayer layer)
+    public IReadOnlyList<EffectLayerSegment> RowsOf(EffectLayer layer)
     {
         ArgumentNullException.ThrowIfNull(layer);
-        var rows = new List<CameraLayerSegment>();
-        foreach (CameraLayerSegment row in _rows)
+        var rows = new List<EffectLayerSegment>();
+        foreach (EffectLayerSegment row in _rows)
         {
             if (string.Equals(row.LayerKey, layer.ResourceKey, StringComparison.Ordinal)) rows.Add(row);
         }
@@ -76,7 +89,7 @@ public sealed class CameraLayerStack
     {
         ArgumentNullException.ThrowIfNull(layer);
         int count = 0;
-        foreach (CameraLayerSegment row in _rows)
+        foreach (EffectLayerSegment row in _rows)
         {
             if (string.Equals(row.LayerKey, layer.ResourceKey, StringComparison.Ordinal)) count++;
         }
@@ -89,7 +102,7 @@ public sealed class CameraLayerStack
     {
         ArgumentNullException.ThrowIfNull(layer);
         var directives = new List<string>();
-        foreach (CameraLayerSegment row in _rows)
+        foreach (EffectLayerSegment row in _rows)
         {
             if (string.Equals(row.LayerKey, layer.ResourceKey, StringComparison.Ordinal))
                 directives.Add(row.PublicDirective);
@@ -103,7 +116,7 @@ public sealed class CameraLayerStack
     {
         ArgumentNullException.ThrowIfNull(layer);
         var directives = new List<EffectLayerDirective>();
-        foreach (CameraLayerSegment row in _rows)
+        foreach (EffectLayerSegment row in _rows)
         {
             if (string.Equals(row.LayerKey, layer.ResourceKey, StringComparison.Ordinal))
                 directives.Add(new EffectLayerDirective(row.LayerKey, row.CanonicalDirective));
@@ -116,11 +129,11 @@ public sealed class CameraLayerStack
     /// Both layers as they should be written. Both are always included, so clearing a layer is the same operation as
     /// changing one and a window can never leave a stale effect behind in the layer it did not touch.
     /// </summary>
-    public IReadOnlyList<CameraLayerEdit> BuildEdits()
+    public IReadOnlyList<EffectLayerEdit> BuildEdits()
     {
-        var edits = new List<CameraLayerEdit>(CameraLayers.All.Count);
-        foreach (EffectLayer layer in CameraLayers.All)
-            edits.Add(new CameraLayerEdit(layer.ResourceKey, new List<string>(DirectivesOf(layer))));
+        var edits = new List<EffectLayerEdit>(Layers.Count);
+        foreach (EffectLayer layer in Layers)
+            edits.Add(new EffectLayerEdit(layer.ResourceKey, new List<string>(DirectivesOf(layer))));
         return edits;
     }
 
@@ -128,7 +141,7 @@ public sealed class CameraLayerStack
     /// Takes a read as the truth. A failed read clears the stack rather than leaving the previous row on screen, and
     /// the reason is shown in its place.
     /// </summary>
-    public void Adopt(CameraLayerRead read, string? message = null)
+    public void Adopt(EffectLayerRead read, string? message = null)
     {
         ArgumentNullException.ThrowIfNull(read);
         if (!read.Available)
@@ -162,17 +175,32 @@ public sealed class CameraLayerStack
     /// <summary>
     /// Appends a draft to the end of its own layer: the stack is the order, so a new effect goes after what is there.
     /// The draft's own layer decides where it lands; nothing about the text is guessed.
+    ///
+    /// <para>
+    /// A draft for a layer this window does not own is refused. That is the whole of "one layer, one writer": the
+    /// camera window cannot stack a preset and the preset window cannot stack a camera, however the draft got there.
+    /// </para>
     /// </summary>
-    public bool Add(CameraDraft draft)
+    public bool Add(EffectDraft draft)
     {
         if (!draft.Available)
         {
-            Message = draft.Error.Length == 0 ? "当前没有可用的镜头草稿。" : draft.Error;
+            Message = draft.Error.Length == 0 ? "当前没有可用的效果草稿。" : draft.Error;
+            return false;
+        }
+
+        if (!Owns(draft.LayerKey))
+        {
+            // Naming both sides is the point: an author who stacked the wrong thing reads which window owns what.
+            string rejected = EffectLayerCatalog.ForResourceKey(draft.LayerKey) is EffectLayer owner
+                ? owner.Label
+                : draft.LayerKey;
+            Message = $"这个窗口负责的是{Describe(Layers)}，加不了{rejected}。";
             return false;
         }
 
         EffectLayer layer = LayerOf(draft.LayerKey);
-        _rows.Add(new CameraLayerSegment(
+        _rows.Add(new EffectLayerSegment(
             layer.ResourceKey,
             layer.Label,
             0,
@@ -181,8 +209,32 @@ public sealed class CameraLayerStack
             draft.Label));
         HasPendingChanges = true;
         Select(layer, CountOf(layer) - 1);
-        Message = $"已把当前镜头加为{layer.Label}的第 {CountOf(layer)} 段，按「应用」写入当前句。";
+        Message = $"已把当前效果加为{layer.Label}的第 {CountOf(layer)} 段，按「应用」写入当前句。";
         return true;
+    }
+
+    /// <summary>Whether one of the layers this window owns answers to that resource key.</summary>
+    public bool Owns(string? layerKey)
+    {
+        if (string.IsNullOrEmpty(layerKey)) return false;
+        foreach (EffectLayer layer in Layers)
+        {
+            if (string.Equals(layer.ResourceKey, layerKey, StringComparison.Ordinal)) return true;
+        }
+
+        return false;
+    }
+
+    private static string Describe(IReadOnlyList<EffectLayer> layers)
+    {
+        var text = new System.Text.StringBuilder();
+        foreach (EffectLayer layer in layers)
+        {
+            if (text.Length != 0) text.Append('、');
+            text.Append(layer.Label);
+        }
+
+        return text.ToString();
     }
 
     /// <summary>Removes one effect of one layer. Only that layer's own numbering is affected.</summary>
@@ -250,7 +302,7 @@ public sealed class CameraLayerStack
     /// </summary>
     public string Consequence()
     {
-        foreach (EffectLayer layer in CameraLayers.All)
+        foreach (EffectLayer layer in Layers)
         {
             int count = CountOf(layer);
             if (count > 1)
@@ -267,10 +319,10 @@ public sealed class CameraLayerStack
         SelectedIndex = total == 0 ? -1 : Math.Clamp(SelectedIndex < 0 ? 0 : SelectedIndex, 0, total - 1);
     }
 
-    private CameraLayerSegment? RowAt(EffectLayer layer, int index) =>
+    private EffectLayerSegment? RowAt(EffectLayer layer, int index) =>
         index < 0 ? null : RowAt(PositionOf(layer, index));
 
-    private CameraLayerSegment? RowAt(int position) =>
+    private EffectLayerSegment? RowAt(int position) =>
         position >= 0 && position < _rows.Count ? _rows[position] : null;
 
     /// <summary>Where a row of one layer sits in the interleaved list, or -1 when the layer has no such row.</summary>
@@ -287,14 +339,15 @@ public sealed class CameraLayerStack
         return -1;
     }
 
-    private static EffectLayer LayerOf(string layerKey)
+    /// <summary>The layer a resource key names, or the first one this stack owns when it names none of them.</summary>
+    private EffectLayer LayerOf(string layerKey)
     {
-        foreach (EffectLayer layer in CameraLayers.All)
+        foreach (EffectLayer layer in Layers)
         {
             if (string.Equals(layer.ResourceKey, layerKey, StringComparison.Ordinal)) return layer;
         }
 
-        return EffectLayerCatalog.Camera;
+        return Layers[0];
     }
 
     /// <summary>A row label with its place in the layer, for a log line or a test.</summary>
@@ -302,7 +355,7 @@ public sealed class CameraLayerStack
     {
         var text = new System.Text.StringBuilder();
         text.Append(Status).Append(" · 待应用=").Append(HasPendingChanges ? "是" : "否");
-        foreach (EffectLayer layer in CameraLayers.All)
+        foreach (EffectLayer layer in Layers)
         {
             text.Append(" · ").Append(layer.ResourceKey).Append('=').Append(CountOf(layer).ToString(CultureInfo.InvariantCulture));
         }

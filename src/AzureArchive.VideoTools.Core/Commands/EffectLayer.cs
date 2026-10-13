@@ -54,5 +54,48 @@ public static class EffectLayerCatalog
     public static EffectLayer Preset(int publicSlot) =>
         new("preset:" + Number(publicSlot), "预设 " + Number(publicSlot), PresetWindow);
 
+    /// <summary>
+    /// The layer a resource key names, or null when this build does not know that layer (2026-10-13).
+    ///
+    /// <para>
+    /// It exists so that a draft can decide, once, which layer it belongs to and whether anything here can write it:
+    /// the camera scopes, one character's transform, one character's presets and one spine track are the layers that
+    /// have names, and a key outside them is refused rather than filed under a guess.
+    /// </para>
+    /// </summary>
+    public static EffectLayer? ForResourceKey(string? resourceKey)
+    {
+        if (string.IsNullOrEmpty(resourceKey)) return null;
+        if (string.Equals(resourceKey, Camera.ResourceKey, StringComparison.Ordinal)) return Camera;
+        if (string.Equals(resourceKey, BackgroundCamera.ResourceKey, StringComparison.Ordinal)) return BackgroundCamera;
+
+        int separator = resourceKey.IndexOf(':');
+        if (separator <= 0 || separator + 1 >= resourceKey.Length) return null;
+        string prefix = resourceKey[..separator];
+        string slot = resourceKey[(separator + 1)..];
+        // A spine layer carries a second number for its track; every prefix keeps the first one as its slot.
+        int track = 1;
+        int secondSeparator = slot.IndexOf(':');
+        if (secondSeparator >= 0)
+        {
+            track = int.TryParse(slot[(secondSeparator + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture, out int read)
+                ? read
+                : 0;
+            slot = slot[..secondSeparator];
+        }
+
+        if (!int.TryParse(slot, NumberStyles.Integer, CultureInfo.InvariantCulture, out int publicSlot)) return null;
+        return prefix switch
+        {
+            "character" => Character(publicSlot),
+            "preset" => Preset(publicSlot),
+            "spine" => new EffectLayer(
+                resourceKey,
+                "Spine " + slot + " 轨 " + track.ToString(CultureInfo.InvariantCulture),
+                "Spine 叠加"),
+            _ => null
+        };
+    }
+
     private static string Number(int value) => value.ToString(CultureInfo.InvariantCulture);
 }

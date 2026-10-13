@@ -27,7 +27,7 @@ namespace AzureArchive.VideoTools.Runtime;
 ///
 /// <para>
 /// It is a partial file so that the 5000-line editor keeps its shape: the stack's behaviour is in Core
-/// (<see cref="CameraLayerStack"/>, tested without a game), the write is the shared transaction in
+/// (<see cref="EffectLayerStack"/>, tested without a game), the write is the shared transaction in
 /// <see cref="EditorCommandDocumentService"/>, and this file is only the controls that connect them.
 /// </para>
 ///
@@ -60,7 +60,7 @@ public sealed partial class VisualEditorBehaviour
     private bool _cameraAddEnabled;
 
     /// <summary>The order of the camera's effects. One instance is one dialogue line.</summary>
-    private readonly CameraLayerStack _cameraLayers = new();
+    private readonly EffectLayerStack _cameraLayers = new(CameraLayers.All);
 
     private long _cameraLayerReadAt;
     private string _cameraLayerLogged = string.Empty;
@@ -155,7 +155,7 @@ public sealed partial class VisualEditorBehaviour
     /// Re-reads the row at a walk, and never on top of work the author has not applied: a re-read would silently
     /// replace the stack being built.
     /// </summary>
-    private void EnsureCameraLayerStack(bool force = false)
+    private void EnsureEffectLayerStack(bool force = false)
     {
         if (!_expanded) return;
         long now = Stopwatch.GetTimestamp();
@@ -167,7 +167,7 @@ public sealed partial class VisualEditorBehaviour
 
         _cameraLayerReadAt = now;
         if (Plugin.Api.EditorCommandDocuments is not EditorCommandDocumentService service) return;
-        _cameraLayers.Adopt(service.ReadCameraLayersOnMainThread());
+        _cameraLayers.Adopt(service.ReadLayersOnMainThread(CameraLayers.All));
         LogCameraLayerOnce();
     }
 
@@ -187,7 +187,7 @@ public sealed partial class VisualEditorBehaviour
             _cameraLayers.SelectedLayer.ResourceKey,
             layer.ResourceKey,
             StringComparison.Ordinal);
-        CameraLayerSegment? selected = _cameraLayers.Selected;
+        EffectLayerSegment? selected = _cameraLayers.Selected;
         return sameLayer && selected is not null
             ? text + $"　选中 {_cameraLayers.SelectedIndex + 1}. {selected.Label}"
             : text + "　（选中的段在另一层，切换范围可看到它）";
@@ -219,7 +219,7 @@ public sealed partial class VisualEditorBehaviour
 
     private void AddCameraSegment()
     {
-        CameraDraft draft = CameraDraft.FromDirective(_currentDraftDirective);
+        EffectDraft draft = EffectDraft.FromDirective(_currentDraftDirective);
         if (!_cameraLayers.Add(draft))
         {
             SetCameraLayerStatus(_cameraLayers.Status);
@@ -269,7 +269,7 @@ public sealed partial class VisualEditorBehaviour
             return;
         }
 
-        CameraLayerApply result = service.ApplyCameraLayersOnMainThread(
+        EffectLayerApply result = service.ApplyLayersOnMainThread(
             _cameraLayers.RevisionSha256,
             _cameraLayers.SelectionToken,
             _cameraLayers.BuildEdits());
@@ -299,7 +299,7 @@ public sealed partial class VisualEditorBehaviour
     /// What the draft text says in camera mode: the draft, and which layer「＋ 加为下一段」would put it in. It
     /// replaces the one-command-per-resource preview, which cannot describe a layer holding several effects.
     /// </summary>
-    private void ShowCameraDraftText()
+    private void ShowEffectDraftText()
     {
         Text? draftText = _draftText;
         if (draftText is null) return;
@@ -309,7 +309,7 @@ public sealed partial class VisualEditorBehaviour
             return;
         }
 
-        CameraDraft draft = CameraDraft.FromDirective(_currentDraftDirective);
+        EffectDraft draft = EffectDraft.FromDirective(_currentDraftDirective);
         draftText.text = "镜头草稿（未保存）\n" + _currentDraftDirective + "\n"
             + (draft.Available
                 ? $"按「＋ 加为下一段」加入{CameraLayerLabelOf(draft.LayerKey)}层"

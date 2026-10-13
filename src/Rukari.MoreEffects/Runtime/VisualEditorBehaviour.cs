@@ -750,7 +750,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         CreateControlButton(
             "camera-clear",
             "清除镜头草稿",
-            ClearCameraDraft,
+            ClearEffectDraft,
             () => _cameraDraftState.HasValue || _cameraResetDraft);
 
         CreateControlButton(
@@ -1369,7 +1369,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
                 _viewportRect);
             if (moved.Success)
             {
-                SetCameraDraft(moved.Value, verifyImmediately: false);
+                SetEffectDraft(moved.Value, verifyImmediately: false);
             }
         }
 
@@ -1390,7 +1390,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             if (zoom.Success)
             {
                 SceneCameraState current = CurrentCameraState();
-                SetCameraDraft(
+                SetEffectDraft(
                     current with { Zoom = MathF.Round(zoom.Value, 3) },
                     verifyImmediately: false);
             }
@@ -1930,7 +1930,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         else if (_mode == VisualEditorMode.Camera
             && (_cameraDraftState.HasValue || _cameraResetDraft))
         {
-            ClearCameraDraft("切换模式，未应用的镜头草稿已清除");
+            ClearEffectDraft("切换模式，未应用的镜头草稿已清除");
         }
         else if (_mode == VisualEditorMode.ScreenText
             && (_screenTextDraft != null
@@ -1950,7 +1950,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         _mode = mode;
         // Entering camera mode reads the camera layer straight away, so the selector row is never a frame of stale
         // numbers from the previous line.
-        if (mode == VisualEditorMode.Camera) EnsureCameraLayerStack(force: true);
+        if (mode == VisualEditorMode.Camera) EnsureEffectLayerStack(force: true);
         _pressedSlotIndex = -1;
         _draggingSlotIndex = -1;
         _rotationDragging = false;
@@ -2244,7 +2244,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         {
             // The draft is published, not previewed: the one-command-per-resource preview cannot describe a camera
             // layer with several effects, and this mode's 应用 writes that layer instead (2026-10-13).
-            PublishCameraDraft();
+            PublishEffectDraft();
         }
         else if (_draftText is not null)
         {
@@ -2271,7 +2271,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         }
 
         SceneCameraState current = CurrentCameraState();
-        SetCameraDraft(new SceneCameraState(
+        SetEffectDraft(new SceneCameraState(
             MathF.Round(current.X + deltaX, 2),
             MathF.Round(current.Y + deltaY, 2),
             current.Zoom), verifyImmediately: true);
@@ -2289,10 +2289,10 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             MathF.Round(current.Zoom + deltaZoom, 3),
             SceneCameraCommandValidator.MinimumZoom,
             SceneCameraCommandValidator.MaximumZoom);
-        SetCameraDraft(current with { Zoom = zoom }, verifyImmediately: true);
+        SetEffectDraft(current with { Zoom = zoom }, verifyImmediately: true);
     }
 
-    private void SetCameraDraft(SceneCameraState state, bool verifyImmediately)
+    private void SetEffectDraft(SceneCameraState state, bool verifyImmediately)
     {
         Result validation = SceneCameraCommandValidator.ValidateTarget(state);
         if (!CanEditCamera() || !validation.Success)
@@ -2314,7 +2314,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             _operationMessage = "相对镜头已按当前画面转换为绝对构图草稿";
         }
 
-        PublishCameraDraft();
+        PublishEffectDraft();
         LayoutCameraFrame();
         UpdateInspector();
         // A camera draft is never verified against the document: that check is the one-command-per-resource preview,
@@ -2325,7 +2325,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         }
     }
 
-    private void PublishCameraDraft()
+    private void PublishEffectDraft()
     {
         Result<string> result = _cameraResetDraft
             ? _cameraDraftBuilder.BuildReset(
@@ -2365,7 +2365,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             // A camera draft is not previewed against the document any more: the one-command-per-resource preview
             // cannot describe a layer that already holds several effects, and the draft is written by
             // 「＋ 加为下一段」 instead (2026-10-13).
-            ShowCameraDraftText();
+            ShowEffectDraftText();
             UpdateButtons();
             return;
         }
@@ -2424,14 +2424,14 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
     {
         if (_cameraResetDraft)
         {
-            PublishCameraDraft();
+            PublishEffectDraft();
             VerifyDraftAgainstSelected();
             return;
         }
 
         if (_cameraDraftState.HasValue || _selectedExistingCameraCommand != null)
         {
-            SetCameraDraft(CurrentCameraState(), verifyImmediately: true);
+            SetEffectDraft(CurrentCameraState(), verifyImmediately: true);
         }
     }
 
@@ -2445,15 +2445,15 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         BeginDraftSource();
         _cameraDraftState = null;
         _cameraResetDraft = true;
-        PublishCameraDraft();
+        PublishEffectDraft();
         LayoutCameraFrame();
         VerifyDraftAgainstSelected();
         UpdateInspector();
     }
 
-    private void ClearCameraDraft() => ClearCameraDraft("镜头草稿已清除");
+    private void ClearEffectDraft() => ClearEffectDraft("镜头草稿已清除");
 
-    private void ClearCameraDraft(string message)
+    private void ClearEffectDraft(string message)
     {
         _cameraScopeDrafts[(int)_cameraScope] = null;
         _cameraDraftState = null;
@@ -3048,7 +3048,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
     private void UpdateCameraInspector(Text inspector)
     {
-        EnsureCameraLayerStack();
+        EnsureEffectLayerStack();
         if (!_cameraReadAvailable)
         {
             inspector.text = "镜头层暂不可用\n" + ShortDiagnostic(_cameraReadError);
@@ -3349,7 +3349,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         {
             // Camera drafts are written by the camera layer editor, not by this preview: the preview is a
             // one-command-per-resource check, and a camera layer may hold several effects (2026-10-13).
-            ShowCameraDraftText();
+            ShowEffectDraftText();
             UpdateButtons();
             return;
         }
