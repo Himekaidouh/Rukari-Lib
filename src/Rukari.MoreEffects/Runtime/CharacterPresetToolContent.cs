@@ -161,6 +161,37 @@ internal sealed class CharacterPresetToolContent : IToolPanelContent, IToolPanel
             return;
         }
 
+        // The layer this page owns, in the same words and the same rows the camera mode uses: which effect the
+        // buttons act on, then moving or removing it. Adding one is a big button in the footer beside 应用, because
+        // that is the action the author takes on every effect (2026-10-13).
+        ToolInputRect segments = new(0, 238, surface.Width, 38);
+        if (surface.Button("preset.segment", _session.SegmentLabel, surface.Cell(segments, 0, 3),
+            _session.HasSegments))
+        {
+            _focused = null;
+            _session.CycleSegment();
+        }
+        if (surface.Button("preset.segment.up", "上移", surface.Cell(segments, 1, 3),
+            _session.CanMoveSegment(-1)))
+        {
+            _focused = null;
+            _session.MoveSegment(-1);
+        }
+        if (surface.Button("preset.segment.down", "下移", surface.Cell(segments, 2, 3),
+            _session.CanMoveSegment(1)))
+        {
+            _focused = null;
+            _session.MoveSegment(1);
+        }
+
+        ToolInputRect remove = new(0, 194, surface.Width, 38);
+        if (surface.Button("preset.segment.remove", _session.DeleteLabel, remove,
+            _session.Layers.SelectedIndex >= 0))
+        {
+            _focused = null;
+            _session.DeleteSegment();
+        }
+
         // Footer is anchored above a deliberate 24-unit blank strip. Every button uses the shared centered label.
         surface.Status("preset.status", _session.Status, new ToolInputRect(0, 138, surface.Width, 50));
         ToolInputRect tools = new(0, 83, surface.Width, 40);
@@ -170,23 +201,30 @@ internal sealed class CharacterPresetToolContent : IToolPanelContent, IToolPanel
             _session.ResetDefaults();
             return;
         }
-        if (surface.Button("preset.clear", "清除本槽动作", surface.Cell(tools, 1, 2),
-            _session.Editable && _session.Existing != null))
+        if (surface.Button("preset.clear", "清空本层", surface.Cell(tools, 1, 2),
+            _session.Editable && _session.HasSegments))
         {
             _focused = null;
-            _session.ClearPreset();
+            _session.ClearLayer();
             return;
         }
         ToolInputRect actions = new(0, 24, surface.Width, 45);
         bool valid = _session.Editable && _session.TryDirective(out _, out _);
-        if (Button(surface, "preset.apply", "应用到当前句", surface.Cell(actions, 0, 2),
+        if (Button(surface, "preset.add", "＋ 加为下一段", surface.Cell(actions, 0, 3),
             ToolSurfaceStyle.Primary, valid))
         {
             _focused = null;
-            _session.Apply();
+            _session.AddCurrentAsSegment();
             return;
         }
-        if (Button(surface, "preset.undo", "撤销上次修改", surface.Cell(actions, 1, 2),
+        if (Button(surface, "preset.apply", "应用预设层", surface.Cell(actions, 1, 3),
+            ToolSurfaceStyle.Primary, _session.HasPendingLayerChanges))
+        {
+            _focused = null;
+            _session.ApplyLayer();
+            return;
+        }
+        if (Button(surface, "preset.undo", "撤销上次修改", surface.Cell(actions, 2, 3),
             ToolSurfaceStyle.Undo, _session.CanUndo))
         {
             _focused = null;

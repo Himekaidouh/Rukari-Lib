@@ -17,7 +17,6 @@ internal sealed class CharacterPresetGroupContent : IToolPanelContent, IToolPane
     private const float LayerStripHeight = 26f;
 
     private readonly CharacterPresetEditorSession _session = new();
-    private readonly EffectLayerReader _layers = new(Plugin.Logger.LogInfo);
     private CharacterPresetToolContent? _details;
     private CharacterPresetKind _selectedKind;
 
@@ -28,8 +27,6 @@ internal sealed class CharacterPresetGroupContent : IToolPanelContent, IToolPane
 
     public void OnShown()
     {
-        // The row may have changed while the window was hidden, so the layer is re-read rather than re-shown.
-        _layers.Read(Layer, force: true);
         ReturnToChoices();
     }
 
@@ -75,13 +72,10 @@ internal sealed class CharacterPresetGroupContent : IToolPanelContent, IToolPane
         }
     }
 
-    /// <summary>The layer this window owns: the selected character's transient presets.</summary>
-    private EffectLayer Layer => EffectLayerCatalog.Preset(_session.PublicSlot);
-
     private void DrawLayerLine(IToolPanelSurface surface)
     {
-        EffectLayerSummary summary = _layers.Read(Layer);
-        surface.Status("preset.layer.summary", summary.Line,
+        // The stack the details page edits is the same one this line reports, so the two cannot disagree.
+        surface.Status("preset.layer.summary", _session.LayerLine,
             new ToolInputRect(0f, Math.Max(0f, surface.Height - LayerStripHeight), surface.Width, LayerStripHeight));
     }
 

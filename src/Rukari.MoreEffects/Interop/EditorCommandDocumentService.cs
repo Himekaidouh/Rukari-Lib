@@ -307,60 +307,6 @@ internal sealed class EditorCommandDocumentService : IEditorCommandDocumentServi
         return int.TryParse(contextId[(colon + 1)..], out int index) ? $"台词 #{index + 1}" : "台词";
     }
 
-    // A module-internal operation; the shared public editor contracts keep their ABI.
-    // Remove only this slot's preset resource through the same guarded transaction as upsert.
-    internal ApiResult<EditorCommandApplySnapshot> ApplyRemovePresetSelectedOnMainThread(
-        string expectedRevisionSha256,
-        int publicSlot,
-        string expectedSelectionToken)
-    {
-        try
-        {
-            if (!_editor.TryGetInternalSelection(
-                    out EditorSceneService.InternalSceneSelection selection,
-                    out string selectionError))
-                return ApiResult<EditorCommandApplySnapshot>.Fail(selectionError);
-
-            var current = ReadSelection(selection);
-            if (!current.Success || current.Value == null)
-                return ApiResult<EditorCommandApplySnapshot>.Fail(current.Error);
-
-            EditorCommandDocumentSnapshot before = current.Value;
-            if (!MatchesSelectionToken(before, expectedSelectionToken))
-                return ApiResult<EditorCommandApplySnapshot>.Fail("台词选择已变化，请重新生成草稿。");
-            if (!before.InputAvailable || !before.InputMatchesScript)
-                return ApiResult<EditorCommandApplySnapshot>.Fail("请先完成官方指令输入框中的编辑，再清除预设。");
-
-            var edit = _composer.PreviewRemove(before.AdditionalPrompt, expectedRevisionSha256,
-                "#aavt;fx;" + publicSlot.ToString(System.Globalization.CultureInfo.InvariantCulture) + ";sway");
-            if (!edit.Success || edit.Value == null)
-                return ApiResult<EditorCommandApplySnapshot>.Fail(edit.Error);
-
-            EditorCommandEditPreview preview = edit.Value;
-            if (string.Equals(before.RevisionSha256, preview.ResultRevisionSha256, StringComparison.Ordinal))
-                return ApiResult<EditorCommandApplySnapshot>.Ok(new(before, before,
-                    preview.CanonicalPublicDirective, publicSlot, false));
-
-            var write = WriteExact(selection, before.Address,
-                preview.UpdatedText, preview.ResultRevisionSha256,
-                expectedSelectionToken, before.RevisionSha256);
-            if (!write.Success || write.Value == null)
-            {
-                string rollback = RollBack(selection, before.Address,
-                    before.AdditionalPrompt, before.RevisionSha256);
-                return ApiResult<EditorCommandApplySnapshot>.Fail(
-                    $"预设移除后校验未通过：{write.Error} {rollback}");
-            }
-
-            return ApiResult<EditorCommandApplySnapshot>.Ok(new(before,
-                write.Value with { UndoAvailable = true },
-                preview.CanonicalPublicDirective, publicSlot, preview.ReplacedExisting));
-        }
-        catch (Exception ex)
-        {
-            return ApiResult<EditorCommandApplySnapshot>.Fail(PatchGuard.Describe(ex));
-        }
-    }
 
     public ApiResult<EditorCommandContinueApplySnapshot> ApplyContinueToggleOnMainThread(
         bool enabled,

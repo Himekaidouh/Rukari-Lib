@@ -126,6 +126,44 @@ public sealed class EffectLayerStack
     }
 
     /// <summary>
+    /// The one line a window shows about one of its layers: what the stack holds while it holds something, and the
+    /// reason it holds nothing when the row could not be read. The two must never be confused — "本层暂无效果" on an
+    /// unreadable row is the one thing this line must not say.
+    /// </summary>
+    public string LineOf(EffectLayer layer)
+    {
+        ArgumentNullException.ThrowIfNull(layer);
+        return CanWrite
+            ? layer.Label + " · " + SummaryOf(layer).Text
+            : layer.Label + " · " + ReadStatus;
+    }
+
+    /// <summary>Removes every effect of one layer, as a pending change: 应用 is still what writes it.</summary>
+    public bool Clear(EffectLayer layer)
+    {
+        ArgumentNullException.ThrowIfNull(layer);
+        int removed = 0;
+        for (int position = _rows.Count - 1; position >= 0; position--)
+        {
+            if (!string.Equals(_rows[position].LayerKey, layer.ResourceKey, StringComparison.Ordinal)) continue;
+            _rows.RemoveAt(position);
+            removed++;
+        }
+
+        if (removed == 0)
+        {
+            Message = $"{layer.Label}本来就没有效果。";
+            return false;
+        }
+
+        HasPendingChanges = true;
+        SelectedLayer = layer;
+        KeepSelectionValid();
+        Message = $"已清空{layer.Label}的 {removed} 段，按「应用」写入当前句。";
+        return true;
+    }
+
+    /// <summary>
     /// Both layers as they should be written. Both are always included, so clearing a layer is the same operation as
     /// changing one and a window can never leave a stale effect behind in the layer it did not touch.
     /// </summary>

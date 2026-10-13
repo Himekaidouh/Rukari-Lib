@@ -87,6 +87,185 @@ internal sealed class CharacterPresetEditorSession
 
     internal void Poll() => Read(force: false);
 
+    /// <summary>
+    /// The layer this page owns: one character's transient presets. The stack is created for the slot the page is
+    /// currently targeting and recreated when the target changes, because a layer is identified by its slot
+    /// (2026-10-13).
+    /// </summary>
+    private EffectLayerStack? _layerStack;
+
+    /// <summary>The layer stack of the targeted character's preset layer.</summary>
+    internal EffectLayerStack Layers =>
+        _layerStack ??= new EffectLayerStack(new[] { EffectLayerCatalog.Preset(PublicSlot) });
+
+    /// <summary>The one line this page shows about the layer it owns, draft included.</summary>
+    internal string LayerLine => Layers.LineOf(EffectLayerCatalog.Preset(PublicSlot));
+
+    /// <summary>Whether the stack on screen differs from the row it was read from.</summary>
+    internal bool HasPendingLayerChanges => Layers.HasPendingChanges;
+
+    /// <summary>Whether this layer holds anything at all.</summary>
+    internal bool HasSegments => Layers.Rows.Count != 0;
+
+    /// <summary>What the segment button reads: which effect the buttons act on, out of how many.</summary>
+    internal string SegmentLabel
+    {
+        get
+        {
+            EffectLayer layer = EffectLayerCatalog.Preset(PublicSlot);
+            int total = Layers.CountOf(layer);
+            int selected = string.Equals(
+                    Layers.SelectedLayer.ResourceKey,
+                    layer.ResourceKey,
+                    StringComparison.Ordinal)
+                ? Layers.SelectedIndex
+                : -1;
+            return $"预设段 {Math.Max(0, selected + 1)}/{total}";
+        }
+    }
+
+    /// <summary>What the delete button reads, naming the effect it would remove.</summary>
+    internal string DeleteLabel =>
+        Layers.SelectedIndex >= 0 ? $"删除第 {Layers.SelectedIndex + 1} 段" : "删除这段";
+
+    /// <summary>Whether the selected effect can move one place within this layer.</summary>
+    internal bool CanMoveSegment(int delta)
+    {
+        int index = Layers.SelectedIndex;
+        return index >= 0
+            && index + delta >= 0
+            && index + delta < Layers.CountOf(EffectLayerCatalog.Preset(PublicSlot));
+    }
+
+    /// <summary>
+    /// Takes the row's preset layer as the truth, unless the author has stacked something that is not written yet: a
+    /// re-read would silently replace the work being composed.
+    /// </summary>
+    private void AdoptLayers()
+    {
+        if (Layers.HasPendingChanges) return;
+        if (_source == null)
+        {
+            Layers.Adopt(EffectLayerRead.Failed(
+                _readError.Length != 0 ? _readError : "当前台词不可用，请重新选中台词。"));
+            return;
+        }
+
+        EffectLayer layer = EffectLayerCatalog.Preset(PublicSlot);
+        Layers.Adopt(EffectLayerRead.From(
+            new[] { layer },
+            _source.AdditionalPrompt,
+            _source.RevisionSha256,
+            _source.RuntimeSelectionKey,
+            RowLabelOf(_source.RuntimeContextId)));
+    }
+
+    /// <summary>Appends the draft the parameters describe to this layer, as a pending change.</summary>
+    internal void AddCurrentAsSegment()
+    {
+        if (!Editable) return;
+        if (!TryDirective(out string directive, out string error))
+        {
+            Notice = error;
+            return;
+        }
+
+        Layers.Add(EffectDraft.FromDirective(directive));
+        Notice = Layers.Status;
+    }
+
+    /// <summary>Moves the selection to the next effect of this layer.</summary>
+    internal void CycleSegment()
+    {
+        EffectLayer layer = EffectLayerCatalog.Preset(PublicSlot);
+        int total = Layers.CountOf(layer);
+        if (total == 0)
+        {
+            Notice = $"{layer.Label}还没有效果。";
+            return;
+        }
+
+        int next = Layers.SelectedIndex < 0 ? 0 : (Layers.SelectedIndex + 1) % total;
+        Layers.Select(layer, next);
+        Notice = Layers.HasPendingChanges
+            ? $"{layer.Label}第 {next + 1} 段：{Layers.Selected?.Label}"
+            : Layers.Status;
+    }
+
+    /// <summary>Moves the selected effect one place within this layer.</summary>
+    internal void MoveSegment(int delta)
+    {
+        Layers.MoveSelected(delta);
+        Notice = Layers.Status;
+    }
+
+    /// <summary>Removes the selected effect of this layer.</summary>
+    internal void DeleteSegment()
+    {
+        Layers.DeleteSelected();
+        Notice = Layers.Status;
+    }
+
+    /// <summary>Empties this layer, as a pending change: 应用 is still what writes it.</summary>
+    internal void ClearLayer()
+    {
+        Layers.Clear(EffectLayerCatalog.Preset(PublicSlot));
+        Notice = Layers.Status;
+    }
+
+    /// <summary>
+    /// Writes the whole layer in one transaction: what this page owns, in the order the author stacked it. This is
+    /// the preset family's equivalent of the camera window's write, and the reason the one-command-per-resource
+    /// upsert is no longer used here at all (2026-10-13).
+    /// </summary>
+    internal void ApplyLayer()
+    {
+        EditorCommandDocumentSnapshot? displayed = _source;
+        if (!GuardDisplayedSource(displayed)) return;
+        if (!Layers.HasPendingChanges)
+        {
+            Notice = "没有需要写入的改动。";
+            return;
+        }
+
+        if (!Layers.CanWrite)
+        {
+            Notice = "这一句还没有读取成功，请重新选中台词后再试。";
+            return;
+        }
+
+        if (Plugin.Api.EditorCommandDocuments is not EditorCommandDocumentService service)
+        {
+            Notice = "当前编辑服务暂不支持整层写入。";
+            return;
+        }
+
+        EffectLayerApply applied = service.ApplyLayersOnMainThread(
+            displayed!.RevisionSha256,
+            displayed.RuntimeSelectionKey,
+            Layers.BuildEdits());
+        if (!applied.Success)
+        {
+            ReportFailure("应用失败，请重新选择当前句后重试。", applied.Error);
+            return;
+        }
+
+        Layers.Adopt(applied.Read, "已写入当前句；" + Layers.Consequence());
+        Read(force: true);
+        Notice = Layers.Status;
+    }
+
+    /// <summary>
+    /// A short name for the row, taken from the transaction's context identity. It ends in the row's index, which is
+    /// the one piece of identity the shared read offers.
+    /// </summary>
+    private static string RowLabelOf(string? contextId)
+    {
+        if (string.IsNullOrWhiteSpace(contextId)) return "台词";
+        int colon = contextId.LastIndexOf(':');
+        if (colon <= 0 || colon + 1 >= contextId.Length) return "台词";
+        return int.TryParse(contextId[(colon + 1)..], out int index) ? $"台词 #{index + 1}" : "台词";
+    }
     private void Read(bool force)
     {
         long now = Stopwatch.GetTimestamp();
@@ -129,6 +308,7 @@ internal sealed class CharacterPresetEditorSession
         if (!Editable || slot is < 1 or > 5 || slot == PublicSlot) return;
         PublicSlot = slot;
         _slotPreference.Remember(_source!.RuntimeContextId, slot);
+        _layerStack = null;
         LoadFromSource();
         Notice = Existing != null && Existing.Kind != Kind
             ? "应用后替换本槽原有动作。" : string.Empty;
@@ -155,6 +335,7 @@ internal sealed class CharacterPresetEditorSession
         SetNumbers(command);
         _dirty = false;
         Generation++;
+        AdoptLayers();
     }
 
     private CharacterPresetCommand Defaults() => _parser.Parse(
@@ -355,30 +536,11 @@ internal sealed class CharacterPresetEditorSession
         return true;
     }
 
-    internal void Apply()
-    {
-        EditorCommandDocumentSnapshot? displayed = _source;
-        if (!GuardDisplayedSource(displayed) || !TryDirective(out string directive, out _)) return;
-        var preview = Plugin.Api.EditorCommandDocuments.PreviewUpsertSelectedOnMainThread(
-            displayed!.RevisionSha256, directive, displayed.RuntimeSelectionKey);
-        if (!preview.Success || preview.Value == null)
-        {
-            ReportFailure("设置检查失败，请重新选择当前句后重试。", preview.Error);
-            return;
-        }
-        var applied = Plugin.Api.EditorCommandDocuments.ApplyUpsertSelectedOnMainThread(
-            preview.Value.Source.RevisionSha256, preview.Value.CanonicalPublicDirective,
-            preview.Value.Source.RuntimeSelectionKey);
-        if (!applied.Success || applied.Value == null)
-        {
-            ReportFailure("应用失败，请重新选择当前句后重试。", applied.Error);
-            return;
-        }
-        _source = applied.Value.After;
-        LoadFromSource();
-        Notice = "已应用到当前句；播放此句可查看效果。";
-    }
 
+    /// <summary>
+    /// Undoes the last shared transaction, which is this page's own layer write as much as anybody else's: the write
+    /// goes through the same transaction, so one undo button covers both kinds of change.
+    /// </summary>
     internal void Undo()
     {
         EditorCommandDocumentSnapshot? displayed = _source;
@@ -392,27 +554,6 @@ internal sealed class CharacterPresetEditorSession
         _source = result.Value.Restored;
         LoadFromSource();
         Notice = "已撤销当前句的上次修改。";
-    }
-
-    internal void ClearPreset()
-    {
-        EditorCommandDocumentSnapshot? displayed = _source;
-        if (!GuardDisplayedSource(displayed) || Existing == null) return;
-        if (Plugin.Api.EditorCommandDocuments is not EditorCommandDocumentService service)
-        {
-            Notice = "当前编辑服务暂不支持清除动作。";
-            return;
-        }
-        var result = service.ApplyRemovePresetSelectedOnMainThread(
-            displayed!.RevisionSha256, PublicSlot, displayed.RuntimeSelectionKey);
-        if (!result.Success || result.Value == null)
-        {
-            ReportFailure("清除失败，请重新选择当前句后重试。", result.Error);
-            return;
-        }
-        _source = result.Value.After;
-        LoadFromSource();
-        Notice = "已清除本槽动作，可撤销恢复。";
     }
 
     private void ReportFailure(string message, string error)
