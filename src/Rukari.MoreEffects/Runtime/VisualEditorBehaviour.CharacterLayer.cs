@@ -92,9 +92,13 @@ public sealed partial class VisualEditorBehaviour
     /// Two rows under the character mode's own 复位/清空 row, in the same shapes the rest of this panel uses, and the
     /// row 连续对话 should move to so that nothing overlaps.
     /// </summary>
-    private float LayoutCharacterLayerControls(float resetRowY, float rowGap)
+    /// <param name="resetClearRowY">
+    /// The row this mode puts 复位/清空 on — 整体重置·回归官方槽位 and 清除草稿. In character mode that is one row below
+    /// 翻转复位, so the caller passes the row those two buttons are drawn on rather than the 翻转复位 row.
+    /// </param>
+    private float LayoutCharacterLayerControls(float resetClearRowY, float rowGap)
     {
-        float selectRowY = resetRowY - CameraLayerRowPitch;
+        float selectRowY = resetClearRowY - CameraLayerRowPitch;
         float optionWidth = (PanelWidth - 60f - (rowGap * 2f)) / 3f;
         LayoutControl("character-seg", 30f, selectRowY, optionWidth, CameraLayerRowHeight);
         LayoutControl("character-move-up", 30f + optionWidth + rowGap, selectRowY, optionWidth, CameraLayerRowHeight);

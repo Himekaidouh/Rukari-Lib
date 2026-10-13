@@ -118,9 +118,13 @@ public sealed partial class VisualEditorBehaviour
     /// returns the row 连续对话 should move to so that nothing overlaps. The big row is laid out with the other two
     /// big buttons, by <c>Layout</c>.
     /// </summary>
-    private float LayoutCameraLayerControls(float resetRowY, float rowGap)
+    /// <param name="resetClearRowY">
+    /// The row this mode puts 复位/清空 on. Every mode has one, and it is not the same variable in each: pass the row
+    /// the buttons are actually drawn on, or the layer rows land on top of them (2026-10-13).
+    /// </param>
+    private float LayoutCameraLayerControls(float resetClearRowY, float rowGap)
     {
-        float selectRowY = resetRowY - CameraLayerRowPitch;
+        float selectRowY = resetClearRowY - CameraLayerRowPitch;
         float optionWidth = (PanelWidth - 60f - (rowGap * 2f)) / 3f;
         LayoutControl("camera-seg", 30f, selectRowY, optionWidth, CameraLayerRowHeight);
         LayoutControl("camera-move-up", 30f + optionWidth + rowGap, selectRowY, optionWidth, CameraLayerRowHeight);

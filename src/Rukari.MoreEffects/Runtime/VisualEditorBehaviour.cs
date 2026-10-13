@@ -4065,8 +4065,6 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
                 rowHeight);
         }
 
-        LayoutCameraLayerControls(dialY, rowGap);
-
         string[] screenTextFontControls =
         {
             "text-font-10", "text-font-1", "text-font+1", "text-font+10"
@@ -4156,8 +4154,10 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             rowHeight);
 
         float continueRowY = _mode == VisualEditorMode.Character
-            // Character mode stacks the layer editor rows under 复位/清空, and 连续对话 moves below them.
-            ? LayoutCharacterLayerControls(resetRowY, rowGap)
+            // Character mode stacks the layer editor rows under its own 复位/清空 row, and 连续对话 moves below them.
+            // That row is actionY here, not resetRowY: 翻转复位 sits between the options and 复位/清空 in this mode,
+            // and anchoring the layer rows to resetRowY put the selector straight on top of 复位/清空 (2026-10-13).
+            ? LayoutCharacterLayerControls(actionY, rowGap)
             : _mode == VisualEditorMode.ScreenText
                 ? screenTextClearY - 50f
                 // Camera mode stacks the layer editor's two rows under 复位/清空, and 连续对话 moves below them.
