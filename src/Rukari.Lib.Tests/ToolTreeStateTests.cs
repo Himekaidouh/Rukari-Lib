@@ -79,8 +79,23 @@ internal static class ToolTreeStateTests
         Check.True(!direct.CloseModule(), "Closing a module that is not open changes nothing.");
     }
 
-    public static void OnlyOneModuleIsOpenAtATime()
+    /// <summary>
+    /// A module whose only entry draws in its own window: the press opens the window and the column it came through
+    /// goes with it, because there is no panel of the module's own to come back to (2026-10-14).
+    /// </summary>
+    public static void AWindowEntryLeavesNoColumnBehind()
     {
+        var tree = new ToolTreeState();
+        tree.OpenModule("rukari.presets");
+        Check.Equal(1, tree.Depth, "The module column is out with nothing open inside it.");
+
+        Check.Equal(0, tree.CollapseOneLevel(moduleHasEntries: false),
+            "A window entry's press takes the column with it: the window is the tool now.");
+        Check.True(!tree.IsExpanded, "Nothing of the column is left on screen.");
+        Check.True(tree.OpenModuleId == null, "And no module stays highlighted over it.");
+    }
+
+    public static void OnlyOneModuleIsOpenAtATime()    {
         var tree = new ToolTreeState();
         tree.OpenEntry("rukari.a", "stage");
 

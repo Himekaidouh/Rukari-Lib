@@ -127,6 +127,12 @@ public sealed class ToolTreeState
         if (OpenModuleId != null)
         {
             OpenModuleId = null;
+            // A module whose single entry draws in its own window publishes no column and no panel of its own, so
+            // with nothing open there is no level left to fall back to: the column the press came through closes
+            // with the window. Without this the module card stayed drawn on top of the window the user had just
+            // asked for (2026-10-14 field log: the preset window opened at depth 1, and the next click still found
+            // the rail's six rectangles because the card was still out).
+            if (!moduleHasEntries) ColumnOpen = false;
             return Depth;
         }
 

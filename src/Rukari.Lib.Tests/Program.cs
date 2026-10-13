@@ -104,6 +104,7 @@ internal static class Program
             (nameof(BundledUiAssetsTests.ShippedSkinContainsTheChromeAndValidSpriteBounds), BundledUiAssetsTests.ShippedSkinContainsTheChromeAndValidSpriteBounds),
             (nameof(ToolTreeStateTests.TheRailIconOpensTheColumnAndSelectsNothing), ToolTreeStateTests.TheRailIconOpensTheColumnAndSelectsNothing),
             (nameof(ToolTreeStateTests.OnePressIsOneVisibleLevel), ToolTreeStateTests.OnePressIsOneVisibleLevel),
+            (nameof(ToolTreeStateTests.AWindowEntryLeavesNoColumnBehind), ToolTreeStateTests.AWindowEntryLeavesNoColumnBehind),
             (nameof(ToolTreeStateTests.AnOpenColumnWithNoModuleLightsNoButton), ToolTreeStateTests.AnOpenColumnWithNoModuleLightsNoButton),
             (nameof(ToolTreeStateTests.OnlyOneModuleIsOpenAtATime), ToolTreeStateTests.OnlyOneModuleIsOpenAtATime),
             (nameof(ToolTreeStateTests.OnlyOneEntryIsOpenAtATime), ToolTreeStateTests.OnlyOneEntryIsOpenAtATime),
