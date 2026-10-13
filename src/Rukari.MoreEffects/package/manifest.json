@@ -1,9 +1,9 @@
 {
   "name": "更多的画面效果",
-  "version_number": "1.6.5",
+  "version_number": "1.6.6",
   "website_url": "",
-  "description": "人物与镜头操控、屏幕文字、连续对白和动作预设。",
+  "description": "人物与镜头操控、屏幕文字、连续对白和动作预设。1.6.6 起整行可按一条队列播放（#aavt;queue），层内效果可以就地载入并替换，并修掉了一行重复指令会让整个工程索引失效的问题。",
   "dependencies": [
-    "RukariLib/0.4.3"
+    "RukariLib/0.4.4"
   ]
 }
