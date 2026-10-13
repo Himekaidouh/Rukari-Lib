@@ -184,7 +184,11 @@ public sealed class EffectLayerEditor
             return applied;
         }
 
-        Stack.Adopt(applied.Read, "已写入当前句；" + Stack.Consequence());
+        // The queue line is part of what the write did, not decoration: in 串成一条 mode it is the only place an author
+        // sees when the effects of the layers they are not looking at will start.
+        string message = "已写入当前句；" + Stack.Consequence();
+        if (applied.Queue is { Success: true } queue) message += "　" + queue.Line;
+        Stack.Adopt(applied.Read, message);
         return applied;
     }
 

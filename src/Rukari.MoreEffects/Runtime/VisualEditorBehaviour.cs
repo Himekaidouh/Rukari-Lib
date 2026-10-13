@@ -672,6 +672,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             () => _cameraScope == SceneCameraScope.Background);
         CreateCameraLayerControls();
         CreateCharacterLayerControls();
+        CreateQueueModeControl();
         CreateControlButton(
             "camera-x-100",
             "镜头 X -100",
@@ -2022,6 +2023,12 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             }
         }
 
+        // The queue switch belongs to the modes that write a layer: it decides what their 应用 does to the row.
+        if (_controlButtons.TryGetValue(QueueModeKey, out ControlButton? queueMode))
+        {
+            queueMode.SetVisible(IsLayerMode);
+        }
+
         foreach (string key in ScreenTextControlKeys)
         {
             if (_controlButtons.TryGetValue(key, out ControlButton? button))
@@ -3195,6 +3202,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         }
 
         UpdateCameraLayerButtons();
+        UpdateQueueModeButton();
         UpdateCharacterLayerButtons();
 
         ScreenTextDirective screenText = CurrentScreenText();
@@ -4166,6 +4174,14 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
                 ? screenTextClearY - 50f
                 // Camera mode stacks the layer editor's two rows under 复位/清空, and 连续对话 moves below them.
                 : LayoutCameraLayerControls(resetRowY, rowGap);
+        // The queue switch is the last row of the block: it decides what 应用 makes of the whole row, so it belongs
+        // with the layer it writes rather than in a settings page of its own (2026-10-13).
+        if (IsLayerMode)
+        {
+            LayoutControl(QueueModeKey, 30f, continueRowY, PanelWidth - 60f, rowHeight);
+            continueRowY -= rowHeight + rowGap;
+        }
+
         LayoutControl("continue", 30f, continueRowY, PanelWidth - 60f, rowHeight);
 
         const float buttonY = 30f;

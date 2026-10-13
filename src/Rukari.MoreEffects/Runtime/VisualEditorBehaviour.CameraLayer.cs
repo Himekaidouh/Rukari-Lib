@@ -157,7 +157,7 @@ public sealed partial class VisualEditorBehaviour
         out float buttonWidth,
         out float addX)
     {
-        bool layerEditor = _mode is VisualEditorMode.Camera or VisualEditorMode.Character;
+        bool layerEditor = IsLayerMode;
         buttonWidth = layerEditor
             ? (PanelWidth - 60f - (buttonGap * 2f)) / 3f
             : (PanelWidth - 60f - buttonGap) / 2f;

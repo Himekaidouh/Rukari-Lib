@@ -240,13 +240,32 @@ internal sealed class EditorCommandDocumentService : IEditorCommandDocumentServi
                 revision = edit.Value.ResultRevisionSha256;
             }
 
+            // The layers are in the row; now the row's queue decides where each effect starts. This is the only place
+            // that can do it, because only here is the whole row known: a window holds one layer, and in 串成一条 mode
+            // the offset of an effect depends on the effects of every other layer in front of it.
+            EffectQueuePlan? queue = ReadQueue(text, out string? queueError);
+            if (queueError is not null) return EffectLayerApply.Failed(queueError);
+            if (queue is not null)
+            {
+                foreach (EffectLayerEdit layer in layers)
+                {
+                    if (layer is null) continue;
+                    if (!QueueRewritten(queue, layer, out IReadOnlyList<string>? rewritten)) continue;
+                    var edit = _composer.PreviewReplaceResource(text, revision, layer.LayerKey, rewritten!);
+                    if (!edit.Success || edit.Value is null)
+                        return EffectLayerApply.Failed(edit.Error ?? "无法写入本行的队列。");
+                    text = edit.Value.UpdatedText;
+                    revision = edit.Value.ResultRevisionSha256;
+                }
+            }
+
             string? conflict = DirectiveOwnershipError(text);
             if (conflict is not null) return EffectLayerApply.Failed(conflict);
 
             // The readback names the layers that were written, so the window that asked sees exactly its own rows.
             List<EffectLayer> written = LayersOf(layers);
             if (string.Equals(revision, selection.Revision, StringComparison.OrdinalIgnoreCase))
-                return EffectLayerApply.Ok(ToLayerRead(selection, written));
+                return EffectLayerApply.Ok(ToLayerRead(selection, written), queue);
 
             var write = documents.Value.Replace(
                 new Rukari.Lib.Editor.EditorDocumentEditRequest(selectionToken, expectedRevisionSha256, text));
@@ -263,12 +282,70 @@ internal sealed class EditorCommandDocumentService : IEditorCommandDocumentServi
             _capabilities.Verified(
                 "Editor.EffectLayerWrite",
                 "shared transaction replace -> extractor readback of the written layers");
-            return EffectLayerApply.Ok(ToLayerRead(write.Value.Selection, written));
+            return EffectLayerApply.Ok(ToLayerRead(write.Value.Selection, written), queue);
         }
         catch (Exception ex)
         {
             return EffectLayerApply.Failed(PatchGuard.Describe(ex));
         }
+    }
+
+    /// <summary>
+    /// The queue the merged row would be written as, or the reason it cannot be. A row whose text does not parse is
+    /// left to the layers themselves: the merge above already refused anything it could not read, and a queue is not
+    /// the place to report it a second time.
+    /// </summary>
+    private static EffectQueuePlan? ReadQueue(string text, out string? error)
+    {
+        error = null;
+        EmbeddedAavtExtraction extraction = new EmbeddedAavtDirectiveExtractor().Extract(text);
+        if (extraction.Errors.Count != 0 || extraction.Commands.Count == 0) return null;
+        EffectQueuePlan plan = EffectQueueChain.Plan(extraction.Commands, EffectQueueMode.Serial);
+        if (plan.Success) return plan;
+        error = plan.Error;
+        return null;
+    }
+
+    /// <summary>
+    /// One layer's directives with the queue's placement: the mode decides, not the window. Returns false when this
+    /// layer's lines already say exactly that, so an unchanged layer is not written a second time.
+    /// </summary>
+    private static bool QueueRewritten(
+        EffectQueuePlan queue,
+        EffectLayerEdit layer,
+        out IReadOnlyList<string>? rewritten)
+    {
+        rewritten = null;
+        IReadOnlyList<string> directives = layer.Directives ?? Array.Empty<string>();
+        var candidate = new List<string>(directives.Count);
+        bool changed = false;
+        for (int index = 0; index < directives.Count; index++)
+        {
+            EffectQueueStep? step = null;
+            foreach (EffectQueueStep candidateStep in queue.Steps)
+            {
+                if (candidateStep.IndexInLayer != index) continue;
+                if (!string.Equals(candidateStep.LayerKey, layer.LayerKey, StringComparison.Ordinal)) continue;
+                step = candidateStep;
+                break;
+            }
+
+            if (step is null)
+            {
+                candidate.Add(directives[index]);
+                continue;
+            }
+
+            string text = step.HasOffset
+                ? EffectQueueChain.WithOffset(directives[index], step.OffsetMs)
+                : EffectQueueChain.WithoutOffset(directives[index]);
+            changed |= !string.Equals(text, directives[index], StringComparison.Ordinal);
+            candidate.Add(text);
+        }
+
+        if (!changed) return false;
+        rewritten = candidate;
+        return true;
     }
 
     /// <summary>The layers a set of edits names, in the order they were written.</summary>
