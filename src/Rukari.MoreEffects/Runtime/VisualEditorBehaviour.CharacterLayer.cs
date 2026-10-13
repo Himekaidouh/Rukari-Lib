@@ -153,6 +153,7 @@ public sealed partial class VisualEditorBehaviour
         }
 
         editor.Add();
+        Plugin.Logger.LogInfo("[character-layer] add-as-next · " + editor.Status);
         SetCharacterLayerStatus(editor.Status);
     }
 

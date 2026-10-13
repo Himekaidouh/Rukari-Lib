@@ -1151,6 +1151,10 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
             if (_effectAddEnabled && Contains(_effectAddHitRect, pointer))
             {
+                // The press is logged before anything can go wrong with it: a button that is drawn but has no hit
+                // rectangle does nothing at all, and "nothing at all" is indistinguishable from "the stack refused
+                // it" without this line (2026-10-13).
+                Plugin.Logger.LogInfo($"[layer-ui] add-as-next pressed · mode={_mode}");
                 AddEffectSegment();
                 return;
             }
@@ -4167,9 +4171,14 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         const float buttonY = 30f;
         const float buttonHeight = 64f;
         const float buttonGap = 20f;
-        // Camera mode puts ＋ 加为下一段 in this row: it is the action taken on every effect, and it has to read as
+        // Both layer modes put ＋ 加为下一段 in this row: it is the action taken on every effect, and it has to read as
         // one of the two big buttons rather than as one control among many (2026-10-13).
-        LayoutEffectAddButton(buttonGap, out float buttonWidth, out float cameraAddX);
+        LayoutEffectAddButton(
+            buttonGap,
+            buttonY,
+            buttonHeight,
+            out float buttonWidth,
+            out float effectAddX);
         SetRect(_applyButtonRect, 30f, buttonY, buttonWidth, buttonHeight);
         SetRect(
             _undoButtonRect,
@@ -4177,7 +4186,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             buttonY,
             buttonWidth,
             buttonHeight);
-        SetRect(_effectAddButtonRect, cameraAddX, buttonY, buttonWidth, buttonHeight);
+        SetRect(_effectAddButtonRect, effectAddX, buttonY, buttonWidth, buttonHeight);
         if (_applyButtonText is not null)
             Rukari.Lib.Runtime.Tools.ToolTheme.CenterButtonLabel(_applyButtonText, buttonWidth, buttonHeight, 6f);
         if (_undoButtonText is not null)
@@ -4194,9 +4203,6 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             _panelRect.Y + buttonY,
             buttonWidth,
             buttonHeight);
-        _effectAddHitRect = _mode == VisualEditorMode.Camera
-            ? new VisualEditorRect(_panelRect.X + cameraAddX, _panelRect.Y + buttonY, buttonWidth, buttonHeight)
-            : new VisualEditorRect(0f, 0f, 0f, 0f);
 
         RectTransform? draft = _draftText?.GetComponent<RectTransform>();
         SetRect(draft, 30f, 112f, PanelWidth - 60f, Math.Max(72f, continueRowY - 130f));

@@ -143,16 +143,30 @@ public sealed partial class VisualEditorBehaviour
     /// <summary>
     /// Where the big ＋ 加为下一段 button goes, and where the other two go when it is on screen: the modes that own a
     /// layer split the same row three ways instead of two, and the modes that do not never see it.
+    ///
+    /// <para>
+    /// Showing it and making it pressable are the same decision, so both are made here. They were written out
+    /// separately once, and the character mode ended up with the drawing but not the hit rectangle: the button looked
+    /// live, took the press, and did nothing (2026-10-13).
+    /// </para>
     /// </summary>
-    private void LayoutEffectAddButton(float buttonGap, out float buttonWidth, out float thirdX)
+    private void LayoutEffectAddButton(
+        float buttonGap,
+        float buttonY,
+        float buttonHeight,
+        out float buttonWidth,
+        out float addX)
     {
         bool layerEditor = _mode is VisualEditorMode.Camera or VisualEditorMode.Character;
         buttonWidth = layerEditor
             ? (PanelWidth - 60f - (buttonGap * 2f)) / 3f
             : (PanelWidth - 60f - buttonGap) / 2f;
-        thirdX = 30f + ((buttonWidth + buttonGap) * 2f);
+        addX = 30f + ((buttonWidth + buttonGap) * 2f);
         if (_effectAddButtonRect is not null) _effectAddButtonRect.gameObject.SetActive(layerEditor);
         if (_effectAddButtonText is not null) _effectAddButtonText.gameObject.SetActive(layerEditor);
+        _effectAddHitRect = layerEditor
+            ? new VisualEditorRect(_panelRect.X + addX, _panelRect.Y + buttonY, buttonWidth, buttonHeight)
+            : default;
     }
 
     /// <summary>
@@ -267,6 +281,7 @@ public sealed partial class VisualEditorBehaviour
         EffectDraft draft = EffectDraft.FromDirective(_currentDraftDirective);
         if (!_cameraLayers.Add(draft))
         {
+            Plugin.Logger.LogInfo("[camera-layer] add-as-next refused · " + _cameraLayers.Status);
             SetCameraLayerStatus(_cameraLayers.Status);
             return;
         }
@@ -275,6 +290,7 @@ public sealed partial class VisualEditorBehaviour
         SelectCameraScope(draft.LayerKey == EffectLayerCatalog.BackgroundCamera.ResourceKey
             ? SceneCameraScope.Background
             : SceneCameraScope.Overall);
+        Plugin.Logger.LogInfo("[camera-layer] add-as-next · " + _cameraLayers.Status);
         SetCameraLayerStatus(_cameraLayers.Status);
     }
 
