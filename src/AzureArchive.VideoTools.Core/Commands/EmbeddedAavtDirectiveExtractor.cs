@@ -31,6 +31,30 @@ public sealed record EmbeddedAavtExtraction(
     public EffectQueueMode QueueMode { get; init; } = EffectQueueMode.IndependentTracks;
 
     /// <summary>
+    /// The same extraction with its commands' canonical text replaced — the layout a row asked for, computed rather
+    /// than authored. One directive per command: the count and the order are part of what an extraction means, and a
+    /// layout that changed either would be describing a different row.
+    /// </summary>
+    public EmbeddedAavtExtraction WithCanonicalDirectives(IReadOnlyList<string> canonicalDirectives)
+    {
+        ArgumentNullException.ThrowIfNull(canonicalDirectives);
+        if (canonicalDirectives.Count != Commands.Count)
+        {
+            throw new ArgumentException(
+                "A queue layout keeps one directive per command.",
+                nameof(canonicalDirectives));
+        }
+
+        var commands = new List<EmbeddedAavtCommand>(Commands.Count);
+        for (int index = 0; index < Commands.Count; index++)
+        {
+            commands.Add(Commands[index] with { CanonicalDirective = canonicalDirectives[index] });
+        }
+
+        return this with { Commands = Array.AsReadOnly(commands.ToArray()) };
+    }
+
+    /// <summary>
     /// True when this text declared AAVT directive lines while every declared
     /// line turned out to be non-visual — a bare <c>#aavt;continue</c> marker, a
     /// mirrored voice line, or both — and nothing was rejected. Only those two

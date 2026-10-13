@@ -190,6 +190,7 @@ internal static class Program
             (nameof(EffectQueueMarkerTests.TheComposerWritesAndErasesExactlyThatLine), EffectQueueMarkerTests.TheComposerWritesAndErasesExactlyThatLine),
             (nameof(EffectQueueMarkerTests.TheCompileLaysAMarkedRowOutAsOneQueue), EffectQueueMarkerTests.TheCompileLaysAMarkedRowOutAsOneQueue),
             (nameof(EffectQueueMarkerTests.AnUnmarkedRowCompilesToItsOwnDirectives), EffectQueueMarkerTests.AnUnmarkedRowCompilesToItsOwnDirectives),
+            (nameof(EffectQueueMarkerTests.ARowThatCannotBeLaidOutKeepsItsOwnDirectives), EffectQueueMarkerTests.ARowThatCannotBeLaidOutKeepsItsOwnDirectives),
             (nameof(SlotActionChannelQueueTests.TwoCameraScopesShareOneScreenTrackAndAppend), SlotActionChannelQueueTests.TwoCameraScopesShareOneScreenTrackAndAppend),
             (nameof(SlotActionChannelQueueTests.PresetTrackCrossesTheCharacterTrackWhileTheMoveRuns), SlotActionChannelQueueTests.PresetTrackCrossesTheCharacterTrackWhileTheMoveRuns),
             (nameof(SlotActionChannelQueueTests.SquashPresetAlsoKeepsItsOwnTrackAndRunsParallel), SlotActionChannelQueueTests.SquashPresetAlsoKeepsItsOwnTrackAndRunsParallel),

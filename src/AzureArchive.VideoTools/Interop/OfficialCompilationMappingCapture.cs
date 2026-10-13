@@ -349,6 +349,7 @@ internal static class OfficialCompilationMappingCapture
         VoiceDirectiveParseResult voice = VoiceDirectivePolicy.Parse(sourcePrompt);
         bool ownsAavtRow = extracted.Commands.Count > 0
             || extracted.HasContinueDirective
+            || extracted.QueueMode == EffectQueueMode.OneQueue
             || voice.HasDirective;
         return extracted.Errors.Count == 0
             && voice.Errors.Count == 0

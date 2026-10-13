@@ -1,5 +1,6 @@
 using AzureArchive.VideoTools.Core.Commands;
 using AzureArchive.VideoTools.Core.Results;
+using System.Linq;
 
 namespace AzureArchive.VideoTools.Tests;
 
@@ -126,14 +127,36 @@ internal static class EffectQueueMarkerTests
     }
 
     /// <summary>
-    /// The directives one row compiles to. It goes through the same helper the embedded compile uses rather than
-    /// through a second copy of it, because the point of the test is what the row becomes, not how it is called.
+    /// The directives one row plays. It goes through <see cref="EffectQueueLayout.Applied"/> — the same call the live
+    /// capture makes — rather than through the planner directly, because the thing worth pinning is that the marker
+    /// reaches the caches playback and the preview read their directives from.
     /// </summary>
     private static Result<IReadOnlyList<string>> CompiledDirectivesOf(string rowText)
     {
         EmbeddedAavtExtraction extracted = new EmbeddedAavtDirectiveExtractor().Extract(rowText);
         AssertEx.Equal(0, extracted.Errors.Count,
             "The row must parse: " + string.Join(" | ", extracted.Errors));
-        return EmbeddedProjectCommandCompiler.QueueDirectivesFor(extracted);
+        EmbeddedAavtExtraction laid = EffectQueueLayout.Applied(extracted, out string error);
+        AssertEx.Equal(string.Empty, error, "The row must be layoutable.");
+        return Result<IReadOnlyList<string>>.Ok(Array.AsReadOnly(
+            laid.Commands.Select(command => command.CanonicalDirective).ToArray()));
+    }
+
+    internal static void ARowThatCannotBeLaidOutKeepsItsOwnDirectives()
+    {
+        // A marker never breaks a row: an interrupt= cannot be queued, so the row plays exactly as its directives read
+        // and the reason comes back to whoever asked.
+        EmbeddedAavtExtraction extracted = new EmbeddedAavtDirectiveExtractor().Extract(
+            Marker + "\n#aavt;char;3;move;dx=100;duration=600;interrupt=true");
+        EmbeddedAavtExtraction laid = EffectQueueLayout.Applied(extracted, out string error);
+
+        AssertEx.True(error.Length != 0, "The refusal reason is reported.");
+        AssertEx.True(error.Contains("interrupt", StringComparison.Ordinal),
+            "and names what could not be queued: " + error);
+        AssertEx.Equal(EffectQueueMode.OneQueue, laid.QueueMode, "The row still says what it asked for.");
+        AssertEx.Equal(
+            extracted.Commands[0].CanonicalDirective,
+            laid.Commands[0].CanonicalDirective,
+            "The effect keeps the directive the author wrote.");
     }
 }

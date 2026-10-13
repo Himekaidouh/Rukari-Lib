@@ -169,6 +169,18 @@ internal static class EditorEmbeddedDirectivePatch
                 return;
             }
 
+            // The row's queue marker becomes placement here, before anything caches the row: the editor preview and
+            // the dispatch path both read their directives from this one extraction, so laying it out once is what
+            // makes the preview and playback agree about a row that plays as one queue (2026-10-13).
+            extracted = EffectQueueLayout.Applied(extracted, out string queueError);
+            if (queueError.Length != 0)
+            {
+                LogOnce(
+                    capture.Identity.Sha256 + ":" + source + ":queue-refused",
+                    $"The row's #aavt;queue marker could not be applied, so it plays as its directives read: "
+                    + $"{queueError}; source={source}.");
+            }
+
             CompiledScriptIdentity identity = capture.Identity;
             EmbeddedEditorDirectiveCache.Replace(identity, extracted, source);
             // The host retains the original source-aware depth rule: a continuous compiler
