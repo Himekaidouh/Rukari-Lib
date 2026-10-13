@@ -237,9 +237,17 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
                 ConfiguredSceneResolutionStatus.NotConfigured,
                 projectPath,
                 playbackPath,
-                "Configured paths must be existing absolute .aap and .aas files.");
+                "Configured paths must be existing absolute .aap/.aap2 and .aas files.");
             return;
         }
+        var compatible = OfficialAapCompatibilityProjection.Resolve(projectPath);
+        if (!compatible.Success || compatible.Value == null)
+        {
+            PublishFailure(identity, ConfiguredSceneResolutionStatus.Failed, string.Empty, playbackPath,
+                compatible.Error);
+            return;
+        }
+        projectPath = compatible.Value.ProjectPath;
 
         var projectResult = new AapProjectReader().Read(projectPath);
         var playbackResult = new AasScenarioReader().Read(playbackPath);
@@ -511,10 +519,8 @@ internal sealed class ConfiguredSceneResolutionService : IConfiguredSceneResolut
         {
             normalized = Path.GetFullPath(value.Trim());
             return Path.IsPathRooted(normalized)
-                && string.Equals(
-                    Path.GetExtension(normalized),
-                    extension,
-                    StringComparison.OrdinalIgnoreCase)
+                && (string.Equals(Path.GetExtension(normalized), extension, StringComparison.OrdinalIgnoreCase)
+                    || (extension == ".aap" && OfficialAapCompatibilityProjection.IsNativePath(normalized)))
                 && File.Exists(normalized);
         }
         catch

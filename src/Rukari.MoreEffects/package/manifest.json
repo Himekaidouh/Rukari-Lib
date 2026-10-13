@@ -1,8 +1,8 @@
 {
   "name": "更多的画面效果",
-  "version_number": "1.5.2",
+  "version_number": "1.6.5",
   "website_url": "",
-  "description": "人物 X/Z 轴操控、X/Y 轴转身预设，支持整体与仅背景镜头。AA 1.0 候选修复：恢复实时工程完整遍历及人物位移继承起点，保留混合指令重播兼容和实际存储目录识别。",
+  "description": "人物与镜头操控、屏幕文字、连续对白和动作预设。",
   "dependencies": [
     "RukariLib/0.4.3"
   ]

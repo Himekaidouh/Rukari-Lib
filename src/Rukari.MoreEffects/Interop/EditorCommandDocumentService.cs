@@ -163,6 +163,132 @@ internal sealed class EditorCommandDocumentService : IEditorCommandDocumentServi
     }
 
     // A module-internal operation; the shared public editor contracts keep their ABI.
+    /// <summary>
+    /// Reads a row's camera layers for a layer editor (2026-10-13).
+    ///
+    /// <para>
+    /// It reads the shared transaction's raw text through
+    /// <see cref="EditorCommandDocumentComposer.ReadAllowingMultipleResources"/>: the strict read refuses a row that
+    /// declares two directives for one resource, and a camera layer with two effects is exactly the row the layer
+    /// editor produces. The caller displays what this returns and writes it back through
+    /// <see cref="ApplyCameraLayersOnMainThread"/>.
+    /// </para>
+    /// </summary>
+    internal CameraLayerRead ReadCameraLayersOnMainThread()
+    {
+        try
+        {
+            var documents = Rukari.Lib.ModServices.Current?.GetService<Rukari.Lib.Editor.IEditorDocumentService>();
+            if (documents?.Success != true || documents.Value is null)
+                return CameraLayerRead.Failed("共享编辑事务不可用，请先启用 Rukari Lib。");
+            var read = documents.Value.ReadSelection();
+            if (!read.Success || read.Value is null)
+                return CameraLayerRead.Failed(read.Error?.Message ?? "当前没有选中的台词。");
+            Rukari.Lib.Editor.EditorDocumentSnapshot selection = read.Value;
+            return ToCameraRead(selection);
+        }
+        catch (Exception ex)
+        {
+            return CameraLayerRead.Failed(PatchGuard.Describe(ex));
+        }
+    }
+
+    /// <summary>
+    /// Writes both camera layers of the selected row in one transaction, guarded by the token and the revision the
+    /// draft was built from. Both layers are always written, so removing the last effect of a layer removes its line.
+    ///
+    /// <para>
+    /// The write goes through the shared transaction rather than through this service's own upsert, for the reason
+    /// above: the upsert re-reads the merged document with the one-command-per-resource rule. The result is verified
+    /// by re-extracting the written text, which is the reader playback uses.
+    /// </para>
+    /// </summary>
+    internal CameraLayerApply ApplyCameraLayersOnMainThread(
+        string expectedRevisionSha256,
+        string selectionToken,
+        IReadOnlyList<CameraLayerEdit> layers)
+    {
+        try
+        {
+            ArgumentNullException.ThrowIfNull(layers);
+            var documents = Rukari.Lib.ModServices.Current?.GetService<Rukari.Lib.Editor.IEditorDocumentService>();
+            if (documents?.Success != true || documents.Value is null)
+                return CameraLayerApply.Failed("共享编辑事务不可用。");
+            var current = documents.Value.ReadSelection();
+            if (!current.Success || current.Value is null)
+                return CameraLayerApply.Failed(current.Error?.Message ?? "当前没有选中的台词。");
+            Rukari.Lib.Editor.EditorDocumentSnapshot selection = current.Value;
+            if (!string.Equals(selection.SelectionToken, selectionToken, StringComparison.Ordinal))
+                return CameraLayerApply.Failed("台词选择已变化，请先刷新。");
+            if (!string.Equals(selection.Revision, expectedRevisionSha256, StringComparison.OrdinalIgnoreCase))
+                return CameraLayerApply.Failed("台词内容已变化，请先刷新。");
+
+            string text = selection.AdditionalPrompt ?? string.Empty;
+            string revision = selection.Revision;
+            foreach (CameraLayerEdit layer in layers)
+            {
+                if (layer is null) continue;
+                var edit = _composer.PreviewReplaceResource(
+                    text,
+                    revision,
+                    layer.LayerKey,
+                    layer.Directives ?? Array.Empty<string>());
+                if (!edit.Success || edit.Value is null)
+                    return CameraLayerApply.Failed(edit.Error ?? "无法改写这一层镜头。");
+                text = edit.Value.UpdatedText;
+                revision = edit.Value.ResultRevisionSha256;
+            }
+
+            string? conflict = DirectiveOwnershipError(text);
+            if (conflict is not null) return CameraLayerApply.Failed(conflict);
+
+            if (string.Equals(revision, selection.Revision, StringComparison.OrdinalIgnoreCase))
+                return CameraLayerApply.Ok(ToCameraRead(selection));
+
+            var write = documents.Value.Replace(
+                new Rukari.Lib.Editor.EditorDocumentEditRequest(selectionToken, expectedRevisionSha256, text));
+            if (!write.Success || write.Value is null)
+                return CameraLayerApply.Failed(write.Error?.Message ?? "共享编辑器写入失败。");
+            if (!string.Equals(
+                    write.Value.Selection.Revision,
+                    revision,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return CameraLayerApply.Failed("写回校验不一致，请刷新后重试。");
+            }
+
+            _capabilities.Verified(
+                "Editor.CameraLayerWrite",
+                "shared transaction replace -> extractor readback of both camera layers");
+            return CameraLayerApply.Ok(ToCameraRead(write.Value.Selection));
+        }
+        catch (Exception ex)
+        {
+            return CameraLayerApply.Failed(PatchGuard.Describe(ex));
+        }
+    }
+
+    private static CameraLayerRead ToCameraRead(Rukari.Lib.Editor.EditorDocumentSnapshot selection) =>
+        CameraLayerRead.From(
+            selection.AdditionalPrompt,
+            selection.Revision,
+            selection.SelectionToken,
+            CameraRowLabel(selection.ContextId));
+
+    /// <summary>
+    /// A short name for the row, taken from the transaction's context identity. It ends in the row's index, which is
+    /// the one piece of identity the shared read offers; anything unexpected falls back to a plain label rather than
+    /// showing a pointer or a hash.
+    /// </summary>
+    private static string CameraRowLabel(string? contextId)
+    {
+        if (string.IsNullOrWhiteSpace(contextId)) return "台词";
+        int colon = contextId.LastIndexOf(':');
+        if (colon <= 0 || colon + 1 >= contextId.Length) return "台词";
+        return int.TryParse(contextId[(colon + 1)..], out int index) ? $"台词 #{index + 1}" : "台词";
+    }
+
+    // A module-internal operation; the shared public editor contracts keep their ABI.
     // Remove only this slot's preset resource through the same guarded transaction as upsert.
     internal ApiResult<EditorCommandApplySnapshot> ApplyRemovePresetSelectedOnMainThread(
         string expectedRevisionSha256,
@@ -573,7 +699,10 @@ internal sealed class EditorCommandDocumentService : IEditorCommandDocumentServi
         string? ownershipError = DirectiveOwnershipError(additionalPrompt);
         if (ownershipError != null)
             return ApiResult<EditorCommandDocumentSnapshot>.Fail(ownershipError);
-        Result<EditorCommandDocument> parsed = _composer.Read(additionalPrompt);
+        // 2026-10-13: the strict read is what the one-command-per-resource writers use; this page has to be able to
+        // show a row whose camera layer holds several effects (the camera layer editor writes them), so the document
+        // it displays is read with the tolerance for that, and each writer keeps its own guarantee.
+        Result<EditorCommandDocument> parsed = _composer.ReadAllowingMultipleResources(additionalPrompt);
         if (!parsed.Success || parsed.Value == null)
         {
             return ApiResult<EditorCommandDocumentSnapshot>.Fail(parsed.Error);

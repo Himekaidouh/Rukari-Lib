@@ -135,6 +135,9 @@ internal sealed class CharacterPresetRuntime
         foreach (int slot in _active.Keys.ToArray()) StopSlot(slot, reason);
     }
 
+    internal bool HasFiniteAction(long sequence) => _active.Values.Any(active =>
+        active.WindowSequence == sequence && (active.Command.Kind == CharacterPresetKind.Headbutt || active.Command.Cycles > 0));
+
     internal void StopScene(string sceneIdentity, string reason)
     {
         if (!IsMainThread()) return;

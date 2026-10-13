@@ -226,7 +226,8 @@ public sealed record CharacterTransformDispatchRequest(
     string Directive,
     CharacterCommandSource Source,
     int? PublicSlotOverride = null,
-    string OriginIdentity = "");
+    string OriginIdentity = "",
+    bool RestoreSceneBaseline = true);
 
 public sealed record CharacterTransformDispatchSnapshot(
     long Sequence,
@@ -368,6 +369,24 @@ public interface ISceneCameraService
     ApiResult<SceneCameraReadSnapshot> ReadOnMainThread();
 
     ApiResult<SceneCameraExecutionSnapshot> ExecuteOnMainThread(
+        string sceneIdentity,
+        string canonicalDirective);
+}
+
+/// <summary>
+/// Sibling contract of <see cref="ISceneCameraService"/> (2026-10-13) for a queued
+/// continuation segment of ONE row. The frozen camera contract cannot gain a member, and
+/// the default policy — a second command of a scene replay-restores to that scene's entry
+/// first — is what keeps a re-dispatched row idempotent. It is the wrong policy for a
+/// segment that follows another segment of the same row on the same track: <c>dx</c> is
+/// relative, so restoring the entry makes the later segment replace the earlier one
+/// instead of continuing it (measured 2026-10-13: <c>dx=200</c> then <c>dx=60</c> ended at
+/// 60 rather than 260). A continuation dispatch therefore asks for the live state as its
+/// start and performs no entry restore.
+/// </summary>
+public interface ISceneCameraContinuationService
+{
+    ApiResult<SceneCameraExecutionSnapshot> ExecuteContinuationOnMainThread(
         string sceneIdentity,
         string canonicalDirective);
 }

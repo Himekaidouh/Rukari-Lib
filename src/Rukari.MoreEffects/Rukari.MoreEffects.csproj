@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>Rukari.MoreEffects</AssemblyName>
-    <Version>1.5.2</Version>
+    <Version>1.6.5</Version>
     <RootNamespace>AzureArchive.VideoTools</RootNamespace>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
@@ -25,6 +25,7 @@
     <Reference Include="Il2Cppmscorlib" HintPath="$(AzureArchiveInterop)\Il2Cppmscorlib.dll" Private="false" />
     <Reference Include="Il2CppSystem.Core" HintPath="$(AzureArchiveInterop)\Il2CppSystem.Core.dll" Private="false" />
     <Reference Include="Il2CppInterop.Runtime" HintPath="$(AzureArchiveBepInExCore)\Il2CppInterop.Runtime.dll" Private="false" />
+    <Reference Include="Google.FlatBuffers" HintPath="$(AzureArchiveInterop)\Google.FlatBuffers.dll" Private="false" />
     <Reference Include="0Harmony" HintPath="$(AzureArchiveBepInExCore)\0Harmony.dll" Private="false" />
     <Reference Include="Assembly-CSharp" HintPath="$(AzureArchiveInterop)\Assembly-CSharp.dll" Private="false" />
     <Reference Include="spine-csharp" HintPath="$(AzureArchiveInterop)\spine-csharp.dll" Private="false" />

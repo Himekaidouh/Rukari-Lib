@@ -62,7 +62,8 @@ internal sealed class CharacterTransformCommandDispatcher : ICharacterTransformC
                 ? _service.ReplayCommandOnMainThread(
                     request.SceneIdentity,
                     command,
-                    request.OriginIdentity ?? string.Empty)
+                    request.OriginIdentity ?? string.Empty,
+                    request.RestoreSceneBaseline)
                 : _service.ExecuteCommandWithOriginOnMainThread(
                     request.SceneIdentity,
                     command,

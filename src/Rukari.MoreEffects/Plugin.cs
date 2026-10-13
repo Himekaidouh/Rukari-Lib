@@ -18,7 +18,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string Guid = "rukari.moreeffects";
     public const string Name = "更多的画面效果";
-    public const string Version = "1.5.2";
+    public const string Version = "1.6.5";
 
     internal static ManualLogSource Logger { get; private set; } = null!;
     public static IAzureArchiveApi Api { get; private set; } = null!;
@@ -113,6 +113,8 @@ public sealed class Plugin : BasePlugin
                 observationOptions.AcceptLegacyCharacterDirectiveAlias);
         PlayerCommandObservationRuntime.SetEmbeddedEditorCommandsRuntimeReady(
             embeddedEditorCommandsReady);
+        if (embeddedEditorCommandsReady)
+            OfficialCompilationMappingPublication.Install();
         ManagedUnityLogSelectionProbe.Install();
         // OnChildSelect(Selectable) is blacklisted; retain the DataList/log observation path.
         EditorDataListEventProbe.Install();
@@ -130,7 +132,7 @@ public sealed class Plugin : BasePlugin
             + "manualSlotSelect=Alt+1..5; manualMove=playback-only-arrows-left-right/F4-reset; "
             + "manualAction=playback-only-up-Jump/down-Greeting-candidate; "
             + "previewPolicy=directives-allowed-manual-controls-suppressed; "
-            + "commandSources=manual-or-validated-playback-workspace; wrapperCache=false; "
+            + "commandSources=manual-or-validated-playback-workspace; selectionWrapperCache=false; "
             + "harmonyDetail=two-editor-postfixes-plus-configured-player-stage; "
             + $"playerObservationStage={observationOptions.Stage}; "
             + $"playerCommandDispatch={(observationOptions.Stage == PlayerCommandObservationStage.SceneCommandDispatch ? "validated-once-per-scene-window" : observationOptions.Stage is PlayerCommandObservationStage.DispatchCanary or PlayerCommandObservationStage.DispatchReplayCanary ? "guarded-canary" : "false")}; "

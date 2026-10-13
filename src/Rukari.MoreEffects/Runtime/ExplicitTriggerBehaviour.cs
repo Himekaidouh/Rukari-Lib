@@ -23,8 +23,13 @@ public sealed class ExplicitTriggerBehaviour : MonoBehaviour
     {
     }
 
-    public void OnDestroy() => MoreEffectsToolPage.Stop();
-    public void OnApplicationQuit() => MoreEffectsToolPage.Stop();
+    public void OnDestroy()
+    {
+        PlayerActionTimelineRuntime.Stop();
+        MoreEffectsToolPage.Stop();
+        AzureArchive.VideoTools.Interop.OfficialCompilationMappingCapture.Stop();
+    }
+    public void OnApplicationQuit() => OnDestroy();
 
     internal static void Initialize(CharacterTransformProofOptions options)
     {

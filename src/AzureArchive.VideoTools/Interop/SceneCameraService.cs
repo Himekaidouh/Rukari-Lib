@@ -12,7 +12,8 @@ using Vector3 = unitycore::UnityEngine.Vector3;
 namespace AzureArchive.VideoTools.Interop;
 
 internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraCommandDispatcher,
-    IScopedSceneCameraService, IScopedSceneCameraCommandDispatcher, ISceneCameraMutationEvidenceDispatcher
+    IScopedSceneCameraService, IScopedSceneCameraCommandDispatcher, ISceneCameraMutationEvidenceDispatcher,
+    ISceneCameraContinuationService
 {
     private const int MaximumAncestorDepth = 16;
 
@@ -86,6 +87,17 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
     public ApiResult<SceneCameraExecutionSnapshot> ExecuteOnMainThread(
         string sceneIdentity,
         string canonicalDirective)
+        => ExecuteCore(sceneIdentity, canonicalDirective, restoreSceneEntry: true);
+
+    public ApiResult<SceneCameraExecutionSnapshot> ExecuteContinuationOnMainThread(
+        string sceneIdentity,
+        string canonicalDirective)
+        => ExecuteCore(sceneIdentity, canonicalDirective, restoreSceneEntry: false);
+
+    private ApiResult<SceneCameraExecutionSnapshot> ExecuteCore(
+        string sceneIdentity,
+        string canonicalDirective,
+        bool restoreSceneEntry)
     {
         if (!IsMainThread())
         {
@@ -140,7 +152,11 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
             double now = MonotonicSeconds();
             bool replayRestored = false;
             SceneCameraTarget? replayRestore = null;
-            if (!baselineCaptured)
+            // 2026-10-13: a queued continuation segment of the same row skips this restore
+            // (ISceneCameraContinuationService). Its predecessor already owns the entry and
+            // its own result is the live state this segment must build on; restoring the
+            // entry here would make a relative move restart from the row baseline.
+            if (!baselineCaptured && restoreSceneEntry)
             {
                 var restore = _planner.PlanReplayRestore(command, current, sceneEntry);
                 if (!restore.Success || restore.Value == null)
@@ -367,6 +383,8 @@ internal sealed class SceneCameraService : ISceneCameraService, ISceneCameraComm
             StopMotion($"{ex.GetType().Name}: {ex.Message}");
         }
     }
+
+    internal bool HasFiniteMotion => _pendingWrites != SceneCameraMotionFields.None;
 
     private void StopMotion(string reason)
     {

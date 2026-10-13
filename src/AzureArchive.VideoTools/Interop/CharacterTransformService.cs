@@ -409,7 +409,8 @@ internal sealed class CharacterTransformService : ICharacterTransformService
     internal ApiResult<CharacterTransformExecutionSnapshot> ReplayCommandOnMainThread(
         string sceneIdentity,
         CharacterTransformCommand command,
-        string originIdentity)
+        string originIdentity,
+        bool restoreSceneBaseline = true)
     {
         if (!IsMainThread())
         {
@@ -419,7 +420,8 @@ internal sealed class CharacterTransformService : ICharacterTransformService
 
         try
         {
-            ApiResult<ReplayPreparation> prepared = PrepareReplay(sceneIdentity, command);
+            ApiResult<ReplayPreparation> prepared =
+                PrepareReplay(sceneIdentity, command, restoreSceneBaseline);
             if (!prepared.Success || prepared.Value == null)
             {
                 return ApiResult<CharacterTransformExecutionSnapshot>.Fail(prepared.Error);
@@ -731,7 +733,8 @@ internal sealed class CharacterTransformService : ICharacterTransformService
 
     private ApiResult<ReplayPreparation> PrepareReplay(
         string sceneIdentity,
-        CharacterTransformCommand command)
+        CharacterTransformCommand command,
+        bool restoreSceneBaseline)
     {
         if (string.IsNullOrWhiteSpace(sceneIdentity))
         {
@@ -776,6 +779,17 @@ internal sealed class CharacterTransformService : ICharacterTransformService
             }
 
             return ApiResult<ReplayPreparation>.Ok(new ReplayPreparation(true));
+        }
+
+        // 2026-10-13: a second command for the same resource inside one card must build
+        // on the previous command's live result. Restoring the scene baseline here would
+        // immediately undo it and leave a zero-distance tween (the dispatch line reports
+        // beforeX == targetX), so the continuation segment is applied against the live
+        // state. The one baseline entry per scene+slot is untouched: the first command of
+        // the card still captures it, and a later card still restores to it.
+        if (!restoreSceneBaseline)
+        {
+            return ApiResult<ReplayPreparation>.Ok(new ReplayPreparation(false));
         }
 
         var planned = _planner.PlanReplayRestore(
@@ -875,9 +889,20 @@ internal sealed class CharacterTransformService : ICharacterTransformService
         {
             if (target.PositionChanged)
             {
+                // A and B belong to one command: establish A after the official
+                // scene and inherited state, then seed the existing tween from A.
+                if (target.InitialPosition is CharacterVector3 start)
+                {
+                    ApiResult<bool> initial = SetPositionImmediately(live,
+                        new Vector3(start.X, start.Y, start.Z));
+                    if (!initial.Success)
+                        return FailAfterRollback(live, target, before, initial.Error);
+                }
                 CharacterVector3 position = target.State.Position;
                 var nativePosition = new Vector3(position.X, position.Y, position.Z);
-                if (target.DurationMilliseconds == 0)
+                bool startOnly = target.InitialPosition is CharacterVector3 initialPosition
+                    && initialPosition == position;
+                if (target.DurationMilliseconds == 0 || startOnly)
                 {
                     ApiResult<bool> immediate = SetPositionImmediately(live, nativePosition);
                     if (!immediate.Success)

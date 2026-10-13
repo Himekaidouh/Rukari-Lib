@@ -383,7 +383,12 @@ internal static class ContinueDialogueRuntime
         }
     }
 
-    private static string? TryReadScriptKr(IScenarioScriptExcel scenario)
+    /// <summary>
+    /// Interface first, concrete cast second: the IL2CPP interface call can throw
+    /// while the same property on GenericScenarioExcel answers normally. Shared
+    /// with the action timeline, which needs the same parser input.
+    /// </summary>
+    internal static string? TryReadScriptKr(IScenarioScriptExcel scenario)
     {
         try
         {

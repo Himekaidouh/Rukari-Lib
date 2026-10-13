@@ -53,6 +53,7 @@ internal static class ActiveProjectPairSource
     }
 
     internal static long StorageRevision => OfficialPaths.Current.Revision;
+    internal static void InvalidateArchiveSnapshots() => Cache.Clear();
     internal static bool IsStorageRevisionCurrent(long revision) => OfficialPaths.IsCurrent(revision);
     internal static bool CommitIfStorageRevisionCurrent(long revision, Action publish)
     {

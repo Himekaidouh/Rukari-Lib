@@ -103,6 +103,17 @@ internal sealed record PreviewGeneration(
     public HashSet<long> ClaimedWindowSequences { get; } = new();
 
     /// <summary>
+    /// Identity the engine reports for this generation's compile, mapped onto the
+    /// boundary identity its capture was stored under. The editor selection and
+    /// the managed Unity log carry the FINAL official text of the script-text
+    /// wrapper, while the embedded-directive capture happens at the nested
+    /// continuous boundary; without this edge the captured candidate is
+    /// unreachable and the window fails closed although it carries the selected
+    /// script's own identity (2026-10-13 field log).
+    /// </summary>
+    public EditorPreviewIdentityAliasMap IdentityAliases { get; } = new();
+
+    /// <summary>
     /// Canonical live scene address adopted at claim time when the generation
     /// was born before auto-discovery rotated the project key. The pre-rotation
     /// capture carries a non-canonical ProjectKey; adopting the live key keeps
@@ -297,6 +308,53 @@ internal static class EmbeddedEditorPreviewLeaseCache
     }
 
     /// <summary>
+    /// Records that the identity the engine reports for a compile
+    /// (<paramref name="reported"/>) belongs to the capture stored under
+    /// <paramref name="capturedSha256"/>. The outer script-text wrapper reports its
+    /// own final official text while the capture happened at the nested continuous
+    /// boundary, so without this edge the candidate is unreachable by the identity
+    /// the editor selection and the managed Unity log carry. Fail-open: no open
+    /// generation, no matching capture, or an already occupied key changes nothing.
+    /// </summary>
+    public static void AliasCaptureIdentity(
+        CompiledScriptIdentity reported,
+        string capturedSha256,
+        string source)
+    {
+        ArgumentNullException.ThrowIfNull(reported);
+        if (string.IsNullOrEmpty(capturedSha256))
+        {
+            return;
+        }
+
+        lock (Gate)
+        {
+            PreviewGeneration? generation = Generations.LastOrDefault(item => item.Open);
+            if (generation == null)
+            {
+                return;
+            }
+
+            if (generation.Candidates.ContainsKey(reported))
+            {
+                // The reported identity is already the capture key: the wrapper
+                // changed nothing, so there is nothing to resolve.
+                return;
+            }
+
+            if (!generation.IdentityAliases.Add(reported, capturedSha256))
+            {
+                return;
+            }
+
+            PlayerCommandObservationLog.Append(
+                $"{DateTimeOffset.Now:O} editor-preview-lease event=ALIAS; "
+                + $"generation={generation.GenerationId}; reported={ShortSha(reported.Sha256)}; "
+                + $"captured={ShortSha(capturedSha256)}; source={Escape(source)}");
+        }
+    }
+
+    /// <summary>
     /// Selection-event confirmation (replaces the old bind point). A matching
     /// requestId whose live address equals the DataList capture confirms the
     /// generation; an address mismatch invalidates it. This method never
@@ -407,6 +465,8 @@ internal static class EmbeddedEditorPreviewLeaseCache
                 PreviewGeneration? consumed = Generations.LastOrDefault();
                 bool referencesConsumed = consumed != null
                     && (windowIdentityCounts.Keys.Any(consumed.Candidates.ContainsKey)
+                        || windowIdentityCounts.Keys.Any(key =>
+                            consumed.IdentityAliases.Resolve(key, consumed.Candidates.Keys) != null)
                         || (currentScript != null
                             && windowIdentityCounts.ContainsKey(currentScript)));
                 if (!referencesConsumed)
@@ -426,7 +486,12 @@ internal static class EmbeddedEditorPreviewLeaseCache
                 PlayerCommandObservationLog.Append(
                     $"{DateTimeOffset.Now:O} editor-preview-lease event=STALE_WINDOW; "
                     + $"generation={generation.GenerationId}; sequence={windowSequence}; "
-                    + $"request={generation.DataListRequestId}; reason={Escape(error)}");
+                    + $"request={generation.DataListRequestId}; "
+                    // 2026-10-13: without the threshold the line cannot say how
+                    // far behind the window was, which is the difference between
+                    // a one-window race and a window from an older selection.
+                    + $"minimumWindowSequenceExclusive={generation.MinimumWindowSequenceExclusive}; "
+                    + $"reason={Escape(error)}");
                 return EmbeddedEditorPreviewClaimStatus.ClaimedNoOp;
             }
 
@@ -440,12 +505,22 @@ internal static class EmbeddedEditorPreviewLeaseCache
             }
 
             // (3) Intersect window message identities with generation
-            // candidates. Zero intersection only means the window does not
-            // claim this generation when nothing about it references the
+            // candidates. The identity the engine reports is the wrapper's final
+            // official text and the capture can sit under the nested continuous
+            // boundary identity, so every window identity is first offered to the
+            // generation's alias edges. Zero intersection only means the window
+            // does not claim this generation when nothing about it references the
             // current editor script either.
-            List<CompiledScriptIdentity> intersections = windowIdentityCounts.Keys
-                .Where(candidateKey => generation.Candidates.ContainsKey(candidateKey))
-                .ToList();
+            var intersections =
+                new List<(CompiledScriptIdentity Window, CompiledScriptIdentity Candidate)>();
+            foreach (CompiledScriptIdentity windowIdentity in windowIdentityCounts.Keys)
+            {
+                if (TryResolveCandidateKey(generation, windowIdentity, out CompiledScriptIdentity? key))
+                {
+                    intersections.Add((windowIdentity, key!));
+                }
+            }
+
             bool windowClaimsSelection = intersections.Count != 0
                 || (currentScript != null && windowIdentityCounts.ContainsKey(currentScript));
             if (!windowClaimsSelection)
@@ -454,8 +529,8 @@ internal static class EmbeddedEditorPreviewLeaseCache
             }
 
             CompiledScriptIdentity? matched = intersections.Count == 1
-                && windowIdentityCounts[intersections[0]] == 1
-                    ? intersections[0]
+                && windowIdentityCounts[intersections[0].Window] == 1
+                    ? intersections[0].Window
                     : null;
             if (matched == null)
             {
@@ -463,15 +538,33 @@ internal static class EmbeddedEditorPreviewLeaseCache
                 // sequence is naturally unique, so per-window dedup (2b)
                 // already prevents double execution while genuine replays
                 // keep the generation serviceable.
-                error = "ambiguous-or-missing-window-intersection";
+                //
+                // 2026-10-13: the line must also say WHY no single candidate was
+                // picked, and must name the identities involved. Two shapes need
+                // different repairs and the log could not tell them apart: nothing
+                // intersected while the window carried the selected script's own
+                // identity (the claim rule above accepts that as evidence yet the
+                // match rule never used it), or several identities/counts made the
+                // intersection genuinely ambiguous.
+                error = "ambiguous-or-missing-window-intersection"
+                    + $"; intersections={intersections.Count}"
+                    + $"; windowIdentities={windowIdentityCounts.Count}"
+                    + $"; selectionIdentityInWindow={currentScript != null && windowIdentityCounts.ContainsKey(currentScript)}"
+                    + $"; candidates={generation.Candidates.Count}"
+                    + $"; aliasEdges={generation.IdentityAliases.Count}"
+                    + $"; duplicateWindowIdentities={windowIdentityCounts.Values.Count(count => count > 1)}"
+                    + $"; windowShas={string.Join(",", windowIdentityCounts.Keys.Select(key => ShortSha(key.Sha256)))}"
+                    + $"; candidateShas={string.Join(",", generation.Candidates.Keys.Select(key => ShortSha(key.Sha256)))}";
                 EmitBindLine(generation, matchedScriptSha: string.Empty, commands: 0,
                     tombstone: false, hasContinueDirective: null, accepted: false,
                     reason: error);
                 return EmbeddedEditorPreviewClaimStatus.ClaimedNoOp;
             }
 
-            // (4) Candidate health.
-            CaptureCandidate candidate = generation.Candidates[matched];
+            // (4) Candidate health. The lease carries the identity the engine
+            // reports; the directives come from the capture the alias edge
+            // resolved to, which is the same compile.
+            CaptureCandidate candidate = generation.Candidates[intersections[0].Candidate];
             string? healthError =
                 candidate.Conflict ? "conflicting-continuous-compile-candidates"
                 : candidate.ValidationError.Length != 0
@@ -687,7 +780,8 @@ internal static class EmbeddedEditorPreviewLeaseCache
                 || authorization.IsTombstone != lease.IsTombstone
                 || !authorization.Commands.Select(command => command.CanonicalDirective)
                     .SequenceEqual(lease.CanonicalDirectives, StringComparer.Ordinal)
-                || !generation.Candidates.TryGetValue(lease.CompiledScript, out CaptureCandidate? candidate)
+                || !TryResolveCandidateKey(generation, lease.CompiledScript, out CompiledScriptIdentity? candidateKey)
+                || !generation.Candidates.TryGetValue(candidateKey!, out CaptureCandidate? candidate)
                 || candidate.Conflict || candidate.ValidationError.Length != 0
                 || candidate.IsTombstone != lease.IsTombstone
                 || !candidate.CanonicalDirectives.SequenceEqual(lease.CanonicalDirectives, StringComparer.Ordinal))
@@ -735,6 +829,34 @@ internal static class EmbeddedEditorPreviewLeaseCache
             CloseAllGenerationsNoLock();
         }
         EmbeddedEditorDirectiveCache.Clear("directive-registry-changed");
+    }
+
+    // A zero-candidate ordinary card owns only predecessor-state recovery. It
+    // cannot fall back from an invalid command capture or deletion tombstone.
+    public static bool TryGetOrdinaryPreviewSelection(EditorSceneIdentitySnapshot? identity,
+        ApiResult<SceneSnapshot> selected, out DataListGenerationScope scope, out SceneAddress? address)
+    {
+        lock (Gate)
+        {
+            scope = default;
+            address = null;
+            PreviewGeneration? generation = Generations.LastOrDefault(item => item.Open);
+            if (generation == null || generation.Candidates.Count != 0
+                || !generation.SceneConfirmedBySelection || identity == null
+                || generation.ConfirmedObservationSequence <= 0
+                || generation.ConfirmedObservationSequence != identity.ObservationSequence
+                || generation.DataListRequestId != identity.SelectionRequestId
+                || generation.ConfirmedScript != new CompiledScriptIdentity(identity.CompiledScriptSha256,
+                    identity.CompiledScriptLength, identity.CompiledScriptLineCount)
+                || !generation.CapturedSceneValid || generation.EffectiveCapturedAddress == null
+                || !selected.Success || selected.Value == null
+                || !SameScene(generation.EffectiveCapturedAddress, selected.Value.Address)) return false;
+            address = selected.Value.Address;
+            scope = new(generation.GenerationId, generation.MinimumWindowSequenceExclusive,
+                generation.Phase == PreviewGenerationPhase.Collecting,
+                _chainAppliedGenerations.Contains(generation.GenerationId));
+            return true;
+        }
     }
 
     /// <summary>FIX D surface: inert declaration for the next-stage integrator.</summary>
@@ -806,6 +928,26 @@ internal static class EmbeddedEditorPreviewLeaseCache
             overlay.CharacterDirectives.TryGetValue(publicSlot, out canonicalDirective);
             return canonicalDirective != null;
         }
+    }
+
+    /// <summary>
+    /// Resolves one window identity to the candidate key that carries its
+    /// directives: the identity itself when the capture used it, otherwise the
+    /// capture an alias edge points at.
+    /// </summary>
+    private static bool TryResolveCandidateKey(
+        PreviewGeneration generation,
+        CompiledScriptIdentity identity,
+        out CompiledScriptIdentity? candidateKey)
+    {
+        if (generation.Candidates.ContainsKey(identity))
+        {
+            candidateKey = identity;
+            return true;
+        }
+
+        candidateKey = generation.IdentityAliases.Resolve(identity, generation.Candidates.Keys);
+        return candidateKey != null;
     }
 
     private static void StoreCaptureCandidate(

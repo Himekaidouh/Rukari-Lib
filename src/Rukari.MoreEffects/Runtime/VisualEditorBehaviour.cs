@@ -77,6 +77,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
     private static readonly string[] CharacterControlKeys =
     {
+        "position-a", "position-b", "position-inherit",
         "x-100", "x-10", "x+10", "x+100",
         "y-100", "y-10", "y+10", "y+100",
         "r-15", "r-1", "r+1", "r+15",
@@ -131,6 +132,19 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             && instance._documentSnapshot?.RuntimeSelectionKey == selectionKey
             ? instance._selectedSlotIndex + 1 : 0;
     }
+
+    /// <summary>
+    /// The camera the picture editor is publishing right now, as a canonical directive, or an empty string when no
+    /// camera draft is active (2026-10-13).
+    ///
+    /// <para>
+    /// The camera window adds a segment from this rather than offering a second set of camera controls: two places to
+    /// set a camera would be two answers to what the camera is, and the numbers the author sees while dragging in the
+    /// editor are the ones that should be stacked. It is empty until the author touches the camera with the editor
+    /// page open on the line, which is the only moment a camera exists to be turned into an effect.
+    /// </para>
+    /// </summary>
+    internal static string CurrentCameraDirective => _instance?._currentDraftDirective ?? string.Empty;
 
     /// <summary>
     /// Width of the sheet this page asks the shared panel for, in the panel's canvas units — physical pixels while
@@ -229,6 +243,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
     private readonly float?[] _draftPitches =
         new float?[CharacterTransformCommandValidator.MaximumPublicSlot];
     private bool _editPitch;
+    private bool _editInitialPosition;
     private readonly bool?[] _draftFlips =
         new bool?[CharacterTransformCommandValidator.MaximumPublicSlot];
     private readonly SlotVisual?[] _slotVisuals =
@@ -579,7 +594,12 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             () => true,
             () => _mode == VisualEditorMode.ScreenText);
 
-
+        CreateControlButton("position-a", "初始位置 A", () => SelectPositionEndpoint(true),
+            SelectedSlotIsOccupied, () => _editInitialPosition);
+        CreateControlButton("position-b", "目标位置 B", () => SelectPositionEndpoint(false),
+            CanEditSelectedSlot, () => !_editInitialPosition);
+        CreateControlButton("position-inherit", "取消指定起点", ClearInitialPosition,
+            () => CanEditSelectedSlot() && HasInitialPosition());
         CreateControlButton("x-100", "X -100", () => NudgePosition(-100f, 0f));
         CreateControlButton("x-10", "X -10", () => NudgePosition(-10f, 0f));
         CreateControlButton("x+10", "X +10", () => NudgePosition(10f, 0f));
@@ -650,6 +670,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         CreateControlButton("camera-background", "仅背景",
             () => SelectCameraScope(SceneCameraScope.Background), () => true,
             () => _cameraScope == SceneCameraScope.Background);
+        CreateCameraLayerControls();
         CreateControlButton(
             "camera-x-100",
             "镜头 X -100",
@@ -859,6 +880,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             "撤销",
             24,
             TextAnchor.MiddleCenter).Text;
+        CreateCameraAddButton();
 
         _frameRoot = CreateRect("StoryFrame", _panelObject.transform);
         for (int i = 0; i < _frameLines.Length; i++)
@@ -1069,6 +1091,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         _pressedSlotIndex = -1;
         _draggingSlotIndex = -1;
         _selectedSlotIndex = -1;
+        _editInitialPosition = false;
         _rotationDragging = false;
         _cameraPressed = false;
         _cameraDragging = false;
@@ -1122,6 +1145,12 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             if (Contains(_undoHitRect, pointer))
             {
                 UndoLastApply();
+                return;
+            }
+
+            if (_cameraAddEnabled && Contains(_cameraAddHitRect, pointer))
+            {
+                AddCameraSegment();
                 return;
             }
 
@@ -1747,11 +1776,10 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
     private void UpdatePositionDraft(int slotIndex, VisualEditorPoint position)
     {
-        VisualCharacterDraftRequest request = EnsureSetDraft(slotIndex) with
-        {
-            X = position.X,
-            Y = position.Y
-        };
+        VisualCharacterDraftRequest basis = EnsureSetDraft(slotIndex);
+        VisualCharacterDraftRequest request = _editInitialPosition && basis.Occupied
+            ? basis with { StartX = position.X, StartY = position.Y }
+            : basis with { X = position.X, Y = position.Y };
         _activeDraft = request;
         PublishActiveDraft();
         UpdateInspector();
@@ -1820,6 +1848,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             _verifiedPreview = null;
         }
 
+        if (_selectedSlotIndex != slotIndex) _editInitialPosition = false;
         _selectedSlotIndex = slotIndex;
         _slotPreference.Remember(_documentSnapshot!.RuntimeContextId, slotIndex + 1);
         _operationMessage = string.Empty;
@@ -1843,6 +1872,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
         int publicSlot = _selectedSlotIndex + 1;
         bool occupied = _slotSnapshots[_selectedSlotIndex]?.Occupied == true;
+        if (!occupied) _editInitialPosition = false;
         foreach (string canonical in _documentSnapshot.CanonicalDirectives)
         {
             Result<VisualCharacterDraftRequest> read = _draftBuilder.ReadCanonical(canonical);
@@ -1918,6 +1948,9 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         }
 
         _mode = mode;
+        // Entering camera mode reads the camera layer straight away, so the selector row is never a frame of stale
+        // numbers from the previous line.
+        if (mode == VisualEditorMode.Camera) EnsureCameraLayerStack(force: true);
         _pressedSlotIndex = -1;
         _draggingSlotIndex = -1;
         _rotationDragging = false;
@@ -1959,6 +1992,15 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         }
 
         foreach (string key in CameraControlKeys)
+        {
+            if (_controlButtons.TryGetValue(key, out ControlButton? button))
+            {
+                button.SetVisible(camera);
+            }
+        }
+
+        // The camera layer editor's own controls follow the same rule as the rest of the camera mode.
+        foreach (string key in CameraLayerControlKeys)
         {
             if (_controlButtons.TryGetValue(key, out ControlButton? button))
             {
@@ -2200,8 +2242,9 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         LoadExistingCameraCommand(preserveActiveDraft: true);
         if (_cameraDraftState.HasValue || _cameraResetDraft)
         {
+            // The draft is published, not previewed: the one-command-per-resource preview cannot describe a camera
+            // layer with several effects, and this mode's 应用 writes that layer instead (2026-10-13).
             PublishCameraDraft();
-            VerifyDraftAgainstSelected();
         }
         else if (_draftText is not null)
         {
@@ -2274,7 +2317,9 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         PublishCameraDraft();
         LayoutCameraFrame();
         UpdateInspector();
-        if (verifyImmediately)
+        // A camera draft is never verified against the document: that check is the one-command-per-resource preview,
+        // and the camera layer may hold several effects. Its own editor says what will be written instead.
+        if (verifyImmediately && _mode != VisualEditorMode.Camera)
         {
             VerifyDraftAgainstSelected();
         }
@@ -2315,6 +2360,16 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
         _currentDraftDirective = result.Value;
         _verifiedPreview = null;
+        if (_mode == VisualEditorMode.Camera)
+        {
+            // A camera draft is not previewed against the document any more: the one-command-per-resource preview
+            // cannot describe a layer that already holds several effects, and the draft is written by
+            // 「＋ 加为下一段」 instead (2026-10-13).
+            ShowCameraDraftText();
+            UpdateButtons();
+            return;
+        }
+
         EditorCommandDocumentSnapshot? source = _draftSourceDocument;
         if (source == null)
         {
@@ -2477,13 +2532,53 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             position.X + deltaX,
             position.Y + deltaY);
         VisualCharacterDraftRequest basis = EnsureSetDraft(index);
-        VisualCharacterDraftRequest request = basis with
-        {
-            X = deltaX == 0f ? basis.X : target.X,
-            Y = deltaY == 0f ? basis.Y : target.Y
-        };
+        VisualCharacterDraftRequest request = _editInitialPosition && basis.Occupied
+            ? basis with { StartX = target.X, StartY = target.Y }
+            : basis with
+            {
+                X = deltaX == 0f ? basis.X : target.X,
+                Y = deltaY == 0f ? basis.Y : target.Y
+            };
         _activeDraft = request;
         _draftPositions[index] = target;
+        PublishActiveDraft();
+        VerifyDraftAgainstSelected();
+    }
+
+    private bool HasInitialPosition()
+    {
+        VisualCharacterDraftRequest? request = _activeDraft ?? _selectedExistingDraft;
+        return request?.StartX.HasValue == true || request?.StartY.HasValue == true;
+    }
+
+    private void SelectPositionEndpoint(bool initial)
+    {
+        if (!CanEditSelectedSlot() || (initial && !SelectedSlotIsOccupiedRaw())) return;
+        _editInitialPosition = initial;
+        _pressedSlotIndex = -1;
+        _draggingSlotIndex = -1;
+        _draftPositions[_selectedSlotIndex] = null;
+        UpdateInspector();
+        LayoutSlots();
+    }
+
+    private void ClearInitialPosition()
+    {
+        if (!CanEditSelectedSlot() || !HasInitialPosition()) return;
+        VisualCharacterDraftRequest request = EnsureSetDraft(_selectedSlotIndex) with
+        {
+            StartX = null, StartY = null
+        };
+        // Removing the sole property cannot silently delete a saved command.
+        if (!_draftBuilder.Build(request).Success)
+        {
+            _operationMessage = "请先设置目标位置 B，再取消起点；仅初始定位的指令可在额外指令中删除";
+            if (_draftText is not null) _draftText.text = _operationMessage;
+            return;
+        }
+        _editInitialPosition = false;
+        _draftPositions[_selectedSlotIndex] = null;
+        _activeDraft = request;
         PublishActiveDraft();
         VerifyDraftAgainstSelected();
     }
@@ -2713,7 +2808,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
     private static bool DraftWritesPosition(VisualCharacterDraftRequest request) =>
         request.Operation == VisualCharacterDraftOperation.Reset
         || (request.Operation == VisualCharacterDraftOperation.Set
-            && (request.X.HasValue || request.Y.HasValue));
+            && (request.X.HasValue || request.Y.HasValue || request.StartX.HasValue || request.StartY.HasValue));
 
     private void RefuseDraftByOfficialTransition(int slotIndex)
     {
@@ -2766,9 +2861,12 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             _activeDraft?.Operation == VisualCharacterDraftOperation.Set
                 ? _activeDraft
                 : null;
+        VisualCharacterDraftRequest? request = active ?? existing;
+        if (_editInitialPosition && request?.Occupied == true)
+            return new VisualEditorPoint(request.StartX ?? baseline.X, request.StartY ?? baseline.Y);
         return new VisualEditorPoint(
-            active?.X ?? existing?.X ?? baseline.X,
-            active?.Y ?? existing?.Y ?? baseline.Y);
+            request?.X ?? request?.StartX ?? baseline.X,
+            request?.Y ?? request?.StartY ?? baseline.Y);
     }
 
     private float SelectedRotation() => SelectedRotation(_editPitch);
@@ -2915,6 +3013,16 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             + $"剧情坐标 X {storyPosition.X:0.0}  Y {storyPosition.Y:0.0}   "
             + $"偏移 X {position.X:0.0}  Y {position.Y:0.0}\n"
             + $"旋转 Z {SelectedRotation(false):0.0}  X {SelectedRotation(true):0.0}   翻转 {(flip ? "开" : "关")}";
+        VisualCharacterDraftRequest? positionRequest = _activeDraft ?? _selectedExistingDraft;
+        if (snapshot?.Occupied == true && !_selectedCommandGraphicallyUnsupported)
+        {
+            string start = HasInitialPosition()
+                ? $"X {positionRequest!.StartX?.ToString("0.0") ?? "沿用"} Y {positionRequest.StartY?.ToString("0.0") ?? "沿用"}"
+                : "沿用当前位置";
+            inspector.text = $"槽位 #{index + 1} {occupancy}{officialTransition} · 正在编辑{(_editInitialPosition ? "起点 A" : "终点 B")}\n"
+                + $"A：{start}   B：X {positionRequest?.X?.ToString("0.0") ?? "保持"} Y {positionRequest?.Y?.ToString("0.0") ?? "保持"}\n"
+                + $"偏移 X {position.X:0.0} Y {position.Y:0.0} · 旋转 Z {SelectedRotation(false):0.0} X {SelectedRotation(true):0.0} · 翻转 {(flip ? "开" : "关")}";
+        }
         if (_selectedCommandGraphicallyUnsupported && _selectedExistingDraft != null)
         {
             inspector.text =
@@ -2940,6 +3048,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
     private void UpdateCameraInspector(Text inspector)
     {
+        EnsureCameraLayerStack();
         if (!_cameraReadAvailable)
         {
             inspector.text = "镜头层暂不可用\n" + ShortDiagnostic(_cameraReadError);
@@ -2962,7 +3071,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         inspector.text =
             $"镜头操控·{(_cameraScope == SceneCameraScope.Overall ? "整体" : "仅背景")}  |  {source}\n"
             + $"中心 X {camera.X:0.0}  Y {camera.Y:0.0}   缩放 {camera.Zoom:0.###}\n"
-            + "拖动橙色镜头框平移；拖动角点缩放；灰框为固定画布";
+            + CameraLayerStatusLine();
         UpdateControlButtons();
     }
 
@@ -3063,6 +3172,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             cameraEasing.Label.text = $"镜头缓动  {EasingLabel(_cameraDraftEasing)}";
         }
 
+        UpdateCameraLayerButtons();
 
         ScreenTextDirective screenText = CurrentScreenText();
         if (_controlButtons.TryGetValue("text-align", out ControlButton? textAlign))
@@ -3235,6 +3345,15 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
     private void VerifyDraftAgainstSelected()
     {
+        if (_mode == VisualEditorMode.Camera)
+        {
+            // Camera drafts are written by the camera layer editor, not by this preview: the preview is a
+            // one-command-per-resource check, and a camera layer may hold several effects (2026-10-13).
+            ShowCameraDraftText();
+            UpdateButtons();
+            return;
+        }
+
         EditorCommandDocumentSnapshot? source = _draftSourceDocument;
         Text? draft = _draftText;
         if (source == null || draft is null || string.IsNullOrEmpty(_currentDraftDirective))
@@ -3314,6 +3433,14 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
     private void ApplyVerifiedDraft()
     {
+        // In camera mode the same button writes the camera layer instead of one draft directive: the layer is where
+        // the camera lives now, and a draft is one of its effects rather than a whole edit (2026-10-13).
+        if (_mode == VisualEditorMode.Camera)
+        {
+            ApplyCameraLayer();
+            return;
+        }
+
         if (_mode == VisualEditorMode.ScreenText)
         {
             ApplyScreenTextDraft();
@@ -3822,7 +3949,12 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         const float rowHeight = 42f;
         const float rowGap = 8f;
         float fourColumnWidth = (PanelWidth - 60f - (rowGap * 3f)) / 4f;
-        float xRowY = inspectorY - 50f;
+        float endpointRowY = inspectorY - 42f;
+        float endpointWidth = (PanelWidth - 60f - (rowGap * 2f)) / 3f;
+        LayoutControl("position-a", 30f, endpointRowY, endpointWidth, 34f);
+        LayoutControl("position-b", 30f + endpointWidth + rowGap, endpointRowY, endpointWidth, 34f);
+        LayoutControl("position-inherit", 30f + (endpointWidth + rowGap) * 2f, endpointRowY, endpointWidth, 34f);
+        float xRowY = inspectorY - (_mode == VisualEditorMode.Character ? 88f : 50f);
         float yRowY = xRowY - 50f;
         string[] xControls = { "x-100", "x-10", "x+10", "x+100" };
         string[] yControls = { "y-100", "y-10", "y+10", "y+100" };
@@ -3907,6 +4039,8 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
                 fourColumnWidth,
                 rowHeight);
         }
+
+        LayoutCameraLayerControls(dialY, rowGap);
 
         string[] screenTextFontControls =
         {
@@ -4000,13 +4134,16 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             ? actionY - 50f
             : _mode == VisualEditorMode.ScreenText
                 ? screenTextClearY - 50f
-                : resetRowY - 50f;
+                // Camera mode stacks the layer editor's two rows under 复位/清空, and 连续对话 moves below them.
+                : LayoutCameraLayerControls(resetRowY, rowGap);
         LayoutControl("continue", 30f, continueRowY, PanelWidth - 60f, rowHeight);
 
         const float buttonY = 30f;
         const float buttonHeight = 64f;
         const float buttonGap = 20f;
-        float buttonWidth = (PanelWidth - 60f - buttonGap) / 2f;
+        // Camera mode puts ＋ 加为下一段 in this row: it is the action taken on every effect, and it has to read as
+        // one of the two big buttons rather than as one control among many (2026-10-13).
+        LayoutCameraAddButton(buttonGap, out float buttonWidth, out float cameraAddX);
         SetRect(_applyButtonRect, 30f, buttonY, buttonWidth, buttonHeight);
         SetRect(
             _undoButtonRect,
@@ -4014,10 +4151,13 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             buttonY,
             buttonWidth,
             buttonHeight);
+        SetRect(_cameraAddButtonRect, cameraAddX, buttonY, buttonWidth, buttonHeight);
         if (_applyButtonText is not null)
             Rukari.Lib.Runtime.Tools.ToolTheme.CenterButtonLabel(_applyButtonText, buttonWidth, buttonHeight, 6f);
         if (_undoButtonText is not null)
             Rukari.Lib.Runtime.Tools.ToolTheme.CenterButtonLabel(_undoButtonText, buttonWidth, buttonHeight, 6f);
+        if (_cameraAddButtonText is not null)
+            Rukari.Lib.Runtime.Tools.ToolTheme.CenterButtonLabel(_cameraAddButtonText, buttonWidth, buttonHeight, 6f);
         _applyHitRect = new VisualEditorRect(
             _panelRect.X + 30f,
             _panelRect.Y + buttonY,
@@ -4028,6 +4168,9 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             _panelRect.Y + buttonY,
             buttonWidth,
             buttonHeight);
+        _cameraAddHitRect = _mode == VisualEditorMode.Camera
+            ? new VisualEditorRect(_panelRect.X + cameraAddX, _panelRect.Y + buttonY, buttonWidth, buttonHeight)
+            : new VisualEditorRect(0f, 0f, 0f, 0f);
 
         RectTransform? draft = _draftText?.GetComponent<RectTransform>();
         SetRect(draft, 30f, 112f, PanelWidth - 60f, Math.Max(72f, continueRowY - 130f));
@@ -4427,8 +4570,10 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             && (_screenTextDraft != null
                 || _screenTextRemoveDraft
                 || _screenTextClearAllDraft);
+        bool cameraApplyEnabled = _mode == VisualEditorMode.Camera && _cameraLayers.HasWorkToWrite;
         bool applyEnabled = _expanded
-            && (screenTextApplyEnabled
+            && (cameraApplyEnabled
+                || screenTextApplyEnabled
                 || (_verifiedPreview != null
                     && _documentSnapshot != null
                     && _verifiedPreview.Source.RuntimeSelectionKey == _documentSnapshot.RuntimeSelectionKey
@@ -4436,6 +4581,12 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         bool undoEnabled = _expanded
             && _documentSnapshot?.UndoAvailable == true
             && _documentSnapshot.InputMatchesScript;
+        if (_applyButtonText is not null)
+        {
+            _applyButtonText.text = _mode != VisualEditorMode.Camera
+                ? "应用草稿"
+                : _cameraLayers.HasPendingChanges ? "应用镜头层 *" : "应用镜头层";
+        }
         if (_applyButtonImage is not null && _applyButtonRect is not null)
         {
             Color text = Rukari.Lib.Runtime.Tools.ToolTheme.ApplyButton(_applyButtonImage,
@@ -4451,6 +4602,8 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
                 undoEnabled, false, false, decorated: true, primary: false);
             if (_undoButtonText is not null) _undoButtonText.color = text;
         }
+
+        UpdateCameraAddButton();
     }
 
     private void LayoutSlots()
