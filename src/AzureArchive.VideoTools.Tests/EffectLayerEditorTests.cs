@@ -175,4 +175,34 @@ internal static class EffectLayerEditorTests
         AssertEx.Equal(SecondCamera, editor.DirectivesOf(EffectLayerCatalog.Camera)[0],
             "The second effect is now first.");
     }
+
+    internal static void ReplacingUsesTheComposedDraftOnTheSelectedSegment()
+    {
+        Fake fake = new();
+        EffectLayerEditor editor = fake.Editor();
+        editor.Refresh();
+        editor.Add();
+        fake.Draft = SecondCamera;
+        editor.Add();
+
+        // Nothing selected: the surface is told to pick one rather than guessing which effect the author meant.
+        editor.Stack.Select(EffectLayerCatalog.Camera, 1);
+        editor.Cycle();
+        editor.Stack.Select(EffectLayerCatalog.Camera, -1);
+        editor.Stack.Select(EffectLayerCatalog.BackgroundCamera, 0);
+        AssertEx.False(editor.Replace(), "A layer with nothing selected has nothing to replace.");
+        AssertEx.True(editor.Status.Contains("先", StringComparison.Ordinal),
+            "and says so: " + editor.Status);
+
+        editor.SelectLayer(EffectLayerCatalog.Camera);
+        editor.Stack.Select(EffectLayerCatalog.Camera, 1);
+        const string retuned = "#aavt;camera;set;x=10;y=0;zoom=2;duration=400;easing=linear";
+        fake.Draft = retuned;
+        AssertEx.True(editor.Replace(), "Replacing the selected effect uses the draft the surface composed.");
+        AssertEx.Equal(retuned, editor.DirectivesOf(EffectLayerCatalog.Camera)[1],
+            "It lands where the effect was, not at the end.");
+        AssertEx.Equal(FirstCamera, editor.DirectivesOf(EffectLayerCatalog.Camera)[0],
+            "and the effect in front of it is untouched.");
+        AssertEx.True(editor.HasPendingChanges, "The write is still the author's to make.");
+    }
 }

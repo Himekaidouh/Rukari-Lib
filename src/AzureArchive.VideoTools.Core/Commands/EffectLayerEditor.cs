@@ -124,6 +124,22 @@ public sealed class EffectLayerEditor
         return Stack.Add(EffectDraft.FromDirective(directive));
     }
 
+    /// <summary>
+    /// Puts the composed draft where the selected effect is, keeping its place in the layer (2026-10-14). It is the
+    /// other half of 载入: the author pulls an effect into the editor, changes it, and writes it back where it was.
+    /// </summary>
+    public bool Replace()
+    {
+        int index = Stack.SelectedIndex;
+        if (index < 0)
+        {
+            Stack.Note("先在层里选一段，再替换。");
+            return false;
+        }
+
+        return Stack.Replace(Stack.SelectedLayer, index, EffectDraft.FromDirective(_draft()));
+    }
+
     /// <summary>Moves the selection to the next effect of the layer the buttons act on.</summary>
     public void Cycle()
     {

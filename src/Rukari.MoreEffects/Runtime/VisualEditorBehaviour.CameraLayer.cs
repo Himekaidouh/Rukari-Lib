@@ -3,9 +3,9 @@ extern alias unitytext;
 extern alias unityui;
 
 using System;
-using System.Diagnostics;
 using AzureArchive.VideoTools.Core.Cameras;
 using AzureArchive.VideoTools.Core.Commands;
+using AzureArchive.VideoTools.Core.Results;
 using AzureArchive.VideoTools.Interop;
 using AzureArchive.VideoTools.Core.VisualEditor;
 using Color = unitycore::UnityEngine.Color;
@@ -50,7 +50,8 @@ public sealed partial class VisualEditorBehaviour
 
     private static readonly string[] CameraLayerControlKeys =
     {
-        "camera-seg", "camera-move-up", "camera-move-down", "camera-delete-seg"
+        "camera-seg", "camera-move-up", "camera-move-down", "camera-load-seg", "camera-replace-seg",
+        "camera-delete-seg"
     };
 
     private RectTransform? _effectAddButtonRect;
@@ -59,11 +60,21 @@ public sealed partial class VisualEditorBehaviour
     private VisualEditorRect _effectAddHitRect;
     private bool _effectAddEnabled;
 
-    /// <summary>The order of the camera's effects. One instance is one dialogue line.</summary>
-    private readonly EffectLayerStack _cameraLayers = new(CameraLayers.All);
+    /// <summary>
+    /// The editor of both camera layers. One instance is one dialogue line, and the policy behind it — when it
+    /// re-reads, what a press sends, what its buttons say — is Core's <see cref="EffectLayerEditor"/>, shared with the
+    /// character mode and the preset page (2026-10-14).
+    /// </summary>
+    private EffectLayerEditor? _cameraEditor;
 
-    private long _cameraLayerReadAt;
     private string _cameraLayerLogged = string.Empty;
+
+    private EffectLayerEditor CameraEditor => _cameraEditor ??= new EffectLayerEditor(
+        CameraLayers.All,
+        ReadLayersOnMainThread,
+        WriteLayersOnMainThread,
+        () => _currentDraftDirective,
+        "镜头段");
 
     /// <summary>The layer the current scope edits: the whole-picture camera, or the background one.</summary>
     private EffectLayer CurrentCameraLayer => _cameraScope == SceneCameraScope.Background
@@ -84,14 +95,26 @@ public sealed partial class VisualEditorBehaviour
             "camera-seg",
             "镜头段 0/0",
             CycleCameraSegment,
-            () => _cameraLayers.CountOf(CurrentCameraLayer) > 0);
-        CreateControlButton("camera-move-up", "上移", () => MoveCameraSegment(-1), () => CanMoveCameraSegment(-1));
-        CreateControlButton("camera-move-down", "下移", () => MoveCameraSegment(1), () => CanMoveCameraSegment(1));
+            () => CameraEditor.HasSegments);
+        CreateControlButton("camera-move-up", "上移", () => MoveCameraSegment(-1), () => CameraEditor.CanMove(-1));
+        CreateControlButton("camera-move-down", "下移", () => MoveCameraSegment(1), () => CameraEditor.CanMove(1));
+        CreateControlButton(
+            "camera-load-seg",
+            "载入这段",
+            LoadCameraSegment,
+            () => CameraEditor.Stack.SelectedIndex >= 0);
+        CreateControlButton(
+            "camera-replace-seg",
+            "替换这段",
+            ReplaceCameraSegment,
+            () => CameraEditor.Stack.SelectedIndex >= 0
+                && CameraEditor.Stack.SelectedLayer.ResourceKey == CurrentCameraLayer.ResourceKey
+                && !string.IsNullOrEmpty(_currentDraftDirective));
         CreateControlButton(
             "camera-delete-seg",
             "删除这段",
             DeleteCameraSegment,
-            () => _cameraLayers.SelectedIndex >= 0);
+            () => CameraEditor.Stack.SelectedIndex >= 0);
     }
 
     /// <summary>
@@ -136,7 +159,15 @@ public sealed partial class VisualEditorBehaviour
             CameraLayerRowHeight);
 
         float actionRowY = selectRowY - CameraLayerRowPitch;
-        LayoutControl("camera-delete-seg", 30f, actionRowY, PanelWidth - 60f, CameraLayerRowHeight);
+        float third = (PanelWidth - 60f - (rowGap * 2f)) / 3f;
+        LayoutControl("camera-load-seg", 30f, actionRowY, third, CameraLayerRowHeight);
+        LayoutControl("camera-replace-seg", 30f + third + rowGap, actionRowY, third, CameraLayerRowHeight);
+        LayoutControl(
+            "camera-delete-seg",
+            30f + ((third + rowGap) * 2f),
+            actionRowY,
+            third,
+            CameraLayerRowHeight);
         return actionRowY - CameraLayerRowPitch;
     }
 
@@ -203,22 +234,12 @@ public sealed partial class VisualEditorBehaviour
 
     /// <summary>
     /// Re-reads the row at a walk, and never on top of work the author has not applied: a re-read would silently
-    /// replace the stack being built.
+    /// replace the stack being built. The walk, the pending check and the failure text are all the shared editor's.
     /// </summary>
     private void EnsureEffectLayerStack(bool force = false)
     {
         if (!_expanded) return;
-        long now = Stopwatch.GetTimestamp();
-        if (!force)
-        {
-            if (_cameraLayers.HasPendingChanges) return;
-            if (now - _cameraLayerReadAt < Stopwatch.Frequency / 4) return;
-        }
-
-        _cameraLayerReadAt = now;
-        if (Plugin.Api.EditorCommandDocuments is not EditorCommandDocumentService service) return;
-        _cameraLayers.Adopt(service.ReadLayersOnMainThread(CameraLayers.All));
-        LogCameraLayerOnce();
+        if (_cameraEditor?.Refresh(force) == true) LogCameraLayerOnce();
     }
 
     /// <summary>
@@ -227,62 +248,38 @@ public sealed partial class VisualEditorBehaviour
     /// </summary>
     private string CameraLayerStatusLine()
     {
+        EffectLayerEditor editor = CameraEditor;
         EffectLayer layer = CurrentCameraLayer;
-        EffectLayerSummary summary = _cameraLayers.SummaryOf(layer);
-        string text = $"{layer.Label}：{summary.Text}";
-        if (_cameraLayers.SelectedIndex < 0)
+        string text = editor.LineOf(layer);
+        if (editor.Stack.SelectedIndex < 0)
             return text + "　调好镜头后按「＋ 加为下一段」";
 
         bool sameLayer = string.Equals(
-            _cameraLayers.SelectedLayer.ResourceKey,
+            editor.Stack.SelectedLayer.ResourceKey,
             layer.ResourceKey,
             StringComparison.Ordinal);
-        EffectLayerSegment? selected = _cameraLayers.Selected;
+        EffectLayerSegment? selected = editor.Stack.Selected;
         return sameLayer && selected is not null
-            ? text + $"　选中 {_cameraLayers.SelectedIndex + 1}. {selected.Label}"
+            ? text + $"　选中 {editor.Stack.SelectedIndex + 1}. {selected.Label}"
             : text + "　（选中的段在另一层，切换范围可看到它）";
-    }
-
-    /// <summary>
-    /// Points the stack at the layer the scope selector is showing before a button acts on a row. Without this a
-    /// selection made over one scope would be moved or deleted in the other one, because a stack keeps one selection
-    /// across all of its layers (2026-10-13).
-    /// </summary>
-    private void FocusCameraLayer() => _cameraLayers.Select(CurrentCameraLayer, _cameraLayers.SelectedIndex);
-
-    private bool CanMoveCameraSegment(int delta)
-    {
-        FocusCameraLayer();
-        int index = _cameraLayers.SelectedIndex;
-        return index >= 0
-            && index + delta >= 0
-            && index + delta < _cameraLayers.CountOf(CurrentCameraLayer);
     }
 
     /// <summary>Moves the selection to the next effect of this layer: what the selector button does when pressed.</summary>
     private void CycleCameraSegment()
     {
-        FocusCameraLayer();
-        int total = _cameraLayers.CountOf(CurrentCameraLayer);
-        if (total == 0)
-        {
-            _cameraLayers.Note($"{CurrentCameraLayer.Label}层还没有效果。");
-            SetCameraLayerStatus(_cameraLayers.Status);
-            return;
-        }
-
-        int next = _cameraLayers.SelectedIndex < 0 ? 0 : (_cameraLayers.SelectedIndex + 1) % total;
-        _cameraLayers.Select(CurrentCameraLayer, next);
-        SetCameraLayerStatus(_cameraLayers.Status);
+        EffectLayerEditor editor = CameraEditor;
+        editor.Cycle();
+        SetCameraLayerStatus(editor.Status);
     }
 
     private void AddCameraSegment()
     {
+        EffectLayerEditor editor = CameraEditor;
         EffectDraft draft = EffectDraft.FromDirective(_currentDraftDirective);
-        if (!_cameraLayers.Add(draft))
+        if (!editor.Add())
         {
-            Plugin.Logger.LogInfo("[camera-layer] add-as-next refused · " + _cameraLayers.Status);
-            SetCameraLayerStatus(_cameraLayers.Status);
+            Plugin.Logger.LogInfo("[camera-layer] add-as-next refused · " + editor.Status);
+            SetCameraLayerStatus(editor.Status);
             return;
         }
 
@@ -290,22 +287,86 @@ public sealed partial class VisualEditorBehaviour
         SelectCameraScope(draft.LayerKey == EffectLayerCatalog.BackgroundCamera.ResourceKey
             ? SceneCameraScope.Background
             : SceneCameraScope.Overall);
-        Plugin.Logger.LogInfo("[camera-layer] add-as-next · " + _cameraLayers.Status);
-        SetCameraLayerStatus(_cameraLayers.Status);
+        Plugin.Logger.LogInfo("[camera-layer] add-as-next · " + editor.Status);
+        SetCameraLayerStatus(editor.Status);
     }
 
     private void MoveCameraSegment(int delta)
     {
-        FocusCameraLayer();
-        _cameraLayers.MoveSelected(delta);
-        SetCameraLayerStatus(_cameraLayers.Status);
+        EffectLayerEditor editor = CameraEditor;
+        editor.Move(delta);
+        SetCameraLayerStatus(editor.Status);
     }
 
     private void DeleteCameraSegment()
     {
-        FocusCameraLayer();
-        _cameraLayers.DeleteSelected();
-        SetCameraLayerStatus(_cameraLayers.Status);
+        EffectLayerEditor editor = CameraEditor;
+        editor.Delete();
+        SetCameraLayerStatus(editor.Status);
+    }
+
+    /// <summary>
+    /// Pulls the selected effect back into this mode's own editor, so it can be retuned in place instead of deleted and
+    /// written again (2026-10-14). It replaces whatever draft the author was holding, on purpose: pressing 载入 is the
+    /// act of saying "I am editing that one".
+    /// </summary>
+    private void LoadCameraSegment()
+    {
+        EffectLayerEditor editor = CameraEditor;
+        EffectLayerSegment? segment = editor.Stack.Selected;
+        if (segment is null)
+        {
+            SetCameraLayerStatus("先在「镜头段」里选一段，再载入。");
+            return;
+        }
+
+        Result<SceneCameraCommand> read = _cameraDraftBuilder.ReadCanonical(segment.CanonicalDirective);
+        if (!read.Success || read.Value is null)
+        {
+            SetCameraLayerStatus("这一段读不出来：" + (read.Error ?? "未知原因"));
+            return;
+        }
+
+        SceneCameraCommand command = read.Value;
+        if (command.Operation == SceneCameraOperation.Move)
+        {
+            // A relative move is defined against the picture at the time it runs; this mode's draft is an absolute
+            // composition, so there is nothing honest to load. The directive stays editable as text.
+            SetCameraLayerStatus("相对移动段（move）只能用指令编辑；载入支持 set 与 reset。");
+            return;
+        }
+
+        // The scope follows the effect: its own directive says which camera it belongs to.
+        SelectCameraScope(command.Scope);
+        _cameraDraftDurationMilliseconds = command.DurationMilliseconds;
+        _cameraDraftEasing = command.Easing;
+        if (command.Operation == SceneCameraOperation.Reset)
+        {
+            _cameraDraftState = null;
+            _cameraResetDraft = true;
+            PublishEffectDraft();
+        }
+        else
+        {
+            SetEffectDraft(
+                new SceneCameraState(command.X ?? 0f, command.Y ?? 0f, command.Zoom ?? 1f),
+                verifyImmediately: false);
+        }
+
+        LayoutCameraFrame();
+        UpdateInspector();
+        SetCameraLayerStatus(
+            $"已载入第 {editor.Stack.SelectedIndex + 1} 段；调好后按「替换这段」写回原位置。");
+        Plugin.Logger.LogInfo($"[camera-layer] loaded · index={editor.Stack.SelectedIndex}");
+    }
+
+    /// <summary>Writes the current draft over the selected effect, keeping its place in the layer.</summary>
+    private void ReplaceCameraSegment()
+    {
+        EffectLayerEditor editor = CameraEditor;
+        bool replaced = editor.Replace();
+        Plugin.Logger.LogInfo("[camera-layer] replace · replaced=" + replaced + " · " + editor.Status);
+        SetCameraLayerStatus(editor.Status);
     }
 
     /// <summary>
@@ -314,39 +375,16 @@ public sealed partial class VisualEditorBehaviour
     /// </summary>
     private void ApplyCameraLayer()
     {
-        if (!_cameraLayers.HasPendingChanges)
+        EffectLayerEditor editor = CameraEditor;
+        EffectLayerApply? applied = editor.Apply();
+        if (applied is { Success: true })
         {
-            SetCameraLayerStatus("镜头层没有需要写入的改动。");
-            return;
+            // The page's own snapshot is the same document, so it has to follow the write before anything else reads it.
+            RefreshCommandDocument();
+            Plugin.Logger.LogInfo("[camera-layer] applied · " + editor.Describe());
         }
 
-        if (!_cameraLayers.CanWrite)
-        {
-            SetCameraLayerStatus("这一句还没有读取成功，请重新选中台词后再试。");
-            return;
-        }
-
-        if (Plugin.Api.EditorCommandDocuments is not EditorCommandDocumentService service)
-        {
-            SetCameraLayerStatus("当前编辑服务暂不支持镜头层写入。");
-            return;
-        }
-
-        EffectLayerApply result = service.ApplyLayersOnMainThread(
-            _cameraLayers.RevisionSha256,
-            _cameraLayers.SelectionToken,
-            _cameraLayers.BuildEdits());
-        if (!result.Success)
-        {
-            SetCameraLayerStatus("写入失败：" + result.Error);
-            return;
-        }
-
-        _cameraLayers.Adopt(result.Read, "已写入当前句；" + _cameraLayers.Consequence());
-        // The page's own snapshot is the same document, so it has to follow the write before anything else reads it.
-        RefreshCommandDocument();
-        SetCameraLayerStatus(_cameraLayers.Status);
-        Plugin.Logger.LogInfo("[camera-layer] applied · " + _cameraLayers.Describe());
+        SetCameraLayerStatus(editor.Status);
     }
 
     private void SetCameraLayerStatus(string message)
@@ -381,27 +419,29 @@ public sealed partial class VisualEditorBehaviour
                 : draft.Error);
     }
 
-    /// <summary>Keeps the two value buttons' labels in step with the stack; enabled state is a predicate.</summary>
+    /// <summary>Keeps the two value buttons' labels in step with the editor; enabled state is a predicate.</summary>
     private void UpdateCameraLayerButtons()
     {
-        FocusCameraLayer();
+        EffectLayerEditor editor = CameraEditor;
+        bool selected = editor.Stack.SelectedIndex >= 0;
         if (_controlButtons.TryGetValue("camera-seg", out ControlButton? segment))
         {
-            int total = _cameraLayers.CountOf(CurrentCameraLayer);
-            int selected = string.Equals(
-                    _cameraLayers.SelectedLayer.ResourceKey,
-                    CurrentCameraLayer.ResourceKey,
-                    StringComparison.Ordinal)
-                ? _cameraLayers.SelectedIndex
-                : -1;
-            segment.Label.text = $"镜头段 {Math.Max(0, selected + 1)}/{total}";
+            segment.Label.text = editor.SegmentLabel;
+        }
+
+        if (_controlButtons.TryGetValue("camera-load-seg", out ControlButton? load))
+        {
+            load.Label.text = selected ? $"载入第 {editor.Stack.SelectedIndex + 1} 段" : "载入这段";
+        }
+
+        if (_controlButtons.TryGetValue("camera-replace-seg", out ControlButton? replace))
+        {
+            replace.Label.text = selected ? $"替换第 {editor.Stack.SelectedIndex + 1} 段" : "替换这段";
         }
 
         if (_controlButtons.TryGetValue("camera-delete-seg", out ControlButton? delete))
         {
-            delete.Label.text = _cameraLayers.SelectedIndex >= 0
-                ? $"删除第 {_cameraLayers.SelectedIndex + 1} 段"
-                : "删除这段";
+            delete.Label.text = editor.DeleteLabel;
         }
     }
 
@@ -438,7 +478,7 @@ public sealed partial class VisualEditorBehaviour
     /// </summary>
     private void LogCameraLayerOnce()
     {
-        string line = "[camera-layer] " + _cameraLayers.Describe();
+        string line = "[camera-layer] " + CameraEditor.Describe();
         if (string.Equals(line, _cameraLayerLogged, StringComparison.Ordinal)) return;
         _cameraLayerLogged = line;
         Plugin.Logger.LogInfo(line);

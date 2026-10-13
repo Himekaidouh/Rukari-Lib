@@ -251,6 +251,65 @@ public sealed class EffectLayerStack
         return true;
     }
 
+    /// <summary>
+    /// Puts a draft where an effect already is, instead of at the end of the layer (2026-10-14).
+    ///
+    /// <para>
+    /// Editing one effect of a stack means replacing that effect. Delete-then-add is the same edit with two extra
+    /// consequences the author never asked for: the effect moves to the end of the layer, and everything a window
+    /// remembered about it (which one was selected) is gone.
+    /// </para>
+    ///
+    /// <para>
+    /// The draft has to belong to the layer that holds the effect. Moving an effect between layers is a different act,
+    /// and its answer — which window owns it now — cannot be given by the window that is letting go of it.
+    /// </para>
+    /// </summary>
+    public bool Replace(EffectLayer layer, int index, EffectDraft draft)
+    {
+        ArgumentNullException.ThrowIfNull(layer);
+        if (!draft.Available)
+        {
+            Message = draft.Error.Length == 0 ? "当前没有可用的效果草稿。" : draft.Error;
+            return false;
+        }
+
+        if (!Owns(draft.LayerKey))
+        {
+            string rejected = EffectLayerCatalog.ForResourceKey(draft.LayerKey) is EffectLayer owner
+                ? owner.Label
+                : draft.LayerKey;
+            Message = $"这个窗口负责的是{Describe(Layers)}，替换不了{rejected}的段。";
+            return false;
+        }
+
+        if (!string.Equals(draft.LayerKey, layer.ResourceKey, StringComparison.Ordinal))
+        {
+            EffectLayer owner = LayerOf(draft.LayerKey);
+            Message = $"这一段在{layer.Label}层，当前草稿是{owner.Label}的效果；先切到那一层再替换。";
+            return false;
+        }
+
+        int position = PositionOf(layer, index);
+        if (position < 0)
+        {
+            Message = $"{layer.Label}没有第 {index + 1} 段。";
+            return false;
+        }
+
+        _rows[position] = new EffectLayerSegment(
+            layer.ResourceKey,
+            layer.Label,
+            index,
+            draft.PublicDirective,
+            draft.CanonicalDirective,
+            draft.Label);
+        HasPendingChanges = true;
+        Select(layer, index);
+        Message = $"已用当前效果替换{layer.Label}的第 {index + 1} 段，按「应用」写入当前句。";
+        return true;
+    }
+
     /// <summary>Whether one of the layers this window owns answers to that resource key.</summary>
     public bool Owns(string? layerKey)
     {

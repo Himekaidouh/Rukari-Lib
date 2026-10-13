@@ -280,4 +280,56 @@ internal static class EffectLayerStackTests
         AssertEx.True(edits[0].Directives[0].StartsWith("#aavt;fx;3;squash;", StringComparison.Ordinal),
             "The effect that was already there is written first, in the compiler's canonical public form.");
     }
+
+    /// <summary>
+    /// Editing one effect of a stack instead of deleting and re-adding it (2026-10-14). The whole point is that the
+    /// effect keeps its place: an author who tunes the second of four camera moves must not end up with it last.
+    /// </summary>
+    internal static void AReplacedEffectKeepsItsPlaceAndItsSelection()
+    {
+        var stack = new EffectLayerStack(CameraLayers.All);
+        stack.Adopt(Row(FirstCamera, SecondCamera, Background));
+        stack.Select(EffectLayerCatalog.Camera, 0);
+
+        const string retuned = "#aavt;camera;set;x=40;y=0;zoom=1.9;duration=300;easing=easeOut";
+        AssertEx.True(
+            stack.Replace(EffectLayerCatalog.Camera, 0, EffectDraftOf(retuned, "#camera;set;x=40;y=0;zoom=1.9;duration=300;easing=easeOut")),
+            "Replacing the first effect is accepted.");
+
+        AssertEx.Equal(2, stack.CountOf(EffectLayerCatalog.Camera), "Replace does not add an effect.");
+        AssertEx.Equal(1, stack.CountOf(EffectLayerCatalog.BackgroundCamera), "and does not touch the other layer.");
+        AssertEx.True(stack.HasPendingChanges, "The stack now differs from the row.");
+        AssertEx.Equal(retuned, stack.DirectivesOf(EffectLayerCatalog.Camera)[0], "The retuned effect is in its old place.");
+        AssertEx.Equal(SecondCamera, stack.DirectivesOf(EffectLayerCatalog.Camera)[1], "The one behind it did not move.");
+        AssertEx.Equal(0, stack.SelectedIndex, "The effect that was replaced is still the selected one.");
+        AssertEx.True(stack.Status.Contains("第 1 段", StringComparison.Ordinal),
+            "The status names the segment that changed: " + stack.Status);
+    }
+
+    internal static void AReplaceRefusesAnotherLayersDraftAndAnEmptyOne()
+    {
+        var stack = new EffectLayerStack(CameraLayers.All);
+        stack.Adopt(Row(FirstCamera, SecondCamera));
+
+        AssertEx.False(
+            stack.Replace(
+                EffectLayerCatalog.Camera,
+                0,
+                BackgroundDraftOf(Background, "#camera;set;scope=background;zoom=1.5;duration=250")),
+            "A background effect does not replace a whole-picture one: moving between layers is a different act.");
+        AssertEx.True(stack.Status.Contains("背景镜头", StringComparison.Ordinal),
+            "The refusal names the layer the draft belongs to: " + stack.Status);
+        AssertEx.Equal(FirstCamera, stack.DirectivesOf(EffectLayerCatalog.Camera)[0], "and changes nothing.");
+
+        AssertEx.False(
+            stack.Replace(EffectLayerCatalog.Camera, 0, EffectDraft.None("还没有可加入的效果草稿")),
+            "An empty draft replaces nothing.");
+        AssertEx.False(
+            stack.Replace(
+                EffectLayerCatalog.Camera,
+                9,
+                EffectDraftOf(FirstCamera, "#camera;set;x=0;y=0;zoom=1.2;duration=300;easing=easeOut")),
+            "A segment that does not exist cannot be replaced.");
+        AssertEx.False(stack.HasPendingChanges, "None of the refusals changed the stack.");
+    }
 }

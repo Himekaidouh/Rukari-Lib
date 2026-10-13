@@ -2259,6 +2259,10 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         _verifiedPreview = null;
         _currentDraftDirective = string.Empty;
         CancelPointerInteraction();
+        // The buttons act on the layer the scope selector shows, so the editor is pointed at it here rather than by
+        // every button: a stack keeps one selection across all of its layers, and a selection made over one scope
+        // would otherwise be moved or deleted in the other one (2026-10-13).
+        _cameraEditor?.SelectLayer(CurrentCameraLayer);
         RefreshCameraState();
         LoadExistingCameraCommand(preserveActiveDraft: true);
         if (_cameraDraftState.HasValue || _cameraResetDraft)
@@ -4618,7 +4622,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             && (_screenTextDraft != null
                 || _screenTextRemoveDraft
                 || _screenTextClearAllDraft);
-        bool cameraApplyEnabled = _mode == VisualEditorMode.Camera && _cameraLayers.HasWorkToWrite;
+        bool cameraApplyEnabled = _mode == VisualEditorMode.Camera && CameraEditor.Stack.HasWorkToWrite;
         bool characterApplyEnabled = _mode == VisualEditorMode.Character
             && CharacterEditor?.Stack.HasWorkToWrite == true;
         bool applyEnabled = _expanded
@@ -4636,7 +4640,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         {
             _applyButtonText.text = _mode switch
             {
-                VisualEditorMode.Camera => _cameraLayers.HasPendingChanges ? "应用镜头层 *" : "应用镜头层",
+                VisualEditorMode.Camera => CameraEditor.HasPendingChanges ? "应用镜头层 *" : "应用镜头层",
                 VisualEditorMode.Character => CharacterEditor?.HasPendingChanges == true ? "应用角色层 *" : "应用角色层",
                 _ => "应用草稿"
             };

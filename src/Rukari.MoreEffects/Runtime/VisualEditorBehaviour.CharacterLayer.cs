@@ -4,6 +4,8 @@ extern alias unityui;
 
 using System;
 using AzureArchive.VideoTools.Core.Commands;
+using AzureArchive.VideoTools.Core.Results;
+using AzureArchive.VideoTools.Core.VisualEditor;
 using Text = unityui::UnityEngine.UI.Text;
 
 namespace AzureArchive.VideoTools.Runtime;
@@ -27,7 +29,8 @@ public sealed partial class VisualEditorBehaviour
 {
     private static readonly string[] CharacterLayerControlKeys =
     {
-        "character-seg", "character-move-up", "character-move-down", "character-delete-seg"
+        "character-seg", "character-move-up", "character-move-down", "character-load-seg",
+        "character-replace-seg", "character-delete-seg"
     };
 
     private EffectLayerEditor? _characterEditor;
@@ -82,6 +85,17 @@ public sealed partial class VisualEditorBehaviour
             () => MoveCharacterSegment(1),
             () => CharacterEditor?.CanMove(1) == true);
         CreateControlButton(
+            "character-load-seg",
+            "载入这段",
+            LoadCharacterSegment,
+            () => CharacterEditor?.Stack.SelectedIndex >= 0);
+        CreateControlButton(
+            "character-replace-seg",
+            "替换这段",
+            ReplaceCharacterSegment,
+            () => CharacterEditor?.Stack.SelectedIndex >= 0
+                && !string.IsNullOrEmpty(_currentDraftDirective));
+        CreateControlButton(
             "character-delete-seg",
             "删除这段",
             DeleteCharacterSegment,
@@ -108,13 +122,21 @@ public sealed partial class VisualEditorBehaviour
             selectRowY,
             optionWidth,
             CameraLayerRowHeight);
+        float actionRowY = selectRowY - CameraLayerRowPitch;
+        LayoutControl("character-load-seg", 30f, actionRowY, optionWidth, CameraLayerRowHeight);
+        LayoutControl(
+            "character-replace-seg",
+            30f + optionWidth + rowGap,
+            actionRowY,
+            optionWidth,
+            CameraLayerRowHeight);
         LayoutControl(
             "character-delete-seg",
-            30f,
-            selectRowY - CameraLayerRowPitch,
-            PanelWidth - 60f,
+            30f + ((optionWidth + rowGap) * 2f),
+            actionRowY,
+            optionWidth,
             CameraLayerRowHeight);
-        return selectRowY - (CameraLayerRowPitch * 2f);
+        return actionRowY - CameraLayerRowPitch;
     }
 
     /// <summary>Re-reads the targeted character's layer, unless the author has stacked something unwritten.</summary>
@@ -174,6 +196,84 @@ public sealed partial class VisualEditorBehaviour
     }
 
     /// <summary>
+    /// Pulls the selected effect back into this mode's own widgets, so it can be retuned in place (2026-10-14). The
+    /// draft the author was holding is replaced on purpose: pressing 载入 is the act of saying "I am editing that one".
+    /// </summary>
+    private void LoadCharacterSegment()
+    {
+        EffectLayerEditor? editor = CharacterEditor;
+        if (editor is null)
+        {
+            SetCharacterLayerStatus("先选中一个角色槽位。");
+            return;
+        }
+
+        EffectLayerSegment? segment = editor.Stack.Selected;
+        if (segment is null)
+        {
+            SetCharacterLayerStatus("先在「角色段」里选一段，再载入。");
+            return;
+        }
+
+        Result<VisualCharacterDraftRequest> read = _draftBuilder.ReadCanonical(segment.CanonicalDirective);
+        if (!read.Success || read.Value is null)
+        {
+            SetCharacterLayerStatus("这一段读不出来：" + (read.Error ?? "未知原因"));
+            return;
+        }
+
+        VisualCharacterDraftRequest request = read.Value;
+        if (request.Operation == VisualCharacterDraftOperation.Move)
+        {
+            // A relative move is defined against wherever the character stands when it runs; the widgets edit an
+            // absolute position, so there is nothing honest to load. The directive stays editable as text.
+            SetCharacterLayerStatus("相对移动段（move）只能用指令编辑；载入支持定位与重置。");
+            return;
+        }
+
+        int index = _selectedSlotIndex;
+        if (!HasSelectedSlot() || request.PublicSlot != index + 1)
+        {
+            SetCharacterLayerStatus($"这一段属于角色 {request.PublicSlot}，先切到那个槽位再载入。");
+            return;
+        }
+
+        if (IsOfficialTransitionSlot(request.PublicSlot))
+        {
+            RefuseDraftByOfficialTransition(index);
+            return;
+        }
+
+        BeginDraftSource();
+        _activeDraft = request;
+        _editInitialPosition = !request.Occupied;
+        float? x = request.Occupied ? request.X : request.StartX;
+        float? y = request.Occupied ? request.Y : request.StartY;
+        _draftPositions[index] = x.HasValue && y.HasValue
+            ? new VisualEditorPoint(x.Value, y.Value)
+            : null;
+        _draftRotations[index] = request.RotationDegrees;
+        _draftPitches[index] = request.RotationXDegrees;
+        _draftFlips[index] = request.FlipX;
+        _draftDurationMilliseconds = request.DurationMilliseconds;
+        _draftEasing = request.Easing;
+        PublishActiveDraft();
+        SetCharacterLayerStatus(
+            $"已载入第 {editor.Stack.SelectedIndex + 1} 段；调好后按「替换这段」写回原位置。");
+        Plugin.Logger.LogInfo($"[character-layer] loaded · index={editor.Stack.SelectedIndex}");
+    }
+
+    /// <summary>Writes the current draft over the selected effect, keeping its place in the layer.</summary>
+    private void ReplaceCharacterSegment()
+    {
+        EffectLayerEditor? editor = CharacterEditor;
+        if (editor is null) return;
+        bool replaced = editor.Replace();
+        Plugin.Logger.LogInfo("[character-layer] replace · replaced=" + replaced + " · " + editor.Status);
+        SetCharacterLayerStatus(editor.Status);
+    }
+
+    /// <summary>
     /// Writes the whole character layer in one transaction: what this mode owns, in the order the author stacked it.
     /// The existing 应用 button calls this in character mode.
     /// </summary>
@@ -207,12 +307,17 @@ public sealed partial class VisualEditorBehaviour
         UpdateButtons();
     }
 
-    /// <summary>Keeps the two value buttons' labels in step with the editor; enabled state is a predicate.</summary>
+    /// <summary>Keeps the value buttons' labels in step with the editor; enabled state is a predicate.</summary>
     private void UpdateCharacterLayerButtons()
     {
         EffectLayerEditor? editor = CharacterEditor;
+        bool selected = editor?.Stack.SelectedIndex >= 0;
         if (_controlButtons.TryGetValue("character-seg", out ControlButton? segment))
             segment.Label.text = editor?.SegmentLabel ?? "角色段 0/0";
+        if (_controlButtons.TryGetValue("character-load-seg", out ControlButton? load))
+            load.Label.text = selected ? $"载入第 {editor!.Stack.SelectedIndex + 1} 段" : "载入这段";
+        if (_controlButtons.TryGetValue("character-replace-seg", out ControlButton? replace))
+            replace.Label.text = selected ? $"替换第 {editor!.Stack.SelectedIndex + 1} 段" : "替换这段";
         if (_controlButtons.TryGetValue("character-delete-seg", out ControlButton? delete))
             delete.Label.text = editor?.DeleteLabel ?? "删除这段";
     }

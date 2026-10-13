@@ -1,3 +1,4 @@
+using System.Globalization;
 using AzureArchive.VideoTools.Core.Characters;
 using Rukari.Lib.Captions;
 using Rukari.Lib.Tools;
@@ -184,9 +185,29 @@ internal sealed class CharacterPresetToolContent : IToolPanelContent, IToolPanel
             _session.MoveSegment(1);
         }
 
-        ToolInputRect remove = new(0, 194, surface.Width, 38);
-        if (surface.Button("preset.segment.remove", _session.DeleteLabel, remove,
-            _session.Layers.SelectedIndex >= 0))
+        // The three actions on the selected effect share one row: pulling it into the sheets, writing the sheets back
+        // over it, and removing it. 载入 and 替换 are how an author retunes an effect instead of deleting and adding
+        // it again — which moved it to the end of the layer and lost its place (2026-10-14).
+        ToolInputRect effect = new(0, 194, surface.Width, 38);
+        bool selected = _session.Layers.SelectedIndex >= 0;
+        string ordinal = selected ? (_session.Layers.SelectedIndex + 1).ToString(CultureInfo.InvariantCulture) : string.Empty;
+        if (surface.Button("preset.segment.load", selected ? "载入第 " + ordinal + " 段" : "载入这段",
+            surface.Cell(effect, 0, 3), selected))
+        {
+            _focused = null;
+            _session.LoadSegment();
+            return;
+        }
+
+        if (surface.Button("preset.segment.replace", selected ? "替换第 " + ordinal + " 段" : "替换这段",
+            surface.Cell(effect, 1, 3), selected && _session.Editable && _session.TryDirective(out _, out _)))
+        {
+            _focused = null;
+            _session.ReplaceSegment();
+            return;
+        }
+
+        if (surface.Button("preset.segment.remove", _session.DeleteLabel, surface.Cell(effect, 2, 3), selected))
         {
             _focused = null;
             _session.DeleteSegment();

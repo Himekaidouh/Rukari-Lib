@@ -3,6 +3,7 @@ using System.Globalization;
 using AzureArchive.VideoTools.Api;
 using AzureArchive.VideoTools.Core.Characters;
 using AzureArchive.VideoTools.Core.Commands;
+using AzureArchive.VideoTools.Core.Results;
 using AzureArchive.VideoTools.Core.VisualEditor;
 using AzureArchive.VideoTools.Interop;
 
@@ -174,9 +175,62 @@ internal sealed class CharacterPresetEditorSession
         Notice = Layers.Status;
     }
 
-    /// <summary>Moves the selection to the next effect of this layer.</summary>
-    internal void CycleSegment()
+    /// <summary>
+    /// Writes the parameters' draft over the selected effect, keeping its place in the layer (2026-10-14). It is the
+    /// other half of 载入: the author pulls an effect into the sheets, changes it, and writes it back where it was.
+    /// </summary>
+    internal void ReplaceSegment()
     {
+        if (!Editable) return;
+        if (Layers.SelectedIndex < 0)
+        {
+            Notice = "先在层里选一段，再替换。";
+            return;
+        }
+
+        if (!TryDirective(out string directive, out string error))
+        {
+            Notice = error;
+            return;
+        }
+
+        Layers.Replace(Layers.SelectedLayer, Layers.SelectedIndex, EffectDraft.FromDirective(directive));
+        Notice = Layers.Status;
+    }
+
+    /// <summary>
+    /// Pulls the selected effect's own parameters into the sheets so it can be retuned in place (2026-10-14). The
+    /// sheet follows the effect: a segment the author picked is the one they mean to edit, whatever kind it is.
+    /// </summary>
+    internal void LoadSegment()
+    {
+        if (!Editable) return;
+        EffectLayerSegment? segment = Layers.Selected;
+        if (segment is null)
+        {
+            Notice = "先在层里选一段，再载入。";
+            return;
+        }
+
+        Result<CharacterPresetCommand> parsed = _parser.Parse(segment.CanonicalDirective);
+        if (!parsed.Success || parsed.Value is null)
+        {
+            Notice = "这一段读不出来：" + (parsed.Error ?? "未知原因");
+            return;
+        }
+
+        CharacterPresetCommand command = parsed.Value;
+        Kind = command.Kind;
+        PublicSlot = command.PublicSlot;
+        Existing = command;
+        SetNumbers(command);
+        _dirty = false;
+        Generation++;
+        Notice = $"已载入第 {Layers.SelectedIndex + 1} 段；调好后按「替换这段」写回原位置。";
+    }
+
+    /// <summary>Moves the selection to the next effect of this layer.</summary>
+    internal void CycleSegment()    {
         EffectLayer layer = EffectLayerCatalog.Preset(PublicSlot);
         int total = Layers.CountOf(layer);
         if (total == 0)
