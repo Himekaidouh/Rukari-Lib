@@ -671,6 +671,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             () => SelectCameraScope(SceneCameraScope.Background), () => true,
             () => _cameraScope == SceneCameraScope.Background);
         CreateCameraLayerControls();
+        CreateCharacterLayerControls();
         CreateControlButton(
             "camera-x-100",
             "镜头 X -100",
@@ -880,7 +881,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             "撤销",
             24,
             TextAnchor.MiddleCenter).Text;
-        CreateCameraAddButton();
+        CreateEffectAddButton();
 
         _frameRoot = CreateRect("StoryFrame", _panelObject.transform);
         for (int i = 0; i < _frameLines.Length; i++)
@@ -1148,9 +1149,9 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
                 return;
             }
 
-            if (_cameraAddEnabled && Contains(_cameraAddHitRect, pointer))
+            if (_effectAddEnabled && Contains(_effectAddHitRect, pointer))
             {
-                AddCameraSegment();
+                AddEffectSegment();
                 return;
             }
 
@@ -1999,6 +2000,15 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             }
         }
 
+        // The layer editors own controls follow the same rule as the rest of their mode.
+        foreach (string key in CharacterLayerControlKeys)
+        {
+            if (_controlButtons.TryGetValue(key, out ControlButton? characterButton))
+            {
+                characterButton.SetVisible(character);
+            }
+        }
+
         // The camera layer editor's own controls follow the same rule as the rest of the camera mode.
         foreach (string key in CameraLayerControlKeys)
         {
@@ -2360,9 +2370,9 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
         _currentDraftDirective = result.Value;
         _verifiedPreview = null;
-        if (_mode == VisualEditorMode.Camera)
+        if (_mode is VisualEditorMode.Camera or VisualEditorMode.Character)
         {
-            // A camera draft is not previewed against the document any more: the one-command-per-resource preview
+            // Such a draft is not previewed against the document any more: the one-command-per-resource preview
             // cannot describe a layer that already holds several effects, and the draft is written by
             // 「＋ 加为下一段」 instead (2026-10-13).
             ShowEffectDraftText();
@@ -2958,6 +2968,13 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             return;
         }
 
+        if (_mode == VisualEditorMode.Character)
+        {
+            // The character layer is read here as well, so its selector row is never a frame of stale numbers from
+            // the previously targeted character.
+            EnsureCharacterLayerStack();
+        }
+
         if (_mode == VisualEditorMode.ScreenText)
         {
             UpdateScreenTextInspector(inspector);
@@ -3012,7 +3029,8 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             $"槽位 #{index + 1}  {occupancy}{mode}{officialTransition}\n"
             + $"剧情坐标 X {storyPosition.X:0.0}  Y {storyPosition.Y:0.0}   "
             + $"偏移 X {position.X:0.0}  Y {position.Y:0.0}\n"
-            + $"旋转 Z {SelectedRotation(false):0.0}  X {SelectedRotation(true):0.0}   翻转 {(flip ? "开" : "关")}";
+            + $"旋转 Z {SelectedRotation(false):0.0}  X {SelectedRotation(true):0.0}   翻转 {(flip ? "开" : "关")}\n"
+            + CharacterLayerStatusLine();
         VisualCharacterDraftRequest? positionRequest = _activeDraft ?? _selectedExistingDraft;
         if (snapshot?.Occupied == true && !_selectedCommandGraphicallyUnsupported)
         {
@@ -3173,6 +3191,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         }
 
         UpdateCameraLayerButtons();
+        UpdateCharacterLayerButtons();
 
         ScreenTextDirective screenText = CurrentScreenText();
         if (_controlButtons.TryGetValue("text-align", out ControlButton? textAlign))
@@ -3345,10 +3364,10 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
 
     private void VerifyDraftAgainstSelected()
     {
-        if (_mode == VisualEditorMode.Camera)
+        if (_mode is VisualEditorMode.Camera or VisualEditorMode.Character)
         {
-            // Camera drafts are written by the camera layer editor, not by this preview: the preview is a
-            // one-command-per-resource check, and a camera layer may hold several effects (2026-10-13).
+            // Camera and character drafts are written by their layer editors, not by this preview: the preview is a
+            // one-command-per-resource check, and a layer may hold several effects (2026-10-13).
             ShowEffectDraftText();
             UpdateButtons();
             return;
@@ -3438,6 +3457,12 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         if (_mode == VisualEditorMode.Camera)
         {
             ApplyCameraLayer();
+            return;
+        }
+
+        if (_mode == VisualEditorMode.Character)
+        {
+            ApplyCharacterLayer();
             return;
         }
 
@@ -4131,7 +4156,8 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             rowHeight);
 
         float continueRowY = _mode == VisualEditorMode.Character
-            ? actionY - 50f
+            // Character mode stacks the layer editor rows under 复位/清空, and 连续对话 moves below them.
+            ? LayoutCharacterLayerControls(resetRowY, rowGap)
             : _mode == VisualEditorMode.ScreenText
                 ? screenTextClearY - 50f
                 // Camera mode stacks the layer editor's two rows under 复位/清空, and 连续对话 moves below them.
@@ -4143,7 +4169,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
         const float buttonGap = 20f;
         // Camera mode puts ＋ 加为下一段 in this row: it is the action taken on every effect, and it has to read as
         // one of the two big buttons rather than as one control among many (2026-10-13).
-        LayoutCameraAddButton(buttonGap, out float buttonWidth, out float cameraAddX);
+        LayoutEffectAddButton(buttonGap, out float buttonWidth, out float cameraAddX);
         SetRect(_applyButtonRect, 30f, buttonY, buttonWidth, buttonHeight);
         SetRect(
             _undoButtonRect,
@@ -4151,13 +4177,13 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             buttonY,
             buttonWidth,
             buttonHeight);
-        SetRect(_cameraAddButtonRect, cameraAddX, buttonY, buttonWidth, buttonHeight);
+        SetRect(_effectAddButtonRect, cameraAddX, buttonY, buttonWidth, buttonHeight);
         if (_applyButtonText is not null)
             Rukari.Lib.Runtime.Tools.ToolTheme.CenterButtonLabel(_applyButtonText, buttonWidth, buttonHeight, 6f);
         if (_undoButtonText is not null)
             Rukari.Lib.Runtime.Tools.ToolTheme.CenterButtonLabel(_undoButtonText, buttonWidth, buttonHeight, 6f);
-        if (_cameraAddButtonText is not null)
-            Rukari.Lib.Runtime.Tools.ToolTheme.CenterButtonLabel(_cameraAddButtonText, buttonWidth, buttonHeight, 6f);
+        if (_effectAddButtonText is not null)
+            Rukari.Lib.Runtime.Tools.ToolTheme.CenterButtonLabel(_effectAddButtonText, buttonWidth, buttonHeight, 6f);
         _applyHitRect = new VisualEditorRect(
             _panelRect.X + 30f,
             _panelRect.Y + buttonY,
@@ -4168,7 +4194,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             _panelRect.Y + buttonY,
             buttonWidth,
             buttonHeight);
-        _cameraAddHitRect = _mode == VisualEditorMode.Camera
+        _effectAddHitRect = _mode == VisualEditorMode.Camera
             ? new VisualEditorRect(_panelRect.X + cameraAddX, _panelRect.Y + buttonY, buttonWidth, buttonHeight)
             : new VisualEditorRect(0f, 0f, 0f, 0f);
 
@@ -4571,8 +4597,11 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
                 || _screenTextRemoveDraft
                 || _screenTextClearAllDraft);
         bool cameraApplyEnabled = _mode == VisualEditorMode.Camera && _cameraLayers.HasWorkToWrite;
+        bool characterApplyEnabled = _mode == VisualEditorMode.Character
+            && CharacterLayers?.HasWorkToWrite == true;
         bool applyEnabled = _expanded
             && (cameraApplyEnabled
+                || characterApplyEnabled
                 || screenTextApplyEnabled
                 || (_verifiedPreview != null
                     && _documentSnapshot != null
@@ -4583,9 +4612,12 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             && _documentSnapshot.InputMatchesScript;
         if (_applyButtonText is not null)
         {
-            _applyButtonText.text = _mode != VisualEditorMode.Camera
-                ? "应用草稿"
-                : _cameraLayers.HasPendingChanges ? "应用镜头层 *" : "应用镜头层";
+            _applyButtonText.text = _mode switch
+            {
+                VisualEditorMode.Camera => _cameraLayers.HasPendingChanges ? "应用镜头层 *" : "应用镜头层",
+                VisualEditorMode.Character => CharacterLayers?.HasPendingChanges == true ? "应用角色层 *" : "应用角色层",
+                _ => "应用草稿"
+            };
         }
         if (_applyButtonImage is not null && _applyButtonRect is not null)
         {
@@ -4603,7 +4635,7 @@ public sealed partial class VisualEditorBehaviour : MonoBehaviour
             if (_undoButtonText is not null) _undoButtonText.color = text;
         }
 
-        UpdateCameraAddButton();
+        UpdateEffectAddButton();
     }
 
     private void LayoutSlots()

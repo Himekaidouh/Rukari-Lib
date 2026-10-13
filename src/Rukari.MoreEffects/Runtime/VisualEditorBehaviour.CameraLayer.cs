@@ -53,11 +53,11 @@ public sealed partial class VisualEditorBehaviour
         "camera-seg", "camera-move-up", "camera-move-down", "camera-delete-seg"
     };
 
-    private RectTransform? _cameraAddButtonRect;
-    private Image? _cameraAddButtonImage;
-    private Text? _cameraAddButtonText;
-    private VisualEditorRect _cameraAddHitRect;
-    private bool _cameraAddEnabled;
+    private RectTransform? _effectAddButtonRect;
+    private Image? _effectAddButtonImage;
+    private Text? _effectAddButtonText;
+    private VisualEditorRect _effectAddHitRect;
+    private bool _effectAddEnabled;
 
     /// <summary>The order of the camera's effects. One instance is one dialogue line.</summary>
     private readonly EffectLayerStack _cameraLayers = new(CameraLayers.All);
@@ -99,13 +99,13 @@ public sealed partial class VisualEditorBehaviour
     /// as a control button because it has to be the same size and decoration as those two: this is the action the
     /// author takes on every effect, and a 42px row among rows does not read as one (2026-10-13).
     /// </summary>
-    private void CreateCameraAddButton()
+    private void CreateEffectAddButton()
     {
         if (_panelObject is null) return;
         UiElement button = CreateImage("CameraAddButton", _panelObject.transform, ButtonDisabledColor);
-        _cameraAddButtonRect = button.Rect;
-        _cameraAddButtonImage = button.GameObject.GetComponent<Image>();
-        _cameraAddButtonText = CreateText(
+        _effectAddButtonRect = button.Rect;
+        _effectAddButtonImage = button.GameObject.GetComponent<Image>();
+        _effectAddButtonText = CreateText(
             "CameraAddLabel",
             button.GameObject.transform,
             "＋ 加为下一段",
@@ -137,18 +137,32 @@ public sealed partial class VisualEditorBehaviour
     }
 
     /// <summary>
-    /// Where the big camera button goes, and where the other two go when it is on screen: camera mode splits the same
-    /// row three ways instead of two.
+    /// Where the big ＋ 加为下一段 button goes, and where the other two go when it is on screen: the modes that own a
+    /// layer split the same row three ways instead of two, and the modes that do not never see it.
     /// </summary>
-    private void LayoutCameraAddButton(float buttonGap, out float buttonWidth, out float thirdX)
+    private void LayoutEffectAddButton(float buttonGap, out float buttonWidth, out float thirdX)
     {
-        bool camera = _mode == VisualEditorMode.Camera;
-        buttonWidth = camera
+        bool layerEditor = _mode is VisualEditorMode.Camera or VisualEditorMode.Character;
+        buttonWidth = layerEditor
             ? (PanelWidth - 60f - (buttonGap * 2f)) / 3f
             : (PanelWidth - 60f - buttonGap) / 2f;
         thirdX = 30f + ((buttonWidth + buttonGap) * 2f);
-        if (_cameraAddButtonRect is not null) _cameraAddButtonRect.gameObject.SetActive(camera);
-        if (_cameraAddButtonText is not null) _cameraAddButtonText.gameObject.SetActive(camera);
+        if (_effectAddButtonRect is not null) _effectAddButtonRect.gameObject.SetActive(layerEditor);
+        if (_effectAddButtonText is not null) _effectAddButtonText.gameObject.SetActive(layerEditor);
+    }
+
+    /// <summary>
+    /// Adds the current draft to whichever layer this mode owns. One button, two layers: the mode decides (2026-10-13).
+    /// </summary>
+    private void AddEffectSegment()
+    {
+        if (_mode == VisualEditorMode.Character)
+        {
+            AddCharacterSegment();
+            return;
+        }
+
+        AddCameraSegment();
     }
 
     /// <summary>
@@ -296,8 +310,9 @@ public sealed partial class VisualEditorBehaviour
     }
 
     /// <summary>
-    /// What the draft text says in camera mode: the draft, and which layer「＋ 加为下一段」would put it in. It
-    /// replaces the one-command-per-resource preview, which cannot describe a layer holding several effects.
+    /// What the draft text says while a mode owns a layer: the draft, and which layer「＋ 加为下一段」would put it in.
+    /// It replaces the one-command-per-resource preview, which cannot describe a layer holding several effects, and it
+    /// names the layer the draft itself belongs to rather than the one the mode is showing (2026-10-13).
     /// </summary>
     private void ShowEffectDraftText()
     {
@@ -310,9 +325,10 @@ public sealed partial class VisualEditorBehaviour
         }
 
         EffectDraft draft = EffectDraft.FromDirective(_currentDraftDirective);
-        draftText.text = "镜头草稿（未保存）\n" + _currentDraftDirective + "\n"
+        string layer = EffectLayerCatalog.ForResourceKey(draft.LayerKey)?.Label ?? draft.LayerKey;
+        draftText.text = "效果草稿（未保存）\n" + _currentDraftDirective + "\n"
             + (draft.Available
-                ? $"按「＋ 加为下一段」加入{CameraLayerLabelOf(draft.LayerKey)}层"
+                ? $"按「＋ 加为下一段」加入{layer}层"
                 : draft.Error);
     }
 
@@ -341,24 +357,30 @@ public sealed partial class VisualEditorBehaviour
 
     /// <summary>
     /// The big button's own appearance. It is drawn by the same theme call the other two use, so "the same button"
-    /// is also literally the same code path, and it is enabled exactly when the draft could be added.
+    /// is also literally the same code path, and it is enabled exactly when the draft could be added to the layer of
+    /// whichever mode is showing.
     /// </summary>
-    private void UpdateCameraAddButton()
+    private void UpdateEffectAddButton()
     {
-        _cameraAddEnabled = _mode == VisualEditorMode.Camera
-            && CanEditCamera()
-            && !string.IsNullOrEmpty(_currentDraftDirective);
-        if (_cameraAddButtonImage is null || _cameraAddButtonRect is null) return;
+        _effectAddEnabled = _mode switch
+        {
+            VisualEditorMode.Camera => CanEditCamera() && !string.IsNullOrEmpty(_currentDraftDirective),
+            VisualEditorMode.Character => CanEditSelectedSlot()
+                && CurrentCharacterLayer is not null
+                && !string.IsNullOrEmpty(_currentDraftDirective),
+            _ => false
+        };
+        if (_effectAddButtonImage is null || _effectAddButtonRect is null) return;
         Color text = Rukari.Lib.Runtime.Tools.ToolTheme.ApplyButton(
-            _cameraAddButtonImage,
-            _cameraAddButtonRect.sizeDelta.x,
-            _cameraAddButtonRect.sizeDelta.y,
-            _cameraAddEnabled,
+            _effectAddButtonImage,
+            _effectAddButtonRect.sizeDelta.x,
+            _effectAddButtonRect.sizeDelta.y,
+            _effectAddEnabled,
             false,
             false,
             decorated: true,
             primary: true);
-        if (_cameraAddButtonText is not null) _cameraAddButtonText.color = text;
+        if (_effectAddButtonText is not null) _effectAddButtonText.color = text;
     }
 
     /// <summary>
