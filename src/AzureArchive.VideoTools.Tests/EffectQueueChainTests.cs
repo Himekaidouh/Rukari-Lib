@@ -18,7 +18,6 @@ internal static class EffectQueueChainTests
     private const string CharacterSecond = "#aavt;char;3;move;dy=50;duration=300";
     private const string OtherCharacter = "#aavt;char;4;move;dx=-200;duration=1200";
     private const string Camera = "#aavt;camera;set;zoom=1.2;duration=500";
-    private const string LongCamera = "#aavt;camera;set;zoom=1.2;duration=1200";
     private const string Preset = "#aavt;fx;3;squash;frequency=4";
     private const string Pending = "#aavt;charPending;3;set;x=500;flipX=true";
     private const string Spine = "#aavt;spine;3;Eye_Blink;track=20";
@@ -142,13 +141,21 @@ internal static class EffectQueueChainTests
     {
         // The player collapses whatever runs past its budget and applies that effect's end state instead of animating
         // it. That is a supported outcome, not a failure — but it has to be visible before the author plays the row.
-        EffectQueuePlan plan = Plan(OtherCharacter, LongCamera, OtherCharacter);
-
+        // (The budget is 10 s since 2026-10-14: three seconds was shorter than the choreography authors write, and a
+        // collapsed camera reads as "the camera ran first".)
+        EffectQueuePlan plan = Plan(OtherCharacter, OtherCharacter, OtherCharacter);
         AssertEx.True(plan.Success, plan.Error);
-        AssertEx.True(plan.OverBudget, "3.6 s of queue is past the player's 3 s budget.");
-        AssertEx.Equal(3000d, plan.TotalMs, "The plan reports what the player will really spend, collapse included.");
-        AssertEx.True(plan.Line.Contains("跳到结束状态", StringComparison.Ordinal),
-            "The line says the tail will not animate: " + plan.Line);
+        AssertEx.Equal(3600d, plan.TotalMs, "Three 1.2 s effects fit in the budget and are laid out in full.");
+        AssertEx.False(plan.OverBudget, "and nothing is collapsed at 3.6 s any more.");
+
+        EffectQueuePlan longRow = Plan(
+            "#aavt;char;3;move;dx=100;duration=6000",
+            "#aavt;camera;set;zoom=1.2;duration=6000");
+        AssertEx.True(longRow.Success, longRow.Error);
+        AssertEx.True(longRow.OverBudget, "12 s of queue is past the player's 10 s budget.");
+        AssertEx.Equal(10000d, longRow.TotalMs, "The plan reports what the player will really spend, collapse included.");
+        AssertEx.True(longRow.Line.Contains("跳到结束状态", StringComparison.Ordinal),
+            "The line says the tail will not animate: " + longRow.Line);
     }
 
     internal static void OnlyTheFamiliesThatParseThePlacementCanCarryIt()

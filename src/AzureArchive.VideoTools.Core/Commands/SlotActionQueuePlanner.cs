@@ -99,7 +99,19 @@ public sealed record SlotActionQueuePlan(
 /// </summary>
 public static class SlotActionQueuePlanner
 {
-    public const double DefaultBudgetMilliseconds = 3000d;
+    /// <summary>
+    /// How long one row's queue may hold before its tail is collapsed.
+    ///
+    /// <para>
+    /// 2026-10-14: raised from 3000 to 10000. The collapse exists so a row cannot hold forever, but three seconds is
+    /// shorter than the choreography authors actually write: a five-step turn plus a camera move is 3.6 s, and at a
+    /// 3 s budget the camera landed exactly on the cap, was collapsed to zero length and applied as an immediate jump
+    /// to its end state — which reads as "the camera ran first" rather than "the queue did not work". A row that asks
+    /// for a queue is a sequence the author wrote down; the budget is a guard against nonsense, not a taste in
+    /// pacing.
+    /// </para>
+    /// </summary>
+    public const double DefaultBudgetMilliseconds = 10000d;
 
     /// <summary>Mirrors <see cref="ActionTimelineTiming"/>'s own finite-range bound.</summary>
     public const double MaximumSegmentMilliseconds = 1000d * 1000d;
