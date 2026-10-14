@@ -26,13 +26,27 @@ public sealed class Plugin : BasePlugin
             host.Start();
             ModServices.Attach(host);
             _host = host;
-            EmbeddedDirectiveHost.Initialize(host, message => Log.LogInfo(message));
-            try { EditorHost.Initialize(host); }
-            catch (Exception exception)
+            // Android/PE bisect switches (docs/50). Every gate defaults to false, so a normal install is unchanged;
+            // they exist so one device session can tell which native boundary is reached before the crash.
+            bool skipCompilePatch = Config.Bind("AndroidDiagnostics", "SkipCompilePatch", false,
+                "诊断开关：打开后不安装共享编译补丁（Script.get_ScriptKr / CompileScriptStandalone / CompileScriptContinuous）。默认关闭。Restart required.").Value;
+            bool skipEditorHost = Config.Bind("AndroidDiagnostics", "SkipEditorHost", false,
+                "诊断开关：打开后不初始化共享编辑器事务与工作区服务。默认关闭。Restart required.").Value;
+            bool skipInputGuards = Config.Bind("AndroidDiagnostics", "SkipInputGuards", false,
+                "诊断开关：打开后不安装共享输入守卫（UICamera / UIInput 的 Harmony 前缀补丁）；工具箱会随之整体停用。默认关闭。Restart required.").Value;
+            if (skipCompilePatch) Log.LogWarning("android-diagnostics: shared compile patch skipped.");
+            else EmbeddedDirectiveHost.Initialize(host, message => Log.LogInfo(message));
+            if (skipEditorHost) Log.LogWarning("android-diagnostics: shared editor host skipped.");
+            else
             {
-                Log.LogError("Shared editor transactions unavailable; other lib services remain active: " + exception);
+                try { EditorHost.Initialize(host); }
+                catch (Exception exception)
+                {
+                    Log.LogError("Shared editor transactions unavailable; other lib services remain active: " + exception);
+                }
             }
-            ToolsHost.Initialize(host, message => Log.LogInfo(message));
+            ToolsHost.Initialize(host, message => Log.LogInfo(message), skipInputGuards);
+            Log.LogWarning($"android-diagnostics: SkipCompilePatch={skipCompilePatch}; SkipEditorHost={skipEditorHost}; SkipInputGuards={skipInputGuards}");
             OfficialUiStyle.Log(message => Log.LogInfo(message));
             bool commandHelp = Config.Bind("CommandHelp", "Enabled", false,
                 "把各 mod 自己的指令追加进编辑器「额外指令」旁的「指令格式」面板。"

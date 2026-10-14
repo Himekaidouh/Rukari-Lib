@@ -71,11 +71,25 @@ public sealed class Plugin : BasePlugin
         Config.Bind("SceneIdentityFiles", "Enabled", true, "Resolve the selected scene from read-only project files.");
         Config.Bind("SceneIdentityFiles", "AutoDiscoverEnabled", true, "Discover the open project without entering AAP/AAS paths.");
         Config.Bind("SceneIdentityFiles", "LiveProjectKeyFromStudioCommon", true, "Resolve unsaved editor identity using the existing guarded two-probe live source.");
+        // Android/PE bisect switches (docs/50): every gate defaults to false, so a normal install is unchanged.
+        bool skipToolPages = Config.Bind("AndroidDiagnostics", "SkipToolPages", false,
+            "诊断开关：打开后不注册画面编辑器与指令帮助页面。默认关闭。Restart required.").Value;
+        bool skipEditorProbes = Config.Bind("AndroidDiagnostics", "SkipEditorProbes", false,
+            "诊断开关：打开后不安装选句日志探针与 ScriptNodeInspector.DataList 观察。默认关闭。Restart required.").Value;
+        bool skipPlaybackPatches = Config.Bind("AndroidDiagnostics", "SkipPlaybackPatches", false,
+            "诊断开关：打开后不安装自动对白延迟补丁与显式触发 Behaviour。默认关闭。Restart required.").Value;
         Host = AzureArchiveApiHost.Create(Config);
         Api = Host;
-        AutoDialogueDelayPatch.Install();
-        ExplicitTriggerBehaviour.Initialize(CharacterTransformProofOptions.Bind(Config));
-        AddComponent<ExplicitTriggerBehaviour>();
+        if (skipPlaybackPatches)
+        {
+            Logger.LogWarning("android-diagnostics: playback patches skipped.");
+        }
+        else
+        {
+            AutoDialogueDelayPatch.Install();
+            ExplicitTriggerBehaviour.Initialize(CharacterTransformProofOptions.Bind(Config));
+            AddComponent<ExplicitTriggerBehaviour>();
+        }
         VisualEditorOptions visualEditorOptions = VisualEditorOptions.Bind(Config);
         bool visualEditorReady = visualEditorOptions.Enabled
             && VisualEditorInputGuard.Install();
@@ -115,11 +129,25 @@ public sealed class Plugin : BasePlugin
             embeddedEditorCommandsReady);
         if (embeddedEditorCommandsReady)
             OfficialCompilationMappingPublication.Install();
-        ManagedUnityLogSelectionProbe.Install();
-        // OnChildSelect(Selectable) is blacklisted; retain the DataList/log observation path.
-        EditorDataListEventProbe.Install();
-        MoreEffectsToolPage.Install();
-        MoreEffectsCommandHelp.Install();
+        if (skipEditorProbes)
+        {
+            Logger.LogWarning("android-diagnostics: editor probes skipped (selection log, DataList).");
+        }
+        else
+        {
+            ManagedUnityLogSelectionProbe.Install();
+            // OnChildSelect(Selectable) is blacklisted; retain the DataList/log observation path.
+            EditorDataListEventProbe.Install();
+        }
+        if (skipToolPages)
+        {
+            Logger.LogWarning("android-diagnostics: tool pages skipped (visual editor, command help).");
+        }
+        else
+        {
+            MoreEffectsToolPage.Install();
+            MoreEffectsCommandHelp.Install();
+        }
         InstallSaveService();
         Logger.LogWarning(
             $"{Name} {Version} scene-command replay candidate loaded; "
@@ -147,6 +175,7 @@ public sealed class Plugin : BasePlugin
             + $"embeddedEditorCommands={embeddedEditorCommandsReady}; embeddedSyntax=#aavt-char-v1; "
             + "embeddedOfficialParserPolicy=managed-ScriptKr-plus-compiler-result-filter; editorPreviewBinding=one-shot-selection-lease-plus-live-scene-address-no-save-required; commandIndexReload=Ctrl+F6; "
             + "archiveWritePolicy=no-direct-aap-or-aas-write; editorApply=official-additional-prompt-input-path; "
+            + $"androidDiagnostics=SkipToolPages:{skipToolPages}/SkipEditorProbes:{skipEditorProbes}/SkipPlaybackPatches:{skipPlaybackPatches}; "
             + "stable-0.7.17-arrow-controls-and-actions=retained.");
     }
 }

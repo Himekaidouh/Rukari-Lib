@@ -15,13 +15,23 @@ public static class ToolsHost
     private static IDisposable? _savePage;
 
     /// <summary>Registers the shared tools only if the single native input guard was installed successfully.</summary>
-    public static void Initialize(IModRuntime runtime, Action<string> log)
+    /// <param name="skipInputGuards">
+    /// Android/PE bisect switch (docs/50): when true the native input guard is not installed and the shared toolbox is
+    /// left unregistered, exactly as it would be if the guard had failed. Default false keeps a normal install intact.
+    /// </param>
+    public static void Initialize(IModRuntime runtime, Action<string> log, bool skipInputGuards = false)
     {
         ArgumentNullException.ThrowIfNull(runtime);
         ArgumentNullException.ThrowIfNull(log);
         if (!runtime.IsMainThread) throw new InvalidOperationException("Tool initialization requires the game main thread.");
         if (_input is not null) return;
         var input = new ToolInputService(log);
+        if (skipInputGuards)
+        {
+            input.Dispose();
+            log("Shared toolbox disabled: android-diagnostics SkipInputGuards is on.");
+            return;
+        }
         if (!input.Install()) { input.Dispose(); log("Shared toolbox disabled: safe mouse ownership is unavailable."); return; }
         ToolTheme.Initialize(log);
         RailIconPainter.Initialize(log);
