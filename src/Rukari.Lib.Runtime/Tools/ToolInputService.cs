@@ -23,10 +23,23 @@ internal sealed class ToolInputService : IToolInputService, IDisposable
     private bool _compositionFailureLogged;
     private int _probeCount;
     private int _updateLogCount;
+    /// <summary>
+    /// False when the user asked this library not to take the keyboard or the input method over. The mouse guard and
+    /// the toolbox keep working; only NGUI's keyboard entry points stay untouched and the engine keeps its own
+    /// composition behaviour, which is what a user whose Chinese/Japanese input broke needs.
+    /// </summary>
+    private readonly bool _takeOverKeyboardAndIme;
+    private UnityEngine.IMECompositionMode? _lastCompositionMode;
+    /// <summary>Bounds the transition log so a session with heavy focus churn cannot flood the file.</summary>
+    private int _inputLogCount;
     internal bool SupportsKeyboardCapture { get; private set; }
     private static ToolInputService? _installed;
 
-    internal ToolInputService(Action<string> log) => _log = log;
+    internal ToolInputService(Action<string> log, bool takeOverKeyboardAndIme = true)
+    {
+        _log = log;
+        _takeOverKeyboardAndIme = takeOverKeyboardAndIme;
+    }
 
     internal bool Install()
     {
@@ -53,6 +66,13 @@ internal sealed class ToolInputService : IToolInputService, IDisposable
 
     private void InstallKeyboardGuards(Harmony harmony)
     {
+        if (!_takeOverKeyboardAndIme)
+        {
+            SupportsKeyboardCapture = false;
+            _log("Shared tool keyboard ownership is off ([Input] TakeOverKeyboardAndIme=false): NGUI keyboard entry "
+                + "points and the engine's input-method switch are left to the game.");
+            return;
+        }
         // NGUI input fields can consume text independently of UICamera navigation. Do not enable the
         // search box unless every known zero-argument path can be paused, without reading UIInput instances.
         MethodInfo?[] methods =
@@ -188,10 +208,27 @@ internal sealed class ToolInputService : IToolInputService, IDisposable
     {
         if (Environment.CurrentManagedThreadId == _threadId)
         {
+            bool wasCaptured = _keyboardCaptured;
             _keyboardCaptured = _keyboardWanted && SupportsKeyboardCapture && !_stopped;
+            if (wasCaptured != _keyboardCaptured)
+            {
+                LogTransition($"[input] keyboard {(_keyboardCaptured ? "captured" : "released")}; "
+                    + $"owners={_keyboardOwners.Count}");
+            }
             // Re-aim on every pump: a field that moved keeps its candidate window beside it.
             if (_composition.Wanted) ApplyComposition();
         }
+    }
+
+    /// <summary>
+    /// Records a keyboard or input-method transition. Ownership of both is process-wide, so a user reporting that
+    /// Chinese input stopped working needs to see from the log alone when the library took it and when it let go.
+    /// </summary>
+    private void LogTransition(string message)
+    {
+        if (_inputLogCount >= 40) return;
+        _inputLogCount++;
+        _log(message);
     }
 
     internal void SetKeyboardCapture(bool capture)
@@ -231,12 +268,24 @@ internal sealed class ToolInputService : IToolInputService, IDisposable
     /// </summary>
     private void ApplyComposition()
     {
+        if (!_takeOverKeyboardAndIme)
+        {
+            // The engine keeps its own composition behaviour. Writing this global switch is what a user whose game
+            // field lost its composition window needs us to stop doing; the mouse guard and toolbox are unaffected.
+            return;
+        }
         try
         {
             bool wanted = _composition.Wanted && !_stopped;
-            UnityEngine.Input.imeCompositionMode = wanted
+            UnityEngine.IMECompositionMode mode = wanted
                 ? UnityEngine.IMECompositionMode.On
                 : UnityEngine.IMECompositionMode.Auto;
+            if (_lastCompositionMode != mode)
+            {
+                _lastCompositionMode = mode;
+                LogTransition($"[input] composition {mode}; owners={_composition.OwnerCount}");
+            }
+            UnityEngine.Input.imeCompositionMode = mode;
             if (!wanted) return;
             ToolInputRect cursor = _composition.Cursor;
             if (cursor.IsValid)

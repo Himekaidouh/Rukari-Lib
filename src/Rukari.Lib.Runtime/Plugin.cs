@@ -34,6 +34,13 @@ public sealed class Plugin : BasePlugin
                 "诊断开关：打开后不初始化共享编辑器事务与工作区服务。默认关闭。Restart required.").Value;
             bool skipInputGuards = Config.Bind("AndroidDiagnostics", "SkipInputGuards", false,
                 "诊断开关：打开后不安装共享输入守卫（UICamera / UIInput 的 Harmony 前缀补丁）；工具箱会随之整体停用。默认关闭。Restart required.").Value;
+            // Ownership of the keyboard and of the engine's input-method switch is process-wide, so a user whose
+            // Chinese/Japanese input broke must be able to hand both back to the game without losing the tools.
+            bool takeOverKeyboardAndIme = Config.Bind("Input", "TakeOverKeyboardAndIme", true,
+                "是否由本模组接管键盘与输入法：开启时工具界面的输入框会暂停官方 NGUI 键盘处理，并把引擎的输入法合成开关"
+                + "（Input.imeCompositionMode）临时切到 On、候选窗跟到工具的光标位置；关闭后这两件事都还给游戏，"
+                + "鼠标守卫、工具箱与所有工具页照常工作，代价是工具界面内的中文/日文输入法合成不再由本模组处理。"
+                + "若安装后游戏自己的输入框中文打不进去（英文正常），把它设为 false 并重启。Restart required.").Value;
             if (skipCompilePatch) Log.LogWarning("android-diagnostics: shared compile patch skipped.");
             else EmbeddedDirectiveHost.Initialize(host, message => Log.LogInfo(message));
             if (skipEditorHost) Log.LogWarning("android-diagnostics: shared editor host skipped.");
@@ -45,8 +52,9 @@ public sealed class Plugin : BasePlugin
                     Log.LogError("Shared editor transactions unavailable; other lib services remain active: " + exception);
                 }
             }
-            ToolsHost.Initialize(host, message => Log.LogInfo(message), skipInputGuards);
+            ToolsHost.Initialize(host, message => Log.LogInfo(message), skipInputGuards, takeOverKeyboardAndIme);
             Log.LogWarning($"android-diagnostics: SkipCompilePatch={skipCompilePatch}; SkipEditorHost={skipEditorHost}; SkipInputGuards={skipInputGuards}");
+            Log.LogWarning($"input: TakeOverKeyboardAndIme={takeOverKeyboardAndIme}");
             OfficialUiStyle.Log(message => Log.LogInfo(message));
             bool commandHelp = Config.Bind("CommandHelp", "Enabled", false,
                 "把各 mod 自己的指令追加进编辑器「额外指令」旁的「指令格式」面板。"

@@ -19,13 +19,19 @@ public static class ToolsHost
     /// Android/PE bisect switch (docs/50): when true the native input guard is not installed and the shared toolbox is
     /// left unregistered, exactly as it would be if the guard had failed. Default false keeps a normal install intact.
     /// </param>
-    public static void Initialize(IModRuntime runtime, Action<string> log, bool skipInputGuards = false)
+    /// <param name="takeOverKeyboardAndIme">
+    /// False when the user asked the library to leave the keyboard and the engine's input-method switch alone
+    /// (<c>[Input] TakeOverKeyboardAndIme</c>). The mouse guard, the toolbox and every tool page keep working; only
+    /// NGUI's keyboard entry points and composition stay with the game. Default true keeps a normal install intact.
+    /// </param>
+    public static void Initialize(IModRuntime runtime, Action<string> log, bool skipInputGuards = false,
+        bool takeOverKeyboardAndIme = true)
     {
         ArgumentNullException.ThrowIfNull(runtime);
         ArgumentNullException.ThrowIfNull(log);
         if (!runtime.IsMainThread) throw new InvalidOperationException("Tool initialization requires the game main thread.");
         if (_input is not null) return;
-        var input = new ToolInputService(log);
+        var input = new ToolInputService(log, takeOverKeyboardAndIme);
         if (skipInputGuards)
         {
             input.Dispose();
