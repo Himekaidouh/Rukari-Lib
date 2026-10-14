@@ -14,7 +14,17 @@ function Assert-AcceptanceHash([string]$Value, [string]$Field) {
     if ($Value -cnotmatch '^[A-Fa-f0-9]{64}$') { throw "Invalid Stable acceptance SHA256: $Field" }
 }
 
-function Read-UserPackageAcceptance([string]$Path) {
+function Get-UserAcceptanceTarget([string]$GameLabel) {
+    # One label, one recorded target: AA1.01 -> "AA 1.01", AA1.0-fix6 -> "AA 1.0 fix6".
+    # The record has to name the AA version this batch is packaged for, so a record
+    # written for another release cannot be reused for a different one.
+    if ([string]::IsNullOrWhiteSpace($GameLabel)) { throw 'A game label is required to read Stable acceptance.' }
+    if ($GameLabel -match '^AA(.+)$') { return 'AA ' + ($Matches[1] -replace '-',' ') }
+    return $GameLabel
+}
+
+function Read-UserPackageAcceptance([string]$Path,[string]$ExpectedTarget) {
+    if ([string]::IsNullOrWhiteSpace($ExpectedTarget)) { throw 'Stable acceptance requires the expected AA target.' }
     # Parse and hash exactly the same bytes, rather than reading a mutable evidence file twice.
     $bytes = (Invoke-PackagingReadWithRetry { [pscustomobject]@{Bytes=[IO.File]::ReadAllBytes($Path)} }).Bytes
     try {
@@ -40,9 +50,13 @@ function Read-UserPackageAcceptance([string]$Path) {
         throw 'Stable acceptance requires SchemaVersion 1 structured JSON; historical acceptance is not automatically reusable.'
     }
     if ((Get-AcceptanceString $document 'Kind') -cne 'user-package-acceptance' -or
-        (Get-AcceptanceString $document 'Target') -cne 'AA 1.0 fix6' -or
+        (Get-AcceptanceString $document 'Target') -cne $ExpectedTarget -or
         (Get-AcceptanceString $document 'ToolNativeValidation') -cne 'not-run') {
-        throw 'Stable acceptance kind/target/tool-native status is invalid; human approval never upgrades Native=not-run.'
+        # Assemble the message first: a multi-line throw (...) whose continuation line
+        # starts with '+' does not parse, so the reason is built before it is thrown.
+        $targetMismatch = 'Stable acceptance kind/target/tool-native status is invalid; this batch requires target '
+        $targetMismatch += '"' + $ExpectedTarget + '"; human approval never upgrades Native=not-run.'
+        throw $targetMismatch
     }
     if (-not $document.Contains('Approved') -or $document.Approved -isnot [bool] -or -not $document.Approved) {
         throw 'Stable acceptance requires the JSON boolean Approved=true from recorded human confirmation.'

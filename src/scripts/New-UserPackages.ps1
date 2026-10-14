@@ -65,7 +65,7 @@ if (-not [string]::IsNullOrWhiteSpace($UserAcceptancePath)) {
     }
     # Evidence is an external reference, never a ZIP payload or a blanket native test result.
     if ($ReleaseChannel -eq 'Stable') {
-        $structuredAcceptance = Read-UserPackageAcceptance $acceptancePath
+        $structuredAcceptance = Read-UserPackageAcceptance $acceptancePath (Get-UserAcceptanceTarget $GameLabel)
         $acceptanceReference = [ordered]@{Kind='user-confirmation';Path=$acceptancePath;SHA256=$structuredAcceptance.SHA256}
     } else {
         $acceptanceReference = [ordered]@{Kind='user-confirmation';Path=$acceptancePath;SHA256=(Hash $acceptancePath)}

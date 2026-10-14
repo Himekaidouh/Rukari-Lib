@@ -52,7 +52,7 @@ function Assert-Rejected([string]$Name, [scriptblock]$Action, [string]$Reason) {
     $results.Add($Name)
 }
 function Assert-Binding([string]$Path) {
-    Assert-UserPackageAcceptanceBinding (Read-UserPackageAcceptance $Path) $package $buildSource $definitions
+    Assert-UserPackageAcceptanceBinding (Read-UserPackageAcceptance $Path (Get-UserAcceptanceTarget 'AA1.0-fix6')) $package $buildSource $definitions
 }
 
 try {
@@ -60,6 +60,14 @@ try {
     $binding = Assert-Binding $goodPath
     if ($binding.ToolNativeValidation -cne 'not-run' -or $binding.Packages.Count -ne 3) { throw 'Binding result changed native status or inventory.' }
     $results.Add('current structure binds three versions and six DLLs without upgrading Native')
+    if ((Get-UserAcceptanceTarget 'AA1.01') -cne 'AA 1.01' -or (Get-UserAcceptanceTarget 'AA1.0-fix6') -cne 'AA 1.0 fix6') {
+        throw 'Game label to acceptance target mapping changed.'
+    }
+    $results.Add('game label maps to the target recorded for this batch')
+    $wrong = Read-Good
+    $wrong.Target = 'AA 1.01'
+    $wrongPath = Write-Fixture 'wrong-target' ($wrong | ConvertTo-Json -Depth 15)
+    Assert-Rejected 'acceptance for another AA target rejected' { Assert-Binding $wrongPath } 'kind/target/tool-native'
     $legacy = Write-Fixture 'legacy' '用户确认可以了；历史 1.4.x 已通过。'
     Assert-Rejected 'legacy free text cannot approve Stable' { Assert-Binding $legacy } 'legacy free-text'
     $wrong = Read-Good
@@ -154,7 +162,7 @@ foreach($file in Get-ChildItem -LiteralPath $inputRoot -File -Recurse) {
     } 'legacy free-text'
     if (Test-Path -LiteralPath $rejectedOutput) { throw 'Rejected Stable evidence created a delivery directory.' }
     $stableOutput = Join-Path $fixtureRoot 'stable-output'
-    & $entry -OutputDirectory $stableOutput -ReleaseChannel Stable -UserAcceptancePath $goodPath | Out-Null
+    & $entry -OutputDirectory $stableOutput -ReleaseChannel Stable -GameLabel AA1.0-fix6 -UserAcceptancePath $goodPath | Out-Null
     if (@(Get-ChildItem -LiteralPath $stableOutput -File).Count -ne 3) { throw 'Bound Stable fixture did not produce three ZIPs.' }
     $userReceipts = @(Get-ChildItem -LiteralPath (Join-Path $fixtureArtifacts 'user-packages') -Filter 'user-package-receipt.json' -Recurse | ForEach-Object {
         Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json

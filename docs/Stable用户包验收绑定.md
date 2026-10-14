@@ -4,6 +4,8 @@
 
 Stable 必须显式指定 `-ReleaseChannel Stable -UserAcceptancePath '本次验收.json'`。自由文本、历史发布摘要以及旧格式 JSON 会报错；不能把旧 1.4.x 使用反馈用于新 X 轴、双范围镜头等版本的正式标签。脚本核对证据与当前已验证打包 stage 后，才创建用户 ZIP。
 
+`Target` 不是写死的字符串：脚本按本次 `-GameLabel` 推出这一批应记录的 AA 版本（`AA1.01` → `AA 1.01`，`AA1.0-fix6` → `AA 1.0 fix6`），记录里写别的版本会被拒绝，防止把上一次发布的验收挪用到新版本。
+
 ## 记录格式
 
 使用 UTF-8 JSON，SchemaVersion 为整数 1，Approved 必须是 JSON 布尔值 `true`。先准备 `Approved=false` 的记录，完成真人验收并记录实际确认来源后才能改为 `true`。字符串 `"true"`、`"false"` 或数字不能代替批准。
@@ -14,7 +16,7 @@ Stable 必须显式指定 `-ReleaseChannel Stable -UserAcceptancePath '本次验
 | --- | --- |
 | SchemaVersion | 整数 `1` |
 | Kind | `user-package-acceptance` |
-| Target | `AA 1.0 fix6` |
+| Target | 本次打包的 AA 版本，与本次 `-GameLabel` 一致（`AA1.01` → `AA 1.01`） |
 | Approved | 真人确认后填布尔值 `true` |
 | ConfirmedAt | 真人确认时间，ISO 格式，带 `Z` 或时区偏移 |
 | HumanScope | 实际确认的操作和范围；未测项目继续明确保留 |
