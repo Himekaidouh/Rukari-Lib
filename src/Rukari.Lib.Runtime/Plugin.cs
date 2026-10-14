@@ -15,7 +15,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string Guid = "rukari.lib.runtime";
     public const string Name = "Rukari lib";
-    public const string Version = "0.4.4";
+    public const string Version = "0.4.5";
     private static ModRuntimeHost? _host;
 
     public override void Load()

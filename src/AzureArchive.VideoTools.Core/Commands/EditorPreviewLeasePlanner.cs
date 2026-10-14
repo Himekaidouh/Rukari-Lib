@@ -403,10 +403,14 @@ public sealed class EditorPreviewLeaseGate
         var spineCompiler = new SpineOverlayCommandFamilyCompiler();
         var presetCompiler = new CharacterPresetCommandFamilyCompiler();
         var commands = new EditorPreviewCommandPlan[directives.Count];
-        int characterResourceCount = 0;
+        // Per-kind resource sets. The camera was already counted by resource (docs/45 §7.8); the character and
+        // preset layers now hold several effects too, so counting their DIRECTIVES refused an ordinary row — six
+        // effects over three slots, or six over five — with EDITOR_PREVIEW_LEASE_REJECTED and nothing on screen.
+        // Each kind therefore counts the distinct resources it occupies (docs/48 已知问题).
+        var characterResources = new HashSet<EditorPreviewResourceKey>();
+        var presetResources = new HashSet<EditorPreviewResourceKey>();
         var cameraResources = new HashSet<EditorPreviewResourceKey>();
         int spineResourceCount = 0;
-        int presetResourceCount = 0;
         for (int index = 0; index < directives.Count; index++)
         {
             string? directive = directives[index];
@@ -496,30 +500,32 @@ public sealed class EditorPreviewLeaseGate
             // target the same resource in one scene. The authored order IS the queue
             // order, so both plans are kept.
             //
-            // The per-kind budget below is a RESOURCE budget for the camera, and a
-            // per-directive one for the other kinds. The camera layer editor stacks
-            // several effects inside one scope on purpose — that is what the layer is —
-            // and a scope is what the limit is about ("two independent camera scope
-            // resources"); counting its segments refused every three-effect camera row
-            // outright, which is how a stacked camera preview came back as
-            // EDITOR_PREVIEW_LEASE_REJECTED and left the scene where it was
-            // (docs/45 §7.8). The remaining kinds keep counting directives until their
-            // own layers can hold several effects.
+            // The per-kind budget below counts RESOURCES for the camera, the character and
+            // the preset: every one of those layers can hold several effects on purpose —
+            // that is what a layer is — and a slot or a scope is what the limit is about
+            // ("two independent camera scope resources", "five character slots", "five
+            // transient presets"). Counting segments refused an ordinary row outright and
+            // left the scene where it was with EDITOR_PREVIEW_LEASE_REJECTED: first for a
+            // stacked camera row (docs/45 §7.8), then for a six-effect row over three
+            // character slots (docs/48 已知问题). Spine keeps counting directives, because
+            // there the limit really is the number of drawn overlay tracks.
             if (isCamera)
             {
                 cameraResources.Add(resource);
             }
             else if (isSpine)
             {
+                // Spine still counts directives: two overlays of one character are two drawn layers on separate
+                // tracks, and the limit is about the track table rather than about one slot.
                 spineResourceCount++;
             }
             else if (isPreset)
             {
-                presetResourceCount++;
+                presetResources.Add(resource);
             }
             else
             {
-                characterResourceCount++;
+                characterResources.Add(resource);
             }
 
             Result<EditorPreviewResourceFields> fields = FieldsFor(
@@ -540,8 +546,8 @@ public sealed class EditorPreviewLeaseGate
                 dispatchMode);
         }
 
-        if (presetResourceCount > 5
-            || characterResourceCount > 5
+        if (presetResources.Count > 5
+            || characterResources.Count > 5
             || cameraResources.Count > 2
             || spineResourceCount > SpineOverlayTracks.Last - SpineOverlayTracks.First + 1)
         {

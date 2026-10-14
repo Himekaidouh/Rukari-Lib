@@ -4,6 +4,6 @@
   "website_url": "",
   "description": "为台词添加配音，支持页码记忆、名称定位和全局音量。配音及结束后等待仅约束 AUTO，手动左键或 Enter 可跳过。兼容 AA 1.0 单参数与带开始回调的配音接口。",
   "dependencies": [
-    "RukariLib/0.4.4"
+    "RukariLib/0.4.5"
   ]
 }

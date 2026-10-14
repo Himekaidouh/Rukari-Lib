@@ -250,7 +250,7 @@ internal static class EditorPreviewLeaseTests
             lease.Footprint.Entries[0].DispatchMode);
     }
 
-    public static void EnforcesCanonicalSixResourceLimitAndExplicitTombstones()
+    public static void EnforcesCanonicalSpellingSlotBudgetAndExplicitTombstones()
     {
         EditorPreviewSelectionBinding selection = Selection(1, 2, 3, "six resources");
         string[] six =
@@ -308,7 +308,11 @@ internal static class EditorPreviewLeaseTests
             selection,
             six.Concat(new[] { "#char;1;move;dx=1;duration=0;easing=linear" }).ToArray(),
             tombstone: false);
-        AssertEx.False(seven.Success);
+        // 2026-10-14 (docs/48 已知问题): the character budget counts SLOTS, not directives, so one more effect on a
+        // slot this row already uses is legal — that is exactly the row the old directive count refused. The bound
+        // of a row is the scene command budget, checked by TheCharacterBudgetCountsSlotsAndNotSegments.
+        AssertEx.True(seven.Success, seven.Error);
+        AssertEx.Equal(7, AssertEx.NotNull(seven.Value).Commands.Count);
 
         var tombstone = Authorize(selection, Array.Empty<string>(), tombstone: true);
         AssertEx.True(tombstone.Success, tombstone.Error);
@@ -323,6 +327,58 @@ internal static class EditorPreviewLeaseTests
             selection,
             new[] { "#char;1;set;x=1;duration=0;easing=linear" },
             tombstone: true).Success);
+    }
+
+    /// <summary>
+    /// The character budget is about slots, not about segments: a character layer may hold several effects, and
+    /// refusing that row is how a six-effect row over three slots came back as nothing at all (docs/48 已知问题).
+    /// </summary>
+    public static void TheCharacterBudgetCountsSlotsAndNotSegments()
+    {
+        EditorPreviewSelectionBinding selection = Selection(1, 2, 3, "character segments");
+        // The row a real session wrote, verbatim: six effects over three slots.
+        string[] stacked =
+        {
+            "#char;1;set;x=-400;y=0;duration=500;easing=easeInOut",
+            "#char;1;move;dx=100;duration=500;easing=easeInOut",
+            "#char;3;set;x=0;y=0;rotation=0;duration=500;easing=easeInOut",
+            "#char;3;move;dy=60;duration=500;easing=easeInOut",
+            "#char;5;set;x=400;y=0;duration=500;easing=easeInOut",
+            "#char;5;move;dx=-100;duration=500;easing=easeInOut"
+        };
+
+        Result<EditorPreviewLeaseAuthorization> authorized = Authorize(selection, stacked, tombstone: false);
+        AssertEx.True(authorized.Success, authorized.Error);
+        EditorPreviewLeaseAuthorization lease = AssertEx.NotNull(authorized.Value);
+        AssertEx.Equal(6, lease.Commands.Count, "Every segment is leased, in authored order.");
+        AssertEx.Equal(stacked[0], lease.Commands[0].CanonicalDirective);
+        AssertEx.Equal(stacked[5], lease.Commands[5].CanonicalDirective);
+        AssertEx.Equal(3, lease.Footprint.Entries.Count, "Three slots are three resources.");
+
+        // Six effects over five slots — the widest row a scene can write — is still five resources.
+        var wide = Authorize(
+            selection,
+            new[]
+            {
+                "#char;1;set;x=1;duration=0;easing=linear",
+                "#char;2;set;x=1;duration=0;easing=linear",
+                "#char;3;set;x=1;duration=0;easing=linear",
+                "#char;4;set;x=1;duration=0;easing=linear",
+                "#char;5;set;x=1;duration=0;easing=linear",
+                "#char;1;move;dx=1;duration=0;easing=linear"
+            },
+            tombstone: false);
+        AssertEx.True(wide.Success, wide.Error);
+        AssertEx.Equal(6, AssertEx.NotNull(wide.Value).Commands.Count);
+        AssertEx.Equal(5, wide.Value!.Footprint.Entries.Count, "Five slots, not six effects.");
+
+        // The scene budget is unchanged and still bounds the row, however many segments one slot holds.
+        AssertEx.False(Authorize(
+            selection,
+            Enumerable.Range(0, EmbeddedAavtDirectiveExtractor.MaxCommandsPerScene + 1)
+                .Select(index => $"#char;3;set;x={index};duration=0;easing=linear")
+                .ToArray(),
+            tombstone: false).Success);
     }
 
     /// <summary>

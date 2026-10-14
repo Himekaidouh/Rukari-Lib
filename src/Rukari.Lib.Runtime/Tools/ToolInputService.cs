@@ -30,6 +30,15 @@ internal sealed class ToolInputService : IToolInputService, IDisposable
     /// </summary>
     private readonly bool _takeOverKeyboardAndIme;
     private UnityEngine.IMECompositionMode? _lastCompositionMode;
+    /// <summary>
+    /// The game's own composition mode, captured before this library first writes the process-wide switch, and
+    /// restored when the last owner lets go. Releasing to a hard-coded <c>Auto</c> instead is what silently turned
+    /// composition off for a game that had set the switch itself: English kept typing because it needs no
+    /// composition, while Chinese/Japanese composition stopped working.
+    /// </summary>
+    private UnityEngine.IMECompositionMode? _compositionBaseline;
+    /// <summary>Read-only evidence that this session saw the game's own composition value without writing it.</summary>
+    private bool _compositionObserved;
     /// <summary>Bounds the transition log so a session with heavy focus churn cannot flood the file.</summary>
     private int _inputLogCount;
     internal bool SupportsKeyboardCapture { get; private set; }
@@ -277,16 +286,40 @@ internal sealed class ToolInputService : IToolInputService, IDisposable
         try
         {
             bool wanted = _composition.Wanted && !_stopped;
-            UnityEngine.IMECompositionMode mode = wanted
-                ? UnityEngine.IMECompositionMode.On
-                : UnityEngine.IMECompositionMode.Auto;
-            if (_lastCompositionMode != mode)
+            if (!wanted)
             {
-                _lastCompositionMode = mode;
-                LogTransition($"[input] composition {mode}; owners={_composition.OwnerCount}");
+                // Never engaged, so the switch is not ours to touch: writing the engine default here is exactly the
+                // bug that turned a game's own composition off before the user typed anything.
+                if (_compositionBaseline is null)
+                {
+                    if (!_compositionObserved)
+                    {
+                        // Read-only, once per session: this records the value the old code overwrote at toolbox
+                        // creation, which is the write a user's un-summonable Chinese input was traced to.
+                        _compositionObserved = true;
+                        LogTransition("[input] composition observed "
+                            + $"{UnityEngine.Input.imeCompositionMode} (read-only, left untouched); owners=0");
+                    }
+                    return;
+                }
+                UnityEngine.IMECompositionMode restore = _compositionBaseline.Value;
+                _compositionBaseline = null;
+                _lastCompositionMode = restore;
+                UnityEngine.Input.imeCompositionMode = restore;
+                LogTransition($"[input] composition restored to {restore}; owners={_composition.OwnerCount}");
+                return;
             }
-            UnityEngine.Input.imeCompositionMode = mode;
-            if (!wanted) return;
+            if (_compositionBaseline is null)
+            {
+                _compositionBaseline = UnityEngine.Input.imeCompositionMode;
+                LogTransition($"[input] composition engaged; game had {_compositionBaseline}; "
+                    + $"owners={_composition.OwnerCount}");
+            }
+            if (_lastCompositionMode != UnityEngine.IMECompositionMode.On)
+            {
+                _lastCompositionMode = UnityEngine.IMECompositionMode.On;
+                UnityEngine.Input.imeCompositionMode = UnityEngine.IMECompositionMode.On;
+            }
             ToolInputRect cursor = _composition.Cursor;
             if (cursor.IsValid)
             {
